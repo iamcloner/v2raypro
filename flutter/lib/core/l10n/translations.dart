@@ -49,6 +49,12 @@ class AppStrings {
       "http_port": "HTTP Proxy Port",
       "socks_port": "SOCKS Port",
       "port_settings": "Port & Inbound Settings",
+      "cf_ranges_title": "Cloudflare IP Ranges (CIDR)",
+      "cf_ranges_desc": "Enter custom Cloudflare CIDR ranges (one per line) for scanner testing",
+      "cf_ranges_hint": "e.g.\n104.18.0.0/16\n104.17.0.0/16",
+      "save_ranges": "Save Ranges",
+      "reset_default": "Reset to Default",
+      "ranges_saved": "Cloudflare ranges saved successfully",
     },
     "fa": {
       "app_title": "وی‌تو‌ری پرو",
@@ -99,6 +105,12 @@ class AppStrings {
       "http_port": "پورت پروکسی HTTP",
       "socks_port": "پورت ساکس SOCKS",
       "port_settings": "تنظیمات پورت و شبکه",
+      "cf_ranges_title": "رنج‌های آی‌پی کلودفلر (CIDR)",
+      "cf_ranges_desc": "رنج‌های سفارشی کلودفلر را خط به خط وارد کنید تا در اسکنر بررسی شوند",
+      "cf_ranges_hint": "به عنوان مثال:\n104.18.0.0/16\n104.17.0.0/16",
+      "save_ranges": "ذخیره رنج‌ها",
+      "reset_default": "بازنشانی به پیش‌فرض",
+      "ranges_saved": "رنج‌های کلودفلر با موفقیت ذخیره شدند",
     }
   };
 

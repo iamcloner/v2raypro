@@ -1,4 +1,4 @@
-﻿import "dart:convert";
+import "dart:convert";
 import "dart:io";
 import "package:flutter_riverpod/flutter_riverpod.dart";
 import "../models/proxy_node.dart";
@@ -354,12 +354,14 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
     final nodes = ref.read(nodesProvider);
     if (nodes.isEmpty) return;
     final activeNode = nodes.firstWhere((n) => n.isActive, orElse: () => nodes.first);
+    final customCidrs = ref.read(cfRangesProvider);
 
     CloudflareScannerService.instance.scanCandidates(
       candidateCount: candidates,
       workers: workers,
       targetPort: activeNode.port,
       targetSni: activeNode.sni ?? activeNode.host,
+      customCidrs: customCidrs,
     ).listen(_handleEvent);
   }
 
@@ -373,9 +375,37 @@ final scannerProvider = StateNotifierProvider<ScannerNotifier, ScannerState>((re
   return ScannerNotifier(ref);
 });
 
+class CloudflareRangesNotifier extends StateNotifier<List<String>> {
+  CloudflareRangesNotifier() : super(CloudflareScannerService.defaultCidrs) {
+    _init();
+  }
+
+  Future<void> _init() async {
+    final saved = await StorageService.instance.loadCloudflareRanges();
+    if (saved.isNotEmpty) {
+      state = saved;
+    }
+  }
+
+  void updateRanges(List<String> ranges) {
+    state = ranges;
+    StorageService.instance.saveCloudflareRanges(ranges);
+  }
+
+  void resetToDefault() {
+    state = CloudflareScannerService.defaultCidrs;
+    StorageService.instance.saveCloudflareRanges(CloudflareScannerService.defaultCidrs);
+  }
+}
+
+final cfRangesProvider = StateNotifierProvider<CloudflareRangesNotifier, List<String>>((ref) {
+  return CloudflareRangesNotifier();
+});
+
 // Default to English as requested
 final currentLocaleProvider = StateProvider<String>((ref) => "en");
 
 // Port settings provider
 final httpPortProvider = StateProvider<int>((ref) => 10888);
 final socksPortProvider = StateProvider<int>((ref) => 10999);
+

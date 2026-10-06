@@ -1,4 +1,4 @@
-﻿import "dart:convert";
+import "dart:convert";
 import "dart:io";
 import "package:shared_preferences/shared_preferences.dart";
 import "../models/proxy_node.dart";
@@ -116,4 +116,36 @@ class StorageService {
 
   Future<void> saveTunEnabled(bool val) => saveBool(_tunKey, val);
   Future<bool> loadTunEnabled() => loadBool(_tunKey, defaultValue: false);
+
+  Future<void> saveCloudflareRanges(List<String> ranges) async {
+    try {
+      final str = jsonEncode(ranges);
+      final sp = await SharedPreferences.getInstance();
+      await sp.setString("v2raypro_cf_ranges", str);
+
+      final file = _getBackupFile("v2raypro_cf_ranges.json");
+      await file.writeAsString(str);
+    } catch (_) {}
+  }
+
+  Future<List<String>> loadCloudflareRanges() async {
+    try {
+      String? content;
+      final sp = await SharedPreferences.getInstance();
+      content = sp.getString("v2raypro_cf_ranges");
+
+      if (content == null || content.isEmpty) {
+        final file = _getBackupFile("v2raypro_cf_ranges.json");
+        if (await file.exists()) {
+          content = await file.readAsString();
+        }
+      }
+
+      if (content != null && content.isNotEmpty) {
+        final decoded = jsonDecode(content) as List;
+        return decoded.map((e) => e.toString().trim()).where((e) => e.isNotEmpty).toList();
+      }
+    } catch (_) {}
+    return [];
+  }
 }
