@@ -1,4 +1,4 @@
-﻿import "dart:async";
+import "dart:async";
 import "../models/log_entry.dart";
 
 class LogService {
@@ -10,7 +10,7 @@ class LogService {
   final StreamController<LogEntry> _controller = StreamController<LogEntry>.broadcast();
 
   Stream<LogEntry> get onNewLog => _controller.stream;
-  List<LogEntry> get logs => List.unmodifiable(_entries);
+  List<LogEntry> get logs => List<LogEntry>.from(_entries);
 
   void add(String message, {LogLevel level = LogLevel.info, String source = "system"}) {
     if (message.trim().isEmpty) return;

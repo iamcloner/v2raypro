@@ -1,4 +1,4 @@
-﻿enum LogLevel {
+enum LogLevel {
   info,
   warning,
   error,
@@ -34,7 +34,13 @@ class LogEntry {
     if (lower.contains("[warning]") || lower.contains("warning:") || lower.contains("warn:")) {
       return LogLevel.warning;
     }
-    if (lower.contains("[error]") || lower.contains("error:") || lower.contains("panic:") || lower.contains("fatal:")) {
+    if (lower.contains("[error]") ||
+        lower.contains("error:") ||
+        lower.contains("panic:") ||
+        lower.contains("fatal:") ||
+        lower.contains("failed to start") ||
+        lower.contains("failed to listen") ||
+        lower.contains("exited with code") && !lower.contains("code 0")) {
       return LogLevel.error;
     }
     if (lower.contains("accepted") || lower.contains("[access]") || lower.contains("proxy/socks") || lower.contains("proxy/http")) {

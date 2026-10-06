@@ -238,10 +238,39 @@ class XrayProcessService {
     };
   }
 
-  Future<bool> start(ProxyNode node, {bool enableTun = false, bool setSysProxy = false}) async {
-    if (_state == EngineState.running) {
-      await stop();
+  Future<bool> _isPortAvailable(int port) async {
+    try {
+      final s = await ServerSocket.bind(InternetAddress.loopbackIPv4, port);
+      await s.close();
+      return true;
+    } catch (_) {
+      return false;
     }
+  }
+
+  Future<bool> _ensurePortAvailable(int port) async {
+    if (await _isPortAvailable(port)) return true;
+
+    LogService.instance.add("Port $port is currently in use. Attempting to release conflicting background process...", level: LogLevel.warning, source: "system");
+
+    if (Platform.isWindows) {
+      try {
+        Process.runSync("powershell", [
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          "\$c = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue; if (\$c) { Stop-Process -Id \$c.OwningProcess -Force -ErrorAction SilentlyContinue }",
+        ]);
+      } catch (_) {}
+    }
+
+    await Future.delayed(const Duration(milliseconds: 300));
+    return await _isPortAvailable(port);
+  }
+
+  Future<bool> start(ProxyNode node, {bool enableTun = false, bool setSysProxy = false}) async {
+    // Always stop and cleanup any existing process
+    await stop();
 
     _state = EngineState.starting;
     LogService.instance.add("Initializing Xray core for node: ${node.name} (${node.address}:${node.port}) [TUN: $enableTun, SysProxy: $setSysProxy]", level: LogLevel.info, source: "system");
@@ -250,6 +279,21 @@ class XrayProcessService {
     if (binaryPath == null) {
       _state = EngineState.error;
       LogService.instance.add("Xray binary not found. Unable to start core.", level: LogLevel.error, source: "system");
+      return false;
+    }
+
+    // Verify and ensure inbound ports are free before launching Xray
+    final socksOk = await _ensurePortAvailable(socksPort);
+    if (!socksOk) {
+      _state = EngineState.error;
+      LogService.instance.add("SOCKS port $socksPort is occupied by another application. Please change it in Settings.", level: LogLevel.error, source: "system");
+      return false;
+    }
+
+    final httpOk = await _ensurePortAvailable(httpPort);
+    if (!httpOk) {
+      _state = EngineState.error;
+      LogService.instance.add("HTTP port $httpPort is occupied by another application. Please change it in Settings.", level: LogLevel.error, source: "system");
       return false;
     }
 
@@ -265,27 +309,41 @@ class XrayProcessService {
         mode: ProcessStartMode.normal,
       );
 
+      bool processExitedEarly = false;
+      int? earlyExitCode;
+      final capturedLines = <String>[];
+
       _process!.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
         lastLog = line;
+        capturedLines.add(line);
         LogService.instance.addFromRawLine(line, source: "xray");
       });
       _process!.stderr.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
         lastErrorLog = line;
+        capturedLines.add(line);
         LogService.instance.addFromRawLine(line, source: "xray");
       });
 
       _process!.exitCode.then((code) {
-        LogService.instance.add("Xray core exited with code $code", level: code == 0 ? LogLevel.info : LogLevel.warning, source: "xray");
-        if (_state == EngineState.running) {
+        if (_state == EngineState.starting) {
+          processExitedEarly = true;
+          earlyExitCode = code;
+          _state = EngineState.error;
+        } else if (_state == EngineState.running) {
           _state = EngineState.stopped;
         }
+        final level = code == 0 ? LogLevel.info : LogLevel.error;
+        LogService.instance.add("Xray core exited with code $code", level: level, source: "xray");
       });
 
-      // Allow 300ms to verify process did not immediately crash
-      await Future.delayed(const Duration(milliseconds: 300));
-      if (_state == EngineState.stopped) {
+      // Allow 400ms to verify process initialized and did not immediately crash
+      await Future.delayed(const Duration(milliseconds: 400));
+      if (processExitedEarly || _state != EngineState.starting) {
         _state = EngineState.error;
-        LogService.instance.add("Xray core exited immediately after launch. Check configuration.", level: LogLevel.error, source: "system");
+        final errorMsg = capturedLines.isNotEmpty
+            ? capturedLines.last
+            : "Process terminated unexpectedly with exit code $earlyExitCode";
+        LogService.instance.add("Xray failed to initialize: $errorMsg", level: LogLevel.error, source: "system");
         return false;
       }
 
@@ -310,8 +368,16 @@ class XrayProcessService {
     if (Platform.isWindows) {
       setWindowsSystemProxy(false);
     }
-    _process?.kill();
-    _process = null;
+    if (_process != null) {
+      final pid = _process!.pid;
+      _process!.kill();
+      _process = null;
+      if (Platform.isWindows) {
+        try {
+          Process.runSync("taskkill", ["/F", "/T", "/PID", "$pid"]);
+        } catch (_) {}
+      }
+    }
     try {
       if (_currentConfigFile != null && await _currentConfigFile!.exists()) {
         await _currentConfigFile!.delete();
