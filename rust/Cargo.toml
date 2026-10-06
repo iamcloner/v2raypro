@@ -1,0 +1,32 @@
+[package]
+name = "v2raypro_core"
+version = "0.1.0"
+edition = "2021"
+authors = ["V2Ray Pro Team"]
+description = "Core network scanning, Xray lifecycle and config manager for V2Ray Pro"
+
+[lib]
+name = "v2raypro_core"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+tokio = { version = "1.38", features = ["full"] }
+tokio-rustls = "0.26"
+rustls-pki-types = "1.7"
+webpki-roots = "0.26"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+url = "2.5"
+thiserror = "1.0"
+rand = "0.8"
+ipnet = "2.9"
+regex = "1.10"
+log = "0.4"
+base64 = "0.22"
+parking_lot = "0.12"
+lazy_static = "1.4"
+futures = "0.3"
+chrono = { version = "0.4", features = ["serde"] }
+
+[dev-dependencies]
+tempfile = "3.10"
