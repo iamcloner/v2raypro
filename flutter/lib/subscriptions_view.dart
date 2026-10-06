@@ -93,6 +93,92 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
     );
   }
 
+  void _showEditSubDialog(SubscriptionItem sub, String locale) {
+    final nameCtrl = TextEditingController(text: sub.name);
+    final urlCtrl = TextEditingController(text: sub.url);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.edit, color: AppTheme.primaryAccent),
+            const SizedBox(width: 8),
+            Text("${AppStrings.get('edit_config', locale: locale)} (Sub)"),
+          ],
+        ),
+        content: SizedBox(
+          width: 500,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameCtrl,
+                decoration: InputDecoration(
+                  labelText: AppStrings.get("sub_name", locale: locale),
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: urlCtrl,
+                maxLines: 2,
+                decoration: InputDecoration(
+                  labelText: AppStrings.get("sub_url", locale: locale),
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            child: const Text("Cancel"),
+            onPressed: () => Navigator.pop(ctx),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppTheme.primaryAccent),
+            child: const Text("Save & Refresh"),
+            onPressed: () {
+              final newName = nameCtrl.text.trim();
+              final newUrl = urlCtrl.text.trim();
+              if (newUrl.isNotEmpty) {
+                ref.read(subscriptionsProvider.notifier).editSubscription(sub.id, newName, newUrl);
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("Subscription updated and refreshing...")),
+                );
+              }
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _pasteSubFromClipboard() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = data?.text?.trim() ?? '';
+    if (text.isEmpty) return;
+
+    if (text.startsWith("http://") || text.startsWith("https://")) {
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.showSnackBar(
+        const SnackBar(content: Text("Adding subscription from clipboard URL...")),
+      );
+      final count = await ref
+          .read(subscriptionsProvider.notifier)
+          .addSubscription("Sub ${ref.read(subscriptionsProvider).length + 1}", text);
+      messenger.showSnackBar(
+        SnackBar(content: Text("$count nodes imported from subscription.")),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Clipboard does not contain a valid subscription URL (http/https).")),
+      );
+    }
+  }
+
   Future<void> _updateSub(SubscriptionItem sub) async {
     if (_updatingSubIds.contains(sub.id)) return;
     setState(() => _updatingSubIds.add(sub.id));
@@ -189,9 +275,15 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
     final allNodes = ref.watch(nodesProvider);
     final locale = ref.watch(currentLocaleProvider);
 
-    return Scaffold(
-      body: Padding(
-        padding: const EdgeInsets.all(24),
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.keyV, control: true): _pasteSubFromClipboard,
+      },
+      child: Focus(
+        autofocus: true,
+        child: Scaffold(
+          body: Padding(
+            padding: const EdgeInsets.all(24),
         child: Column(
           children: [
             Row(
@@ -283,10 +375,84 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                           child: const Icon(Icons.rss_feed_rounded, color: AppTheme.primaryAccent),
                         ),
                         title: Text(sub.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                        subtitle: Text(
-                          "${sub.nodeCount} nodes  •  ${sub.lastUpdated != null ? 'Updated: ' + sub.lastUpdated!.toLocal().toString().substring(0, 16) : 'Never updated'}",
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              "${sub.nodeCount} nodes  •  ${sub.lastUpdated != null ? 'Updated: ' + sub.lastUpdated!.toLocal().toString().substring(0, 16) : 'Never updated'}",
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            if (sub.formattedRemainingTraffic != null || sub.formattedRemainingTime != null) ...[
+                              const SizedBox(height: 4),
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 4,
+                                children: [
+                                  if (sub.formattedRemainingTraffic != null)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.blue.withValues(alpha: 0.15),
+                                        borderRadius: BorderRadius.circular(4),
+                                        border: Border.all(color: Colors.blueAccent.withValues(alpha: 0.5), width: 0.8),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(Icons.data_usage_rounded, size: 12, color: Colors.blueAccent),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            sub.formattedRemainingTraffic!,
+                                            style: const TextStyle(fontSize: 11, color: Colors.blueAccent, fontWeight: FontWeight.bold),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  if (sub.formattedRemainingTime != null)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: (sub.expireDate != null && sub.expireDate!.isBefore(DateTime.now()))
+                                            ? Colors.red.withValues(alpha: 0.15)
+                                            : Colors.orange.withValues(alpha: 0.15),
+                                        borderRadius: BorderRadius.circular(4),
+                                        border: Border.all(
+                                          color: (sub.expireDate != null && sub.expireDate!.isBefore(DateTime.now()))
+                                              ? Colors.redAccent.withValues(alpha: 0.5)
+                                              : Colors.orangeAccent.withValues(alpha: 0.5),
+                                          width: 0.8,
+                                        ),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            Icons.timer_outlined,
+                                            size: 12,
+                                            color: (sub.expireDate != null && sub.expireDate!.isBefore(DateTime.now()))
+                                                ? Colors.redAccent
+                                                : Colors.orangeAccent,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            sub.formattedRemainingTime!,
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              color: (sub.expireDate != null && sub.expireDate!.isBefore(DateTime.now()))
+                                                  ? Colors.redAccent
+                                                  : Colors.orangeAccent,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ],
+                          ],
                         ),
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
@@ -324,11 +490,28 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                                 ),
                                 onPressed: () => _testAllSubNodes(sub, subNodes),
                               ),
-                              const SizedBox(width: 6),
+                              const SizedBox(width: 4),
                             ],
+                            IconButton(
+                              visualDensity: VisualDensity.compact,
+                              icon: const Icon(Icons.edit, size: 18, color: Colors.amberAccent),
+                              tooltip: "Edit Subscription",
+                              onPressed: () => _showEditSubDialog(sub, locale),
+                            ),
+                            IconButton(
+                              visualDensity: VisualDensity.compact,
+                              icon: const Icon(Icons.share, size: 18, color: Colors.purpleAccent),
+                              tooltip: "Share Subscription URL",
+                              onPressed: () {
+                                Clipboard.setData(ClipboardData(text: sub.url));
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text("Subscription URL copied to clipboard.")),
+                                );
+                              },
+                            ),
                             if (isUpdating)
                               const Padding(
-                                padding: EdgeInsets.symmetric(horizontal: 12),
+                                padding: EdgeInsets.symmetric(horizontal: 8),
                                 child: SizedBox(
                                   width: 16,
                                   height: 16,
@@ -337,12 +520,14 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                               )
                             else
                               IconButton(
-                                icon: const Icon(Icons.sync_rounded, color: Colors.cyanAccent),
+                                visualDensity: VisualDensity.compact,
+                                icon: const Icon(Icons.sync_rounded, size: 18, color: Colors.cyanAccent),
                                 tooltip: "Update subscription",
                                 onPressed: () => _updateSub(sub),
                               ),
                             IconButton(
-                              icon: const Icon(Icons.delete_outline_rounded, color: Colors.grey),
+                              visualDensity: VisualDensity.compact,
+                              icon: Icon(Icons.delete_outline_rounded, size: 18, color: Colors.redAccent.shade100),
                               tooltip: "Delete",
                               onPressed: () {
                                 ref.read(subscriptionsProvider.notifier).removeSubscription(sub.id);
@@ -488,13 +673,13 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                                       ),
                                       IconButton(
                                         visualDensity: VisualDensity.compact,
-                                        icon: const Icon(Icons.edit_rounded, size: 18, color: Colors.amberAccent),
+                                        icon: const Icon(Icons.edit, size: 18, color: Colors.amberAccent),
                                         tooltip: AppStrings.get("edit_config", locale: locale),
                                         onPressed: () => EditConfigDialog.show(context, node, locale),
                                       ),
                                       IconButton(
                                         visualDensity: VisualDensity.compact,
-                                        icon: const Icon(Icons.share_rounded, size: 18, color: Colors.purpleAccent),
+                                        icon: const Icon(Icons.share, size: 18, color: Colors.purpleAccent),
                                         tooltip: AppStrings.get("share_config", locale: locale),
                                         onPressed: () {
                                           Clipboard.setData(ClipboardData(text: node.toShareUrl()));
@@ -545,9 +730,11 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                   },
                 ),
               ),
-          ],
+            ],
+          ),
         ),
       ),
-    );
+    ),
+  );
   }
 }

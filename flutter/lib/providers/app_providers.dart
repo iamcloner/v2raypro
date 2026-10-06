@@ -361,6 +361,22 @@ class SubscriptionsNotifier extends StateNotifier<List<SubscriptionItem>> {
     ref.read(nodesProvider.notifier).removeNodesBySubscription(id);
   }
 
+  void editSubscription(String id, String newName, String newUrl) {
+    final cleanUrl = newUrl.trim();
+    final cleanName = newName.trim();
+    state = state.map((s) {
+      if (s.id == id) {
+        return s.copyWith(
+          name: cleanName.isNotEmpty ? cleanName : s.name,
+          url: cleanUrl.isNotEmpty ? cleanUrl : s.url,
+        );
+      }
+      return s;
+    }).toList();
+    _save();
+    updateSubscription(id);
+  }
+
   Future<int> updateSubscription(String id) async {
     final idx = state.indexWhere((s) => s.id == id);
     if (idx == -1) return 0;
@@ -373,16 +389,86 @@ class SubscriptionsNotifier extends StateNotifier<List<SubscriptionItem>> {
       final request = await client.getUrl(uri);
       request.headers.set("User-Agent", "v2rayN/6.42");
       final response = await request.close();
+
+      int? uploadBytes;
+      int? downloadBytes;
+      int? totalBytes;
+      DateTime? expireDate;
+
+      final userInfo = response.headers.value("subscription-userinfo") ??
+          response.headers.value("Subscription-Userinfo");
+      if (userInfo != null && userInfo.isNotEmpty) {
+        final pairs = userInfo.split(";");
+        for (final pair in pairs) {
+          final kv = pair.trim().split("=");
+          if (kv.length == 2) {
+            final key = kv[0].trim().toLowerCase();
+            final val = int.tryParse(kv[1].trim());
+            if (val != null) {
+              if (key == "upload") uploadBytes = val;
+              if (key == "download") downloadBytes = val;
+              if (key == "total") totalBytes = val;
+              if (key == "expire") {
+                expireDate = DateTime.fromMillisecondsSinceEpoch(val * 1000);
+              }
+            }
+          }
+        }
+      }
+
       final body = await response.transform(utf8.decoder).join();
       client.close();
 
       final parsed = ConfigParser.parseBatch(body);
+
+      // Fallback: parse traffic/expire info from config name strings if headers not present
+      if (totalBytes == null || expireDate == null) {
+        for (final node in parsed) {
+          final name = node.name;
+          if (totalBytes == null) {
+            final totalMatch = RegExp(r'(\d+)\s*(?:G|GB)', caseSensitive: false).firstMatch(name);
+            final remMatch = RegExp(r'📊?\s*([\d\.]+)\s*GB', caseSensitive: false).firstMatch(name);
+            if (remMatch != null) {
+              final gb = double.tryParse(remMatch.group(1) ?? "");
+              if (gb != null) {
+                final remBytes = (gb * 1024 * 1024 * 1024).toInt();
+                if (totalMatch != null) {
+                  final totGb = double.tryParse(totalMatch.group(1) ?? "");
+                  if (totGb != null) {
+                    totalBytes = (totGb * 1024 * 1024 * 1024).toInt();
+                    downloadBytes = totalBytes - remBytes;
+                    uploadBytes = 0;
+                  }
+                } else {
+                  totalBytes = remBytes;
+                  uploadBytes = 0;
+                  downloadBytes = 0;
+                }
+              }
+            }
+          }
+          if (expireDate == null) {
+            final dayMatch = RegExp(r'⏳\s*(\d+)\s*D', caseSensitive: false).firstMatch(name);
+            if (dayMatch != null) {
+              final days = int.tryParse(dayMatch.group(1) ?? "");
+              if (days != null) {
+                expireDate = DateTime.now().add(Duration(days: days));
+              }
+            }
+          }
+        }
+      }
+
       if (parsed.isNotEmpty) {
         final tagged = parsed.map((n) => n.copyWith(subscriptionId: sub.id)).toList();
         ref.read(nodesProvider.notifier).replaceSubscriptionNodes(sub.id, tagged);
         state[idx] = sub.copyWith(
           lastUpdated: DateTime.now(),
           nodeCount: tagged.length,
+          uploadBytes: uploadBytes ?? sub.uploadBytes,
+          downloadBytes: downloadBytes ?? sub.downloadBytes,
+          totalBytes: totalBytes ?? sub.totalBytes,
+          expireDate: expireDate ?? sub.expireDate,
         );
         state = [...state];
         _save();
