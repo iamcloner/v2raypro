@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/l10n/translations.dart';
 import 'core/theme/app_theme.dart';
 import 'providers/app_providers.dart';
-import 'services/xray_process_service.dart';
 
 class SettingsView extends ConsumerStatefulWidget {
   const SettingsView({super.key});

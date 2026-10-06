@@ -11,6 +11,7 @@ import "../models/outbound_info.dart";
 import "../services/cloudflare_scanner_service.dart";
 import "../services/log_service.dart";
 import "../services/storage_service.dart";
+import "../services/tray_service.dart";
 import "../services/xray_process_service.dart";
 import "../utils/config_parser.dart";
 import "package:uuid/uuid.dart";
@@ -26,12 +27,14 @@ class ConnectionStatusNotifier extends StateNotifier<ConnectionStateEnum> {
     state = ConnectionStateEnum.connected;
     ref.read(outboundInfoProvider.notifier).fetch();
     _testPing();
+    AppTrayService.instance.updateTrayMenu();
   }
 
   void setDisconnected() {
     ref.read(connectedAtProvider.notifier).state = null;
     ref.read(outboundInfoProvider.notifier).reset();
     state = ConnectionStateEnum.disconnected;
+    AppTrayService.instance.updateTrayMenu();
   }
 
   Future<void> _testPing() async {
@@ -1072,4 +1075,7 @@ final outboundInfoProvider = StateNotifierProvider<OutboundInfoNotifier, Outboun
 });
 
 final connectedAtProvider = StateProvider<DateTime?>((ref) => null);
+
+// False by default: masks half of IP addresses with ***
+final showFullIpProvider = StateProvider<bool>((ref) => false);
 

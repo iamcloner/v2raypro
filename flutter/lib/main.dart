@@ -17,12 +17,16 @@ import 'core/l10n/translations.dart';
 import 'core/theme/app_theme.dart';
 import 'providers/app_providers.dart';
 import 'services/cloudflare_scanner_service.dart';
+import 'services/tray_service.dart';
 import 'services/xray_process_service.dart';
+import 'utils/ip_mask_util.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   RustBridge.instance.initialize();
-  runApp(const ProviderScope(child: V2RayProApp()));
+  final container = ProviderContainer();
+  await AppTrayService.instance.init(container);
+  runApp(UncontrolledProviderScope(container: container, child: const V2RayProApp()));
 }
 
 class V2RayProApp extends ConsumerWidget {
@@ -243,6 +247,7 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
     final connectedAt = ref.watch(connectedAtProvider);
     final outbound = ref.watch(outboundInfoProvider);
     final cfRanges = ref.watch(cfRangesProvider);
+    final showFullIp = ref.watch(showFullIpProvider);
 
     final isConnected = status == ConnectionStateEnum.connected;
     final isConnecting = status == ConnectionStateEnum.connecting;
@@ -253,264 +258,59 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 1. Hero Connection Status Card
-          Card(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: BorderSide(
-                color: isConnected ? AppTheme.successColor.withValues(alpha: 0.4) : const Color(0xFF1E2638),
-                width: 1.2,
-              ),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 22, horizontal: 20),
-              child: Column(
-                children: [
-                  Container(
-                    width: 82,
-                    height: 82,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: (isConnected ? AppTheme.successColor : (isConnecting ? AppTheme.primaryAccent : Colors.grey.shade800)).withValues(alpha: 0.15),
-                      border: Border.all(
-                        color: isConnected ? AppTheme.successColor : (isConnecting ? AppTheme.primaryAccent : Colors.grey.shade700),
-                        width: 2.8,
-                      ),
-                    ),
-                    child: Center(
-                      child: IconButton(
-                        iconSize: 40,
-                        icon: isConnecting
-                            ? const SizedBox(
-                                width: 34,
-                                height: 34,
-                                child: CircularProgressIndicator(strokeWidth: 3, color: AppTheme.primaryAccent),
-                              )
-                            : Icon(
-                                isConnected ? Icons.power_settings_new_rounded : Icons.play_arrow_rounded,
-                                color: isConnected ? AppTheme.successColor : Colors.white,
-                              ),
-                        onPressed: nodes.isEmpty || isConnecting
-                            ? null
-                            : () {
-                                ref.read(connectionStatusProvider.notifier).toggleConnect();
-                              },
-                      ),
-                    ),
+          // 1. Top Section: Connect Card (50% width) and IP Info Card (50% width) side-by-side
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isDesktop = constraints.maxWidth >= 640;
+              final connectCard = _buildConnectCard(
+                context,
+                ref,
+                status: status,
+                nodes: nodes,
+                activeNode: activeNode,
+                locale: locale,
+                isConnected: isConnected,
+                isConnecting: isConnecting,
+                isCf: isCf,
+                showFullIp: showFullIp,
+              );
+              final ipCard = _buildIpInfoCard(
+                context,
+                ref,
+                outbound: outbound,
+                activeNode: activeNode,
+                locale: locale,
+                isConnected: isConnected,
+                connectedAt: connectedAt,
+                showFullIp: showFullIp,
+              );
+
+              if (isDesktop) {
+                return IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(child: connectCard),
+                      const SizedBox(width: 16),
+                      Expanded(child: ipCard),
+                    ],
                   ),
-                  const SizedBox(height: 12),
-                  Text(
-                    nodes.isEmpty
-                        ? AppStrings.get('no_nodes', locale: locale)
-                        : isConnected
-                            ? AppStrings.get('connected', locale: locale)
-                            : isConnecting
-                                ? AppStrings.get('connecting', locale: locale)
-                                : AppStrings.get('disconnected', locale: locale),
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: isConnected ? AppTheme.successColor : (isConnecting ? AppTheme.primaryAccent : Colors.grey.shade400),
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  if (activeNode != null) ...[
-                    const SizedBox(height: 6),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Flexible(
-                          child: Text(
-                            '${activeNode.name} (${activeNode.address}:${activeNode.port})',
-                            style: const TextStyle(fontSize: 13, color: Colors.grey),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        if (isCf) ...[
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.amber.withValues(alpha: 0.2),
-                              borderRadius: BorderRadius.circular(4),
-                              border: Border.all(color: Colors.amber, width: 0.8),
-                            ),
-                            child: const Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.star_rounded, size: 13, color: Colors.amber),
-                                SizedBox(width: 2),
-                                Text(
-                                  "CF",
-                                  style: TextStyle(
-                                    color: Colors.amber,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
+                );
+              } else {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    connectCard,
+                    const SizedBox(height: 16),
+                    ipCard,
                   ],
-                ],
-              ),
-            ),
+                );
+              }
+            },
           ),
           const SizedBox(height: 16),
 
-          // 2. Connected Live Diagnostics Card (When Connected)
-          if (isConnected) ...[
-            Card(
-              color: const Color(0xFF131824),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-                side: BorderSide(color: AppTheme.primaryAccent.withValues(alpha: 0.35), width: 1.2),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(18),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // Header: Location / Country & Refresh Button
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(7),
-                          decoration: BoxDecoration(
-                            color: AppTheme.primaryAccent.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Icon(Icons.public_rounded, size: 20, color: AppTheme.primaryAccent),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                AppStrings.get('connected_country', locale: locale),
-                                style: const TextStyle(fontSize: 11, color: Colors.grey),
-                              ),
-                              Row(
-                                children: [
-                                  Text(
-                                    outbound.flagEmoji,
-                                    style: const TextStyle(fontSize: 16),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Flexible(
-                                    child: Text(
-                                      outbound.country != null
-                                          ? '${outbound.country}${outbound.city != null ? ' (${outbound.city})' : ''}'
-                                          : (outbound.isLoading
-                                              ? AppStrings.get('fetching_ip', locale: locale)
-                                              : AppStrings.get('unknown_location', locale: locale)),
-                                      style: const TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.white,
-                                      ),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                  if (outbound.isp != null) ...[
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      '•  ${outbound.isp}',
-                                      style: const TextStyle(fontSize: 11, color: Colors.grey),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: AppStrings.get('refresh_ip', locale: locale),
-                          icon: outbound.isLoading
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primaryAccent),
-                                )
-                              : const Icon(Icons.refresh_rounded, size: 18, color: Colors.white70),
-                          onPressed: outbound.isLoading
-                              ? null
-                              : () => ref.read(outboundInfoProvider.notifier).fetch(),
-                        ),
-                      ],
-                    ),
-                    const Divider(height: 22, color: Colors.white12),
-
-                    // 4-Item Grid: IPv4, IPv6, Last Ping, Connection Duration
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        final isNarrow = constraints.maxWidth < 620;
-                        return Wrap(
-                          spacing: 12,
-                          runSpacing: 12,
-                          children: [
-                            // IPv4 Tile
-                            SizedBox(
-                              width: isNarrow ? (constraints.maxWidth - 12) / 2 : (constraints.maxWidth - 36) / 4,
-                              child: _buildInfoItem(
-                                title: AppStrings.get('ipv4_address', locale: locale),
-                                value: outbound.ipv4 ?? (outbound.isLoading ? '...' : '--'),
-                                icon: Icons.lan_rounded,
-                                color: const Color(0xFF38BDF8),
-                                copyable: outbound.ipv4 != null,
-                              ),
-                            ),
-                            // IPv6 Tile
-                            SizedBox(
-                              width: isNarrow ? (constraints.maxWidth - 12) / 2 : (constraints.maxWidth - 36) / 4,
-                              child: _buildInfoItem(
-                                title: AppStrings.get('ipv6_address', locale: locale),
-                                value: outbound.ipv6 ?? AppStrings.get('not_supported', locale: locale),
-                                icon: Icons.alt_route_rounded,
-                                color: const Color(0xFFA78BFA),
-                                copyable: outbound.ipv6 != null,
-                              ),
-                            ),
-                            // Last Ping Tile with Retest Button
-                            SizedBox(
-                              width: isNarrow ? (constraints.maxWidth - 12) / 2 : (constraints.maxWidth - 36) / 4,
-                              child: _buildPingItem(
-                                title: AppStrings.get('ping', locale: locale),
-                                latency: activeNode?.latencyMs,
-                                isTesting: _isTestingPing,
-                                onRetest: activeNode != null ? () => _retestPing(activeNode) : null,
-                                locale: locale,
-                              ),
-                            ),
-                            // Duration Tile
-                            SizedBox(
-                              width: isNarrow ? (constraints.maxWidth - 12) / 2 : (constraints.maxWidth - 36) / 4,
-                              child: _buildInfoItem(
-                                title: AppStrings.get('connection_duration', locale: locale),
-                                value: _formatDuration(connectedAt),
-                                icon: Icons.timer_outlined,
-                                color: AppTheme.successColor,
-                                copyable: false,
-                              ),
-                            ),
-                          ],
-                        );
-                      },
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-          ],
-
-          // 3. System Proxy & TUN Mode Toggles
+          // 2. System Proxy & TUN Mode Toggles
           Row(
             children: [
               Expanded(
@@ -606,7 +406,7 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
           ),
           const SizedBox(height: 16),
 
-          // 4. Traffic Metrics Tiles
+          // 3. Traffic Metrics Tiles
           Row(
             children: [
               Expanded(
@@ -637,56 +437,319 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
               ),
             ],
           ),
-          const SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
 
-          // 5. Active Node Technical Details Card
-          if (activeNode != null)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Flexible(
-                          child: Text(
-                            activeNode.name,
-                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                            overflow: TextOverflow.ellipsis,
-                          ),
+  Widget _buildConnectCard(
+    BuildContext context,
+    WidgetRef ref, {
+    required ConnectionStateEnum status,
+    required List<ProxyNode> nodes,
+    required ProxyNode? activeNode,
+    required String locale,
+    required bool isConnected,
+    required bool isConnecting,
+    required bool isCf,
+    required bool showFullIp,
+  }) {
+    return Card(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: isConnected ? AppTheme.successColor.withValues(alpha: 0.4) : const Color(0xFF1E2638),
+          width: 1.2,
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 22, horizontal: 20),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 82,
+              height: 82,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: (isConnected ? AppTheme.successColor : (isConnecting ? AppTheme.primaryAccent : Colors.grey.shade800)).withValues(alpha: 0.15),
+                border: Border.all(
+                  color: isConnected ? AppTheme.successColor : (isConnecting ? AppTheme.primaryAccent : Colors.grey.shade700),
+                  width: 2.8,
+                ),
+              ),
+              child: Center(
+                child: IconButton(
+                  iconSize: 40,
+                  icon: isConnecting
+                      ? const SizedBox(
+                          width: 34,
+                          height: 34,
+                          child: CircularProgressIndicator(strokeWidth: 3, color: AppTheme.primaryAccent),
+                        )
+                      : Icon(
+                          isConnected ? Icons.power_settings_new_rounded : Icons.play_arrow_rounded,
+                          color: isConnected ? AppTheme.successColor : Colors.white,
                         ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: AppTheme.primaryAccent.withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            activeNode.protocol.name.toUpperCase(),
-                            style: const TextStyle(fontSize: 12, color: AppTheme.primaryAccent, fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const Divider(height: 24),
-                    _buildDetailRow('IP / Server', activeNode.address),
-                    const SizedBox(height: 8),
-                    _buildDetailRow('Port', '${activeNode.port}'),
-                    const SizedBox(height: 8),
-                    _buildDetailRow('Transport', activeNode.network.name.toUpperCase()),
-                    const SizedBox(height: 8),
-                    _buildDetailRow('Security', activeNode.security.name.toUpperCase()),
-                    if (activeNode.originalAddress != null) ...[
-                      const SizedBox(height: 8),
-                      _buildDetailRow('Original Host', activeNode.originalAddress!),
-                    ],
-                  ],
+                  onPressed: nodes.isEmpty || isConnecting
+                      ? null
+                      : () {
+                          ref.read(connectionStatusProvider.notifier).toggleConnect();
+                        },
                 ),
               ),
             ),
-        ],
+            const SizedBox(height: 12),
+            Text(
+              nodes.isEmpty
+                  ? AppStrings.get('no_nodes', locale: locale)
+                  : isConnected
+                      ? AppStrings.get('connected', locale: locale)
+                      : isConnecting
+                          ? AppStrings.get('connecting', locale: locale)
+                          : AppStrings.get('disconnected', locale: locale),
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: isConnected ? AppTheme.successColor : (isConnecting ? AppTheme.primaryAccent : Colors.grey.shade400),
+              ),
+              textAlign: TextAlign.center,
+            ),
+            if (activeNode != null) ...[
+              const SizedBox(height: 6),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      '${activeNode.name} (${IpMaskUtil.mask(activeNode.address, showFull: showFullIp)}:${activeNode.port})',
+                      style: const TextStyle(fontSize: 13, color: Colors.grey),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (isCf) ...[
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: Colors.amber, width: 0.8),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.star_rounded, size: 13, color: Colors.amber),
+                          SizedBox(width: 2),
+                          Text(
+                            "CF",
+                            style: TextStyle(
+                              color: Colors.amber,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildIpInfoCard(
+    BuildContext context,
+    WidgetRef ref, {
+    required OutboundInfo outbound,
+    required ProxyNode? activeNode,
+    required String locale,
+    required bool isConnected,
+    required DateTime? connectedAt,
+    required bool showFullIp,
+  }) {
+    return Card(
+      color: const Color(0xFF131824),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: isConnected ? AppTheme.primaryAccent.withValues(alpha: 0.35) : const Color(0xFF1E2638),
+          width: 1.2,
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            // Header Row: Icon + Title/Location + Eye Button + Refresh Button
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(7),
+                  decoration: BoxDecoration(
+                    color: (isConnected ? AppTheme.primaryAccent : Colors.grey.shade700).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.public_rounded,
+                    size: 20,
+                    color: isConnected ? AppTheme.primaryAccent : Colors.grey,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        isConnected
+                            ? AppStrings.get('connected_country', locale: locale)
+                            : AppStrings.get('outbound_ip', locale: locale),
+                        style: const TextStyle(fontSize: 11, color: Colors.grey),
+                      ),
+                      if (isConnected)
+                        Row(
+                          children: [
+                            Text(
+                              outbound.flagEmoji,
+                              style: const TextStyle(fontSize: 16),
+                            ),
+                            const SizedBox(width: 6),
+                            Flexible(
+                              child: Text(
+                                outbound.country != null
+                                    ? '${outbound.country}${outbound.city != null ? ' (${outbound.city})' : ''}'
+                                    : (outbound.isLoading
+                                        ? AppStrings.get('fetching_ip', locale: locale)
+                                        : AppStrings.get('unknown_location', locale: locale)),
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (outbound.isp != null) ...[
+                              const SizedBox(width: 6),
+                              Text(
+                                '•  ${outbound.isp}',
+                                style: const TextStyle(fontSize: 11, color: Colors.grey),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ],
+                        )
+                      else
+                        Text(
+                          AppStrings.get('offline_hint', locale: locale),
+                          style: const TextStyle(fontSize: 12, color: Colors.grey),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                    ],
+                  ),
+                ),
+                // Eye button to toggle mask/unmask IP
+                IconButton(
+                  tooltip: AppStrings.get(showFullIp ? 'hide_ip' : 'show_full_ip', locale: locale),
+                  icon: Icon(
+                    showFullIp ? Icons.visibility_off_rounded : Icons.visibility_rounded,
+                    size: 19,
+                    color: showFullIp ? AppTheme.primaryAccent : Colors.white70,
+                  ),
+                  onPressed: () {
+                    ref.read(showFullIpProvider.notifier).state = !showFullIp;
+                  },
+                ),
+                // Refresh button
+                IconButton(
+                  tooltip: AppStrings.get('refresh_ip', locale: locale),
+                  icon: outbound.isLoading
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primaryAccent),
+                        )
+                      : Icon(
+                          Icons.refresh_rounded,
+                          size: 18,
+                          color: isConnected ? Colors.white70 : Colors.grey.shade600,
+                        ),
+                  onPressed: (!isConnected || outbound.isLoading)
+                      ? null
+                      : () => ref.read(outboundInfoProvider.notifier).fetch(),
+                ),
+              ],
+            ),
+            const Divider(height: 20, color: Colors.white12),
+
+            // 4-Item Grid: 2 rows of 2 columns
+            Row(
+              children: [
+                Expanded(
+                  child: _buildInfoItem(
+                    title: AppStrings.get('ipv4_address', locale: locale),
+                    value: isConnected
+                        ? (outbound.ipv4 != null
+                            ? IpMaskUtil.mask(outbound.ipv4!, showFull: showFullIp)
+                            : (outbound.isLoading ? '...' : '--'))
+                        : '--',
+                    icon: Icons.lan_rounded,
+                    color: const Color(0xFF38BDF8),
+                    copyable: isConnected && outbound.ipv4 != null,
+                    copyValue: outbound.ipv4,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _buildInfoItem(
+                    title: AppStrings.get('ipv6_address', locale: locale),
+                    value: isConnected
+                        ? (outbound.ipv6 != null
+                            ? IpMaskUtil.mask(outbound.ipv6!, showFull: showFullIp)
+                            : (outbound.isLoading ? '...' : AppStrings.get('not_supported', locale: locale)))
+                        : '--',
+                    icon: Icons.alt_route_rounded,
+                    color: const Color(0xFFA78BFA),
+                    copyable: isConnected && outbound.ipv6 != null,
+                    copyValue: outbound.ipv6,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildPingItem(
+                    title: AppStrings.get('ping', locale: locale),
+                    latency: isConnected ? activeNode?.latencyMs : null,
+                    isTesting: _isTestingPing,
+                    onRetest: (isConnected && activeNode != null) ? () => _retestPing(activeNode) : null,
+                    locale: locale,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _buildInfoItem(
+                    title: AppStrings.get('connection_duration', locale: locale),
+                    value: isConnected ? _formatDuration(connectedAt) : "00:00:00",
+                    icon: Icons.timer_outlined,
+                    color: isConnected ? AppTheme.successColor : Colors.grey,
+                    copyable: false,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -697,6 +760,7 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
     required IconData icon,
     required Color color,
     required bool copyable,
+    String? copyValue,
   }) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -722,9 +786,10 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
               if (copyable)
                 InkWell(
                   onTap: () {
-                    Clipboard.setData(ClipboardData(text: value));
+                    final textToCopy = copyValue ?? value;
+                    Clipboard.setData(ClipboardData(text: textToCopy));
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('$value copied'), duration: const Duration(seconds: 1)),
+                      SnackBar(content: Text('$textToCopy copied'), duration: const Duration(seconds: 1)),
                     );
                   },
                   child: const Padding(
@@ -838,15 +903,6 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
     );
   }
 
-  Widget _buildDetailRow(String label, String value) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(label, style: const TextStyle(color: Colors.grey, fontSize: 13)),
-        Text(value, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
-      ],
-    );
-  }
 }
 
 

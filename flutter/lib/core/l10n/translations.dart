@@ -146,6 +146,12 @@ class AppStrings {
       "fetching_ip": "Detecting exit IP...",
       "not_supported": "Not Available",
       "retest_ping": "Test Ping",
+      "show_window": "Open V2RayPro",
+      "exit": "Exit V2RayPro",
+      "show_full_ip": "Show full IP",
+      "hide_ip": "Mask IP",
+      "offline_hint": "Connect to view outbound IP, ping, and network location.",
+      "offline": "Offline",
     },
     "fa": {
       "app_title": "وی‌تو‌ری پرو",
@@ -293,6 +299,12 @@ class AppStrings {
       "fetching_ip": "در حال دریافت اطلاعات آی‌پی...",
       "not_supported": "پشتیبانی نمی‌شود",
       "retest_ping": "تست پینگ",
+      "show_window": "نمایش برنامه",
+      "exit": "خروج از برنامه",
+      "show_full_ip": "نمایش کامل آی‌پی",
+      "hide_ip": "مخفی‌سازی آی‌پی",
+      "offline_hint": "برای مشاهده آی‌پی خروجی، پینگ و موقعیت متصل شوید.",
+      "offline": "قطع اتصال",
     }
   };
 

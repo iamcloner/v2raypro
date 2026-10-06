@@ -1,4 +1,4 @@
-﻿name: v2raypro
+name: v2raypro
 description: "A modern, professional V2Ray/Xray client with Cloudflare IP scanner for Windows and Android"
 publish_to: "none"
 version: 1.0.0+1
@@ -20,6 +20,8 @@ dependencies:
   uuid: ^4.4.0
   file_picker: ^8.0.0
   url_launcher: ^6.2.6
+  tray_manager: ^0.7.0
+  window_manager: ^0.5.2
 
 dev_dependencies:
   flutter_test:
@@ -31,6 +33,7 @@ flutter:
   assets:
     - assets/bin/xray.exe
     - assets/fonts/tahoma.ttf
+    - assets/app_icon.ico
 
   fonts:
     - family: AppFont

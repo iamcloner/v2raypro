@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,6 +11,7 @@ import 'providers/app_providers.dart';
 import 'services/cloudflare_scanner_service.dart';
 import 'services/xray_process_service.dart';
 import 'utils/config_parser.dart';
+import 'utils/ip_mask_util.dart';
 import 'widgets/add_config_dialog.dart';
 import 'widgets/edit_config_dialog.dart';
 
@@ -190,6 +191,7 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
       return a.name.compareTo(b.name);
     });
     final locale = ref.watch(currentLocaleProvider);
+    final showFullIp = ref.watch(showFullIpProvider);
 
     final progress = _totalToTest > 0 ? (_testedCount / _totalToTest).clamp(0.0, 1.0) : 0.0;
     final progressPercent = (progress * 100).toInt();
@@ -334,7 +336,7 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
                               ],
                             ),
                             subtitle: Text(
-                              '${node.address}:${node.port}  •  ${node.protocol.name.toUpperCase()}  •  ${node.network.name.toUpperCase()}',
+                              '${IpMaskUtil.mask(node.address, showFull: showFullIp)}:${node.port}  •  ${node.protocol.name.toUpperCase()}  •  ${node.network.name.toUpperCase()}',
                             ),
                             trailing: Row(
                               mainAxisSize: MainAxisSize.min,

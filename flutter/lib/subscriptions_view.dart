@@ -9,6 +9,7 @@ import 'models/subscription_item.dart';
 import 'providers/app_providers.dart';
 import 'services/cloudflare_scanner_service.dart';
 import 'services/xray_process_service.dart';
+import 'utils/ip_mask_util.dart';
 import 'widgets/edit_config_dialog.dart';
 
 class SubscriptionsView extends ConsumerStatefulWidget {
@@ -274,6 +275,7 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
     final subs = ref.watch(subscriptionsProvider);
     final allNodes = ref.watch(nodesProvider);
     final locale = ref.watch(currentLocaleProvider);
+    final showFullIp = ref.watch(showFullIpProvider);
 
     return CallbackShortcuts(
       bindings: {
@@ -634,7 +636,7 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                                     ],
                                   ),
                                   subtitle: Text(
-                                    "${node.address}:${node.port}  •  ${node.protocol.name.toUpperCase()}  •  ${node.network.name.toUpperCase()}",
+                                    "${IpMaskUtil.mask(node.address, showFull: showFullIp)}:${node.port}  •  ${node.protocol.name.toUpperCase()}  •  ${node.network.name.toUpperCase()}",
                                     style: const TextStyle(fontSize: 12),
                                   ),
                                   trailing: Row(
