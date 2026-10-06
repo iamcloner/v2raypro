@@ -15,12 +15,11 @@ class AppTheme {
         primary: primaryAccent,
         secondary: secondaryAccent,
         surface: Color(0xFF131722),
-        background: Color(0xFF0B0E14),
         error: errorColor,
         onSurface: Color(0xFFE2E8F0),
       ),
       scaffoldBackgroundColor: const Color(0xFF0B0E14),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: const Color(0xFF171C28),
         elevation: 0,
         shape: RoundedRectangleBorder(
@@ -45,11 +44,10 @@ class AppTheme {
         primary: primaryAccent,
         secondary: secondaryAccent,
         surface: Color(0xFFF8FAFC),
-        background: Color(0xFFFFFFFF),
         error: errorColor,
       ),
       scaffoldBackgroundColor: const Color(0xFFF1F5F9),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: Colors.white,
         elevation: 1,
         shape: RoundedRectangleBorder(

@@ -3,7 +3,6 @@ import "dart:convert";
 import "dart:ffi" as ffi;
 import "dart:io";
 import "package:ffi/ffi.dart";
-import "../../models/proxy_node.dart";
 import "../../models/scan_result.dart";
 
 typedef NativeRegisterCallback = ffi.Void Function(ffi.Pointer<ffi.NativeFunction<NativeEventCallback>>);
