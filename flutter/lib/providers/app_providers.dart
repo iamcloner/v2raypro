@@ -1,8 +1,13 @@
+﻿import "dart:convert";
+import "dart:io";
 import "package:flutter_riverpod/flutter_riverpod.dart";
 import "../models/proxy_node.dart";
 import "../models/scan_result.dart";
+import "../models/subscription_item.dart";
 import "../services/cloudflare_scanner_service.dart";
+import "../services/storage_service.dart";
 import "../services/xray_process_service.dart";
+import "../utils/config_parser.dart";
 
 enum ConnectionStateEnum { disconnected, connecting, connected, disconnecting, error }
 
@@ -18,10 +23,16 @@ class ConnectionStatusNotifier extends StateNotifier<ConnectionStateEnum> {
     }
 
     final activeNode = nodes.firstWhere((n) => n.isActive, orElse: () => nodes.first);
+    final isTun = ref.read(isTunEnabledProvider);
+    final isSysProxy = ref.read(isSystemProxyEnabledProvider);
 
     if (state == ConnectionStateEnum.disconnected || state == ConnectionStateEnum.error) {
       state = ConnectionStateEnum.connecting;
-      final ok = await XrayProcessService.instance.start(activeNode);
+      final ok = await XrayProcessService.instance.start(
+        activeNode,
+        enableTun: isTun,
+        setSysProxy: isSysProxy,
+      );
       if (ok) {
         state = ConnectionStateEnum.connected;
       } else {
@@ -33,23 +44,72 @@ class ConnectionStatusNotifier extends StateNotifier<ConnectionStateEnum> {
       state = ConnectionStateEnum.disconnected;
     }
   }
-
-  void setSystemProxy(bool enable) {
-    XrayProcessService.instance.setWindowsSystemProxy(enable);
-  }
 }
 
 final connectionStatusProvider = StateNotifierProvider<ConnectionStatusNotifier, ConnectionStateEnum>((ref) {
   return ConnectionStatusNotifier(ref);
 });
 
-// Clean production nodes notifier - No mock/demo nodes
+class SystemProxyNotifier extends StateNotifier<bool> {
+  SystemProxyNotifier() : super(false) {
+    _init();
+  }
+
+  Future<void> _init() async {
+    state = await StorageService.instance.loadSystemProxyEnabled();
+  }
+
+  void toggle(bool enable) {
+    state = enable;
+    StorageService.instance.saveSystemProxyEnabled(enable);
+    XrayProcessService.instance.setWindowsSystemProxy(enable);
+  }
+}
+
+final isSystemProxyEnabledProvider = StateNotifierProvider<SystemProxyNotifier, bool>((ref) {
+  return SystemProxyNotifier();
+});
+
+class TunNotifier extends StateNotifier<bool> {
+  TunNotifier() : super(false) {
+    _init();
+  }
+
+  Future<void> _init() async {
+    state = await StorageService.instance.loadTunEnabled();
+  }
+
+  void toggle(bool enable) {
+    state = enable;
+    StorageService.instance.saveTunEnabled(enable);
+  }
+}
+
+final isTunEnabledProvider = StateNotifierProvider<TunNotifier, bool>((ref) {
+  return TunNotifier();
+});
+
+// Production persistent nodes notifier
 class NodesNotifier extends StateNotifier<List<ProxyNode>> {
-  NodesNotifier() : super([]);
+  NodesNotifier() : super([]) {
+    _init();
+  }
+
+  Future<void> _init() async {
+    final saved = await StorageService.instance.loadNodes();
+    if (saved.isNotEmpty) {
+      state = saved;
+    }
+  }
+
+  void _save() {
+    StorageService.instance.saveNodes(state);
+  }
 
   void addNode(ProxyNode node) {
     final isFirst = state.isEmpty;
     state = [...state, node.copyWith(isActive: isFirst ? true : node.isActive)];
+    _save();
   }
 
   void addNodes(List<ProxyNode> newNodes) {
@@ -61,6 +121,7 @@ class NodesNotifier extends StateNotifier<List<ProxyNode>> {
       list.add(n.copyWith(isActive: wasEmpty && i == 0 ? true : n.isActive));
     }
     state = list;
+    _save();
   }
 
   void updateLatency(String id, int? latencyMs) {
@@ -70,6 +131,7 @@ class NodesNotifier extends StateNotifier<List<ProxyNode>> {
       }
       return n;
     }).toList();
+    _save();
   }
 
   void removeNode(String id) {
@@ -78,10 +140,36 @@ class NodesNotifier extends StateNotifier<List<ProxyNode>> {
       state[0].isActive = true;
       state = [...state];
     }
+    _save();
+  }
+
+  void removeNodesBySubscription(String subId) {
+    state = state.where((n) => n.subscriptionId != subId).toList();
+    if (state.isNotEmpty && !state.any((n) => n.isActive)) {
+      state[0].isActive = true;
+      state = [...state];
+    }
+    _save();
+  }
+
+  void replaceSubscriptionNodes(String subId, List<ProxyNode> newNodes) {
+    final nonSubNodes = state.where((n) => n.subscriptionId != subId).toList();
+    final wasEmpty = nonSubNodes.isEmpty;
+    final list = List<ProxyNode>.from(nonSubNodes);
+    for (int i = 0; i < newNodes.length; i++) {
+      final n = newNodes[i];
+      list.add(n.copyWith(isActive: wasEmpty && i == 0 ? true : n.isActive));
+    }
+    if (list.isNotEmpty && !list.any((n) => n.isActive)) {
+      list[0].isActive = true;
+    }
+    state = list;
+    _save();
   }
 
   void setActive(String id) {
     state = state.map((n) => n.copyWith(isActive: n.id == id)).toList();
+    _save();
   }
 
   void applyIp(String nodeId, String newIp) {
@@ -94,6 +182,7 @@ class NodesNotifier extends StateNotifier<List<ProxyNode>> {
       }
       return n;
     }).toList();
+    _save();
   }
 
   void restoreAddress(String nodeId) {
@@ -106,11 +195,87 @@ class NodesNotifier extends StateNotifier<List<ProxyNode>> {
       }
       return n;
     }).toList();
+    _save();
   }
 }
 
 final nodesProvider = StateNotifierProvider<NodesNotifier, List<ProxyNode>>((ref) {
   return NodesNotifier();
+});
+
+class SubscriptionsNotifier extends StateNotifier<List<SubscriptionItem>> {
+  final Ref ref;
+  SubscriptionsNotifier(this.ref) : super([]) {
+    _init();
+  }
+
+  Future<void> _init() async {
+    final saved = await StorageService.instance.loadSubscriptions();
+    state = saved;
+  }
+
+  void _save() {
+    StorageService.instance.saveSubscriptions(state);
+  }
+
+  Future<int> addSubscription(String name, String url) async {
+    final subId = "sub-${DateTime.now().millisecondsSinceEpoch}";
+    final item = SubscriptionItem(
+      id: subId,
+      name: name.trim().isEmpty ? "Subscription ${state.length + 1}" : name.trim(),
+      url: url.trim(),
+    );
+    state = [...state, item];
+    _save();
+    return await updateSubscription(subId);
+  }
+
+  void removeSubscription(String id) {
+    state = state.where((s) => s.id != id).toList();
+    _save();
+    ref.read(nodesProvider.notifier).removeNodesBySubscription(id);
+  }
+
+  Future<int> updateSubscription(String id) async {
+    final idx = state.indexWhere((s) => s.id == id);
+    if (idx == -1) return 0;
+    final sub = state[idx];
+
+    try {
+      final uri = Uri.parse(sub.url);
+      final client = HttpClient();
+      client.connectionTimeout = const Duration(seconds: 15);
+      final request = await client.getUrl(uri);
+      request.headers.set("User-Agent", "v2rayN/6.42");
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      client.close();
+
+      final parsed = ConfigParser.parseBatch(body);
+      if (parsed.isNotEmpty) {
+        final tagged = parsed.map((n) => n.copyWith(subscriptionId: sub.id)).toList();
+        ref.read(nodesProvider.notifier).replaceSubscriptionNodes(sub.id, tagged);
+        state[idx] = sub.copyWith(
+          lastUpdated: DateTime.now(),
+          nodeCount: tagged.length,
+        );
+        state = [...state];
+        _save();
+        return tagged.length;
+      }
+    } catch (_) {}
+    return 0;
+  }
+
+  Future<void> updateAll() async {
+    for (final s in state) {
+      await updateSubscription(s.id);
+    }
+  }
+}
+
+final subscriptionsProvider = StateNotifierProvider<SubscriptionsNotifier, List<SubscriptionItem>>((ref) {
+  return SubscriptionsNotifier(ref);
 });
 
 class ScannerState {
@@ -214,4 +379,3 @@ final currentLocaleProvider = StateProvider<String>((ref) => "en");
 // Port settings provider
 final httpPortProvider = StateProvider<int>((ref) => 10888);
 final socksPortProvider = StateProvider<int>((ref) => 10999);
-final isSystemProxyEnabledProvider = StateProvider<bool>((ref) => false);

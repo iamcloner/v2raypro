@@ -1,4 +1,5 @@
 import 'configs_view.dart';
+import 'subscriptions_view.dart';
 import 'scanner_view.dart';
 import 'settings_view.dart';
 import 'dart:convert';
@@ -62,6 +63,7 @@ class _MainShellState extends ConsumerState<MainShell> {
   final List<Widget> _pages = const [
     DashboardView(),
     ConfigsView(),
+    SubscriptionsView(),
     ScannerView(),
     SettingsView(),
   ];
@@ -101,6 +103,10 @@ class _MainShellState extends ConsumerState<MainShell> {
                   label: Text(AppStrings.get('configs', locale: locale)),
                 ),
                 NavigationRailDestination(
+                  icon: const Icon(Icons.rss_feed_rounded),
+                  label: Text(AppStrings.get('subscriptions', locale: locale)),
+                ),
+                NavigationRailDestination(
                   icon: const Icon(Icons.radar_rounded),
                   label: Text(AppStrings.get('scanner', locale: locale)),
                 ),
@@ -132,6 +138,10 @@ class _MainShellState extends ConsumerState<MainShell> {
             label: AppStrings.get('configs', locale: locale),
           ),
           NavigationDestination(
+            icon: const Icon(Icons.rss_feed_rounded),
+            label: AppStrings.get('subscriptions', locale: locale),
+          ),
+          NavigationDestination(
             icon: const Icon(Icons.radar_rounded),
             label: AppStrings.get('scanner', locale: locale),
           ),
@@ -159,6 +169,8 @@ class DashboardView extends ConsumerWidget {
     final isConnected = status == ConnectionStateEnum.connected;
     final isConnecting = status == ConnectionStateEnum.connecting;
 
+    final isTun = ref.watch(isTunEnabledProvider);
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -166,23 +178,23 @@ class DashboardView extends ConsumerWidget {
         children: [
           Card(
             child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 24),
+              padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 20),
               child: Column(
                 children: [
                   Container(
-                    width: 130,
-                    height: 130,
+                    width: 76,
+                    height: 76,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: (isConnected ? AppTheme.successColor : Colors.grey.shade800).withValues(alpha: 0.15),
                       border: Border.all(
                         color: isConnected ? AppTheme.successColor : Colors.grey.shade700,
-                        width: 3,
+                        width: 2.5,
                       ),
                     ),
                     child: Center(
                       child: IconButton(
-                        iconSize: 52,
+                        iconSize: 36,
                         icon: Icon(
                           isConnected ? Icons.power_settings_new_rounded : Icons.play_arrow_rounded,
                           color: isConnected ? AppTheme.successColor : Colors.white,
@@ -193,7 +205,7 @@ class DashboardView extends ConsumerWidget {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 10),
                   Text(
                     nodes.isEmpty
                         ? AppStrings.get('no_nodes', locale: locale)
@@ -203,17 +215,17 @@ class DashboardView extends ConsumerWidget {
                                 ? AppStrings.get('connecting', locale: locale)
                                 : AppStrings.get('disconnected', locale: locale),
                     style: TextStyle(
-                      fontSize: 20,
+                      fontSize: 17,
                       fontWeight: FontWeight.bold,
                       color: isConnected ? AppTheme.successColor : Colors.grey.shade400,
                     ),
                     textAlign: TextAlign.center,
                   ),
                   if (activeNode != null) ...[
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 4),
                     Text(
                       '${activeNode.name} (${activeNode.address}:${activeNode.port})',
-                      style: const TextStyle(fontSize: 14, color: Colors.grey),
+                      style: const TextStyle(fontSize: 13, color: Colors.grey),
                     ),
                   ],
                 ],
@@ -224,44 +236,88 @@ class DashboardView extends ConsumerWidget {
           Row(
             children: [
               Expanded(
-                child: OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    side: BorderSide(color: isSysProxy ? AppTheme.successColor : Colors.grey.shade700),
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.shield_outlined,
+                              color: isSysProxy ? AppTheme.successColor : Colors.grey,
+                              size: 24,
+                            ),
+                            const SizedBox(width: 10),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  AppStrings.get('system_proxy', locale: locale),
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                ),
+                                Text(
+                                  AppStrings.get('system_proxy_desc', locale: locale),
+                                  style: const TextStyle(fontSize: 10, color: Colors.grey),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                        Switch(
+                          value: isSysProxy,
+                          activeColor: AppTheme.successColor,
+                          onChanged: (val) {
+                            ref.read(isSystemProxyEnabledProvider.notifier).toggle(val);
+                          },
+                        ),
+                      ],
+                    ),
                   ),
-                  icon: Icon(Icons.shield_outlined, color: isSysProxy ? AppTheme.successColor : Colors.grey),
-                  label: Text(
-                    AppStrings.get('set_system_proxy', locale: locale),
-                    style: TextStyle(color: isSysProxy ? AppTheme.successColor : Colors.white),
-                  ),
-                  onPressed: () {
-                    XrayProcessService.instance.setWindowsSystemProxy(true);
-                    ref.read(isSystemProxyEnabledProvider.notifier).state = true;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(AppStrings.get('set_system_proxy', locale: locale))),
-                    );
-                  },
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    side: BorderSide(color: !isSysProxy ? AppTheme.errorColor : Colors.grey.shade700),
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.vpn_lock_rounded,
+                              color: isTun ? AppTheme.primaryAccent : Colors.grey,
+                              size: 24,
+                            ),
+                            const SizedBox(width: 10),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  AppStrings.get('tun_mode', locale: locale),
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                ),
+                                Text(
+                                  AppStrings.get('tun_mode_desc', locale: locale),
+                                  style: const TextStyle(fontSize: 10, color: Colors.grey),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                        Switch(
+                          value: isTun,
+                          activeColor: AppTheme.primaryAccent,
+                          onChanged: (val) {
+                            ref.read(isTunEnabledProvider.notifier).toggle(val);
+                          },
+                        ),
+                      ],
+                    ),
                   ),
-                  icon: Icon(Icons.remove_moderator_outlined, color: !isSysProxy ? AppTheme.errorColor : Colors.grey),
-                  label: Text(
-                    AppStrings.get('clear_system_proxy', locale: locale),
-                    style: TextStyle(color: !isSysProxy ? AppTheme.errorColor : Colors.white),
-                  ),
-                  onPressed: () {
-                    XrayProcessService.instance.setWindowsSystemProxy(false);
-                    ref.read(isSystemProxyEnabledProvider.notifier).state = false;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(AppStrings.get('clear_system_proxy', locale: locale))),
-                    );
-                  },
                 ),
               ),
             ],

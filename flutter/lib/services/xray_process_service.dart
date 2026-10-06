@@ -40,7 +40,7 @@ class XrayProcessService {
     return null;
   }
 
-  Map<String, dynamic> generateXrayConfig(ProxyNode node) {
+  Map<String, dynamic> generateXrayConfig(ProxyNode node, {bool enableTun = false}) {
     final netName = (node.network == NetworkType.splithttp || node.network == NetworkType.xhttp)
         ? "xhttp"
         : node.network.name;
@@ -181,6 +181,36 @@ class XrayProcessService {
       };
     }
 
+    final inbounds = <Map<String, dynamic>>[
+      {
+        "tag": "socks-in",
+        "port": socksPort,
+        "listen": "127.0.0.1",
+        "protocol": "socks",
+        "settings": {"auth": "noauth", "udp": true},
+        "sniffing": {"enabled": true, "destOverride": ["http", "tls"]}
+      },
+      {
+        "tag": "http-in",
+        "port": httpPort,
+        "listen": "127.0.0.1",
+        "protocol": "http",
+        "sniffing": {"enabled": true, "destOverride": ["http", "tls"]}
+      }
+    ];
+
+    if (enableTun) {
+      inbounds.add({
+        "tag": "tun-in",
+        "protocol": "tun",
+        "settings": {
+          "name": "v2raypro-tun",
+          "mtu": 1500
+        },
+        "sniffing": {"enabled": true, "destOverride": ["http", "tls"]}
+      });
+    }
+
     return {
       "log": {"loglevel": "warning"},
       "dns": {
@@ -191,23 +221,7 @@ class XrayProcessService {
           "localhost"
         ]
       },
-      "inbounds": [
-        {
-          "tag": "socks-in",
-          "port": socksPort,
-          "listen": "127.0.0.1",
-          "protocol": "socks",
-          "settings": {"auth": "noauth", "udp": true},
-          "sniffing": {"enabled": true, "destOverride": ["http", "tls"]}
-        },
-        {
-          "tag": "http-in",
-          "port": httpPort,
-          "listen": "127.0.0.1",
-          "protocol": "http",
-          "sniffing": {"enabled": true, "destOverride": ["http", "tls"]}
-        }
-      ],
+      "inbounds": inbounds,
       "outbounds": [
         outbound,
         {"tag": "direct", "protocol": "freedom"},
@@ -222,7 +236,7 @@ class XrayProcessService {
     };
   }
 
-  Future<bool> start(ProxyNode node) async {
+  Future<bool> start(ProxyNode node, {bool enableTun = false, bool setSysProxy = false}) async {
     if (_state == EngineState.running) {
       await stop();
     }
@@ -235,7 +249,7 @@ class XrayProcessService {
     }
 
     try {
-      final configJson = generateXrayConfig(node);
+      final configJson = generateXrayConfig(node, enableTun: enableTun);
       final tmpDir = Directory.systemTemp;
       _currentConfigFile = File("${tmpDir.path}/v2raypro_active_config.json");
       await _currentConfigFile!.writeAsString(jsonEncode(configJson));
@@ -266,8 +280,8 @@ class XrayProcessService {
         return false;
       }
 
-      // Enable system proxy on Windows
-      if (Platform.isWindows) {
+      // Enable system proxy on Windows only if requested
+      if (Platform.isWindows && setSysProxy) {
         setWindowsSystemProxy(true);
       }
 

@@ -139,6 +139,7 @@ class ProxyNode {
     int? latencyMs,
     bool? isActive,
     String? originalAddress,
+    String? subscriptionId,
   }) {
     return ProxyNode(
       id: id,
@@ -163,7 +164,7 @@ class ProxyNode {
       spiderX: spiderX,
       mode: mode,
       extra: extra,
-      subscriptionId: subscriptionId,
+      subscriptionId: subscriptionId ?? this.subscriptionId,
       latencyMs: latencyMs ?? this.latencyMs,
       lastTestedAt: lastTestedAt,
       isActive: isActive ?? this.isActive,
