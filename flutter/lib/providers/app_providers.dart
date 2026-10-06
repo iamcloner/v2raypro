@@ -518,6 +518,7 @@ class ScannerState {
   final bool isScanning;
   final ScannerStrategy strategy;
   final int workers; // Concurrency from slider (5 to 100)
+  final int targetTotalCandidates; // Target total from slider (200 to 10,000)
   final int total;
   final int scanned;
   final String currentIp;
@@ -535,6 +536,7 @@ class ScannerState {
     this.strategy = ScannerStrategy.radar,
     int? workers,
     int? threshold,
+    this.targetTotalCandidates = 500,
     this.total = 0,
     this.scanned = 0,
     this.currentIp = "",
@@ -551,6 +553,7 @@ class ScannerState {
     ScannerStrategy? strategy,
     int? workers,
     int? threshold,
+    int? targetTotalCandidates,
     int? total,
     int? scanned,
     String? currentIp,
@@ -565,6 +568,7 @@ class ScannerState {
       isScanning: isScanning ?? this.isScanning,
       strategy: strategy ?? this.strategy,
       workers: workers ?? threshold ?? this.workers,
+      targetTotalCandidates: targetTotalCandidates ?? this.targetTotalCandidates,
       total: total ?? this.total,
       scanned: scanned ?? this.scanned,
       currentIp: currentIp ?? this.currentIp,
@@ -596,6 +600,11 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
 
   void setThreshold(int threshold) => setWorkers(threshold);
 
+  void setTargetTotalCandidates(int total) {
+    if (state.isScanning) return;
+    state = state.copyWith(targetTotalCandidates: total.clamp(200, 10000));
+  }
+
   void cancelScan() {
     _isCancelled = true;
     CloudflareScannerService.instance.cancel();
@@ -609,6 +618,7 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
     state = ScannerState(
       strategy: state.strategy,
       workers: state.workers,
+      targetTotalCandidates: state.targetTotalCandidates,
       isScanning: false,
       total: 0,
       scanned: 0,
@@ -630,72 +640,67 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
     final customCidrs = ref.read(cfRangesProvider);
 
     _isCancelled = false;
-
-    // 1. Generate unique shuffled candidates from CIDR ranges in Settings
-    final candidates = CloudflareScannerService.generateCandidateIps(
-      count: 200,
-      cidrs: customCidrs,
-    );
-
-    state = state.copyWith(
-      isScanning: true,
-      total: candidates.length,
-      scanned: 0,
-      currentIp: "",
-      results: [],
-      bestIp: null,
-      connectedIp: activeNode.address,
-      currentBestLatency: null,
-      radarLogs: [],
-      statusMessage: state.strategy == ScannerStrategy.radar ? "Radar active..." : "Scanning...",
-    );
-
     final strategy = state.strategy;
-    final workers = state.workers; // Use the slider's concurrent workers
+    final workers = state.workers;
 
-    for (int i = 0; i < candidates.length; i += workers) {
-      if (_isCancelled) break;
-      final chunk = candidates.sublist(i, min(i + workers, candidates.length));
+    if (strategy == ScannerStrategy.radar) {
+      // RADAR MODE: Infinite & continuous scan across all Cloudflare ranges
+      state = state.copyWith(
+        isScanning: true,
+        total: 0, // 0 indicates infinite continuous stream
+        scanned: 0,
+        currentIp: "",
+        bestIp: null,
+        connectedIp: activeNode.address,
+        currentBestLatency: null,
+        radarLogs: [],
+        statusMessage: "Radar active...",
+      );
 
-      final futures = chunk.map((ip) async {
-        final candidateNode = activeNode.copyWith(address: ip);
-        final lat = await XrayProcessService.instance.testNodeLatency(
-          candidateNode,
-          timeout: const Duration(seconds: 3),
+      final rng = Random();
+
+      while (!_isCancelled) {
+        final chunk = CloudflareScannerService.generateCandidateIps(
+          count: workers,
+          cidrs: customCidrs,
+          rng: rng,
         );
-        return MapEntry(ip, lat);
-      });
 
-      final chunkResults = await Future.wait(futures);
-      if (_isCancelled) break;
+        final futures = chunk.map((ip) async {
+          final candidateNode = activeNode.copyWith(address: ip);
+          final lat = await XrayProcessService.instance.testNodeLatency(
+            candidateNode,
+            timeout: const Duration(seconds: 3),
+          );
+          return MapEntry(ip, lat);
+        });
 
-      for (final entry in chunkResults) {
+        final chunkResults = await Future.wait(futures);
         if (_isCancelled) break;
-        final ip = entry.key;
-        final lat = entry.value;
 
-        state = state.copyWith(
-          scanned: state.scanned + 1,
-          currentIp: ip,
-        );
+        for (final entry in chunkResults) {
+          if (_isCancelled) break;
+          final ip = entry.key;
+          final lat = entry.value;
 
-        if (lat != null) {
-          final scanRes = ScanResult(
-            ip: ip,
-            port: activeNode.port,
-            tcpSuccess: true,
-            tcpLatencyMs: lat,
-            tlsSuccess: activeNode.security == SecurityType.tls || activeNode.security == SecurityType.reality,
-            tlsLatencyMs: lat,
-            protocolSuccess: true,
-            totalLatencyMs: lat,
-            rankScore: lat.toDouble(),
+          state = state.copyWith(
+            scanned: state.scanned + 1,
+            currentIp: ip,
           );
 
-          if (strategy == ScannerStrategy.radar) {
-            // Radar Strategy:
-            // First responding IP connects.
-            // Any subsequent IP with LOWER ping replaces it immediately.
+          if (lat != null) {
+            final scanRes = ScanResult(
+              ip: ip,
+              port: activeNode.port,
+              tcpSuccess: true,
+              tcpLatencyMs: lat,
+              tlsSuccess: activeNode.security == SecurityType.tls || activeNode.security == SecurityType.reality,
+              tlsLatencyMs: lat,
+              protocolSuccess: true,
+              totalLatencyMs: lat,
+              rankScore: lat.toDouble(),
+            );
+
             final prevBest = state.currentBestLatency;
             if (prevBest == null || lat < prevBest) {
               final improvement = prevBest != null ? (prevBest - lat) : null;
@@ -736,9 +741,71 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
                 }
               }
             }
-          } else {
-            // Target Strategy:
-            // Add to list and sort by lowest latency
+          }
+        }
+      }
+
+      state = state.copyWith(isScanning: false, statusMessage: "Stopped");
+    } else {
+      // TARGET MODE: User-selected pool size (200 to 10,000)
+      final totalCount = state.targetTotalCandidates;
+      final candidates = CloudflareScannerService.generateCandidateIps(
+        count: totalCount,
+        cidrs: customCidrs,
+      );
+
+      state = state.copyWith(
+        isScanning: true,
+        total: candidates.length,
+        scanned: 0,
+        currentIp: "",
+        results: [],
+        bestIp: null,
+        connectedIp: activeNode.address,
+        currentBestLatency: null,
+        radarLogs: [],
+        statusMessage: "Scanning...",
+      );
+
+      for (int i = 0; i < candidates.length; i += workers) {
+        if (_isCancelled) break;
+        final chunk = candidates.sublist(i, min(i + workers, candidates.length));
+
+        final futures = chunk.map((ip) async {
+          final candidateNode = activeNode.copyWith(address: ip);
+          final lat = await XrayProcessService.instance.testNodeLatency(
+            candidateNode,
+            timeout: const Duration(seconds: 3),
+          );
+          return MapEntry(ip, lat);
+        });
+
+        final chunkResults = await Future.wait(futures);
+        if (_isCancelled) break;
+
+        for (final entry in chunkResults) {
+          if (_isCancelled) break;
+          final ip = entry.key;
+          final lat = entry.value;
+
+          state = state.copyWith(
+            scanned: state.scanned + 1,
+            currentIp: ip,
+          );
+
+          if (lat != null) {
+            final scanRes = ScanResult(
+              ip: ip,
+              port: activeNode.port,
+              tcpSuccess: true,
+              tcpLatencyMs: lat,
+              tlsSuccess: activeNode.security == SecurityType.tls || activeNode.security == SecurityType.reality,
+              tlsLatencyMs: lat,
+              protocolSuccess: true,
+              totalLatencyMs: lat,
+              rankScore: lat.toDouble(),
+            );
+
             final updatedList = [...state.results, scanRes];
             updatedList.sort((a, b) => (a.totalLatencyMs ?? 99999).compareTo(b.totalLatencyMs ?? 99999));
             state = state.copyWith(
@@ -748,9 +815,9 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
           }
         }
       }
-    }
 
-    state = state.copyWith(isScanning: false, statusMessage: "Finished");
+      state = state.copyWith(isScanning: false, statusMessage: "Finished");
+    }
   }
 
   Future<void> connectToTargetIp(String ip, int latencyMs) async {

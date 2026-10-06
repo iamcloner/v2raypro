@@ -68,5 +68,21 @@ void main() {
       expect(updated.connectedIp, equals('104.18.2.2'));
       expect(updated.currentBestLatency, equals(95));
     });
+
+    test('ScannerState manages targetTotalCandidates slider range 200 to 10000', () {
+      final state = ScannerState(
+        strategy: ScannerStrategy.target,
+        workers: 30,
+        targetTotalCandidates: 1000,
+      );
+
+      expect(state.strategy, equals(ScannerStrategy.target));
+      expect(state.workers, equals(30));
+      expect(state.targetTotalCandidates, equals(1000));
+
+      final updated = state.copyWith(targetTotalCandidates: 5000);
+      expect(updated.targetTotalCandidates, equals(5000));
+    });
   });
 }
+

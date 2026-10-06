@@ -121,6 +121,10 @@ class AppStrings {
       "no_improvements_yet": "No improvements recorded yet.",
       "original_restored": "Original host address restored",
       "close": "Close",
+      "target_total_count": "Total Scan Candidates (200 - 10,000)",
+      "target_total_hint": "Number of shuffled Cloudflare IPs to test in Target mode",
+      "radar_infinite_notice": "Radar continuously and endlessly scans all Cloudflare ranges until stopped.",
+      "scanned_count_label": "Tested IPs",
     },
     "fa": {
       "app_title": "وی‌تو‌ری پرو",
@@ -243,6 +247,10 @@ class AppStrings {
       "no_improvements_yet": "هنوز بهبودی ثبت نشده است.",
       "original_restored": "آدرس سرور اصلی بازگردانی شد",
       "close": "بستن",
+      "target_total_count": "تعداد کل آی‌پی‌های اسکن (۲۰۰ تا ۱۰,۰۰۰)",
+      "target_total_hint": "تعداد کل آی‌پی‌های شافل‌شده کلودفلر برای اسکن در حالت تارگت",
+      "radar_infinite_notice": "رادار به صورت نامحدود و پیوسته تمامی رنج‌های کلودفلر را تا زمان توقف اسکن می‌کند.",
+      "scanned_count_label": "آی‌پی‌های تست‌شده",
     }
   };
 

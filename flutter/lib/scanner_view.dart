@@ -17,6 +17,7 @@ class ScannerView extends ConsumerStatefulWidget {
 class _ScannerViewState extends ConsumerState<ScannerView>
     with SingleTickerProviderStateMixin {
   double _workers = 20.0;
+  double _targetTotal = 500.0;
   String _searchQuery = '';
   bool _showStrategyInfo = false;
   late AnimationController _pulseController;
@@ -52,9 +53,14 @@ class _ScannerViewState extends ConsumerState<ScannerView>
         CloudflareScannerService.isCloudflareIp(
             activeNode.address, ref.watch(cfRangesProvider));
 
-    // Keep slider in sync with provider workers if not editing
-    if (!state.isScanning && _workers.round() != state.workers) {
-      _workers = state.workers.toDouble();
+    // Keep sliders in sync with provider if not editing
+    if (!state.isScanning) {
+      if (_workers.round() != state.workers) {
+        _workers = state.workers.toDouble();
+      }
+      if (_targetTotal.round() != state.targetTotalCandidates) {
+        _targetTotal = state.targetTotalCandidates.toDouble();
+      }
     }
 
     // Handle radar animation
@@ -447,7 +453,103 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                       },
               ),
             ),
-            const SizedBox(height: 10),
+            // Target Mode: Total Candidates Slider (200 to 10,000)
+            if (!isRadar) ...[
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.hub_rounded,
+                              size: 18, color: Colors.amber),
+                          const SizedBox(width: 6),
+                          Text(
+                            AppStrings.get('target_total_count', locale: locale),
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        AppStrings.get('target_total_hint', locale: locale),
+                        style: const TextStyle(fontSize: 11, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                          color: Colors.amber.withValues(alpha: 0.4)),
+                    ),
+                    child: Text(
+                      '${_targetTotal.round()} IPs',
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontWeight: FontWeight.bold,
+                        color: Colors.amber,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  activeTrackColor: Colors.amber,
+                  thumbColor: Colors.amber,
+                  overlayColor: Colors.amber.withValues(alpha: 0.2),
+                ),
+                child: Slider(
+                  value: _targetTotal,
+                  min: 200.0,
+                  max: 10000.0,
+                  divisions: 49,
+                  label: '${_targetTotal.round()}',
+                  onChanged: state.isScanning
+                      ? null
+                      : (val) {
+                          setState(() => _targetTotal = val);
+                          ref
+                              .read(scannerProvider.notifier)
+                              .setTargetTotalCandidates(val.round());
+                        },
+                ),
+              ),
+            ] else ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryAccent.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                      color: AppTheme.primaryAccent.withValues(alpha: 0.25)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.all_inclusive_rounded,
+                        size: 18, color: AppTheme.primaryAccent),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        AppStrings.get('radar_infinite_notice', locale: locale),
+                        style: const TextStyle(fontSize: 11, color: Colors.grey),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
             Row(
               children: [
                 Expanded(
@@ -499,8 +601,11 @@ class _ScannerViewState extends ConsumerState<ScannerView>
   }
 
   Widget _buildProgressCard(ScannerState state, String locale) {
-    final progress =
-        state.total > 0 ? (state.scanned / state.total).clamp(0.0, 1.0) : 0.0;
+    final isRadar = state.strategy == ScannerStrategy.radar;
+    final progress = (state.total > 0 && !isRadar)
+        ? (state.scanned / state.total).clamp(0.0, 1.0)
+        : null;
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -511,7 +616,9 @@ class _ScannerViewState extends ConsumerState<ScannerView>
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  '${AppStrings.get(state.isScanning ? 'scanning' : 'scan_finished', locale: locale)} (${state.scanned} / ${state.total})',
+                  isRadar
+                      ? '${AppStrings.get(state.isScanning ? 'scanning' : 'scan_finished', locale: locale)} (${AppStrings.get('scanned_count_label', locale: locale)}: ${state.scanned})'
+                      : '${AppStrings.get(state.isScanning ? 'scanning' : 'scan_finished', locale: locale)} (${state.scanned} / ${state.total})',
                   style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
                 if (state.currentIp.isNotEmpty)
