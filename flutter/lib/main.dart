@@ -1,6 +1,7 @@
 import 'configs_view.dart';
 import 'subscriptions_view.dart';
 import 'scanner_view.dart';
+import 'logs_view.dart';
 import 'settings_view.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -76,6 +77,7 @@ class _MainShellState extends ConsumerState<MainShell> {
       const ConfigsView(),
       const SubscriptionsView(),
       if (isCf) const ScannerView(),
+      const LogsView(),
       const SettingsView(),
     ];
 
@@ -122,6 +124,10 @@ class _MainShellState extends ConsumerState<MainShell> {
                     label: Text(AppStrings.get('scanner', locale: locale)),
                   ),
                 NavigationRailDestination(
+                  icon: const Icon(Icons.article_rounded),
+                  label: Text(AppStrings.get('logs', locale: locale)),
+                ),
+                NavigationRailDestination(
                   icon: const Icon(Icons.settings_rounded),
                   label: Text(AppStrings.get('settings', locale: locale)),
                 ),
@@ -157,6 +163,10 @@ class _MainShellState extends ConsumerState<MainShell> {
               icon: const Icon(Icons.radar_rounded),
               label: AppStrings.get('scanner', locale: locale),
             ),
+          NavigationDestination(
+            icon: const Icon(Icons.article_rounded),
+            label: AppStrings.get('logs', locale: locale),
+          ),
           NavigationDestination(
             icon: const Icon(Icons.settings_rounded),
             label: AppStrings.get('settings', locale: locale),

@@ -3,6 +3,8 @@ import "dart:convert";
 import "dart:ffi" as ffi;
 import "dart:io";
 import "../models/proxy_node.dart";
+import "../models/log_entry.dart";
+import "log_service.dart";
 
 enum EngineState { stopped, starting, running, stopping, error }
 
@@ -242,9 +244,12 @@ class XrayProcessService {
     }
 
     _state = EngineState.starting;
+    LogService.instance.add("Initializing Xray core for node: ${node.name} (${node.address}:${node.port}) [TUN: $enableTun, SysProxy: $setSysProxy]", level: LogLevel.info, source: "system");
+
     final binaryPath = _findXrayBinary();
     if (binaryPath == null) {
       _state = EngineState.error;
+      LogService.instance.add("Xray binary not found. Unable to start core.", level: LogLevel.error, source: "system");
       return false;
     }
 
@@ -262,12 +267,15 @@ class XrayProcessService {
 
       _process!.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
         lastLog = line;
+        LogService.instance.addFromRawLine(line, source: "xray");
       });
       _process!.stderr.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
         lastErrorLog = line;
+        LogService.instance.addFromRawLine(line, source: "xray");
       });
 
       _process!.exitCode.then((code) {
+        LogService.instance.add("Xray core exited with code $code", level: code == 0 ? LogLevel.info : LogLevel.warning, source: "xray");
         if (_state == EngineState.running) {
           _state = EngineState.stopped;
         }
@@ -277,6 +285,7 @@ class XrayProcessService {
       await Future.delayed(const Duration(milliseconds: 300));
       if (_state == EngineState.stopped) {
         _state = EngineState.error;
+        LogService.instance.add("Xray core exited immediately after launch. Check configuration.", level: LogLevel.error, source: "system");
         return false;
       }
 
@@ -286,15 +295,18 @@ class XrayProcessService {
       }
 
       _state = EngineState.running;
+      LogService.instance.add("Xray core started successfully.", level: LogLevel.info, source: "system");
       return true;
     } catch (e) {
       _state = EngineState.error;
+      LogService.instance.add("Failed to start Xray process: $e", level: LogLevel.error, source: "system");
       return false;
     }
   }
 
   Future<void> stop() async {
     _state = EngineState.stopping;
+    LogService.instance.add("Stopping Xray core...", level: LogLevel.info, source: "system");
     if (Platform.isWindows) {
       setWindowsSystemProxy(false);
     }
@@ -306,6 +318,7 @@ class XrayProcessService {
       }
     } catch (_) {}
     _state = EngineState.stopped;
+    LogService.instance.add("Xray core stopped.", level: LogLevel.info, source: "system");
   }
 
   void _notifyWindowsProxyChanged() {
@@ -362,6 +375,11 @@ class XrayProcessService {
         isSystemProxySet = false;
       }
       _notifyWindowsProxyChanged();
+      LogService.instance.add(
+        enable ? "System proxy activated (127.0.0.1:$httpPort)" : "System proxy deactivated",
+        level: LogLevel.info,
+        source: "system",
+      );
     } catch (_) {}
   }
 

@@ -6,7 +6,9 @@ import "package:flutter_riverpod/flutter_riverpod.dart";
 import "../models/proxy_node.dart";
 import "../models/scan_result.dart";
 import "../models/subscription_item.dart";
+import "../models/log_entry.dart";
 import "../services/cloudflare_scanner_service.dart";
+import "../services/log_service.dart";
 import "../services/storage_service.dart";
 import "../services/xray_process_service.dart";
 import "../utils/config_parser.dart";
@@ -719,6 +721,11 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
               );
 
               // Apply the new best IP to active node
+              LogService.instance.add(
+                "[Radar] Discovered responsive Cloudflare IP: $ip (${lat}ms)${improvement != null ? ' - improved by ${improvement}ms' : ''}",
+                level: LogLevel.access,
+                source: "scanner",
+              );
               ref.read(nodesProvider.notifier).applyIp(activeNode.id, ip);
 
               // Connect or hot-switch Xray connection
@@ -817,6 +824,11 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
       }
 
       state = state.copyWith(isScanning: false, statusMessage: "Finished");
+      LogService.instance.add(
+        "[Target] Scan finished. Tested ${state.scanned}/${candidates.length} IPs, found ${state.results.length} responsive servers.",
+        level: LogLevel.info,
+        source: "scanner",
+      );
     }
   }
 
@@ -825,6 +837,11 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
     if (nodes.isEmpty) return;
     final activeNode = nodes.firstWhere((n) => n.isActive, orElse: () => nodes.first);
 
+    LogService.instance.add(
+      "[Target] Connecting to selected IP: $ip (${latencyMs}ms)...",
+      level: LogLevel.info,
+      source: "scanner",
+    );
     ref.read(nodesProvider.notifier).applyIp(activeNode.id, ip);
     state = state.copyWith(connectedIp: ip, currentBestLatency: latencyMs);
 
@@ -926,5 +943,34 @@ class SocksPortNotifier extends StateNotifier<int> {
 
 final socksPortProvider = StateNotifierProvider<SocksPortNotifier, int>((ref) {
   return SocksPortNotifier();
+});
+
+class LogsNotifier extends StateNotifier<List<LogEntry>> {
+  StreamSubscription<LogEntry>? _sub;
+
+  LogsNotifier() : super(LogService.instance.logs) {
+    _sub = LogService.instance.onNewLog.listen((_) {
+      state = LogService.instance.logs;
+    });
+  }
+
+  void add(String message, {LogLevel level = LogLevel.info, String source = "system"}) {
+    LogService.instance.add(message, level: level, source: source);
+  }
+
+  void clear() {
+    LogService.instance.clear();
+    state = [];
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+}
+
+final logsProvider = StateNotifierProvider<LogsNotifier, List<LogEntry>>((ref) {
+  return LogsNotifier();
 });
 
