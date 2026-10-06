@@ -1,6 +1,6 @@
-// ignore_for_file: deprecated_member_use
 import "dart:io";
 import "package:flutter_riverpod/flutter_riverpod.dart";
+import "package:local_notifier/local_notifier.dart";
 import "package:tray_manager/legacy.dart";
 import "package:window_manager/window_manager.dart";
 import "../core/l10n/translations.dart";
@@ -17,15 +17,39 @@ class AppTrayService with TrayListener, WindowListener {
     _container = container;
     if (!Platform.isWindows && !Platform.isLinux && !Platform.isMacOS) return;
 
+    try {
+      await localNotifier.setup(
+        appName: 'V2RayPro',
+        shortcutPolicy: ShortcutPolicy.requireCreate,
+      );
+    } catch (_) {}
+
     await windowManager.ensureInitialized();
     windowManager.addListener(this);
     await windowManager.setPreventClose(true);
+    await windowManager.setTitle("V2RayPro");
 
     trayManager.addListener(this);
     try {
-      await trayManager.setIcon(
-        Platform.isWindows ? "windows/runner/resources/app_icon.ico" : "assets/app_icon.ico",
-      );
+      String iconPath = "assets/app_icon.png";
+      if (Platform.isWindows) {
+        final exeDir = File(Platform.resolvedExecutable).parent.path;
+        final candidates = [
+          "$exeDir\\data\\flutter_assets\\assets\\app_icon.png",
+          "$exeDir\\app_icon.png",
+          "$exeDir\\data\\flutter_assets\\assets\\app_icon.ico",
+          "$exeDir\\app_icon.ico",
+          "assets/app_icon.png",
+          "assets/app_icon.ico",
+        ];
+        for (final p in candidates) {
+          if (File(p).existsSync()) {
+            iconPath = p;
+            break;
+          }
+        }
+      }
+      await trayManager.setIcon(iconPath);
     } catch (_) {}
     await updateTrayMenu();
   }
@@ -96,15 +120,31 @@ class AppTrayService with TrayListener, WindowListener {
   void onWindowClose() async {
     // Hide to tray instead of quitting
     await windowManager.hide();
+
+    // Show native Windows notification regarding background status
+    try {
+      final locale = _container?.read(currentLocaleProvider) ?? "en";
+      final connState = _container?.read(connectionStatusProvider) ?? ConnectionStateEnum.disconnected;
+      final isConnected = connState == ConnectionStateEnum.connected;
+
+      final body = isConnected
+          ? AppStrings.get("background_active_connected", locale: locale)
+          : AppStrings.get("background_active_disconnected", locale: locale);
+
+      final notification = LocalNotification(
+        title: "V2RayPro",
+        body: body,
+        silent: true,
+      );
+      await notification.show();
+    } catch (_) {}
   }
 
   Future<void> exitApp() async {
     try {
-      // Disconnect if connected
+      // Disconnect if connected and completely clean system settings
       await XrayProcessService.instance.stop();
-      if (Platform.isWindows) {
-        XrayProcessService.instance.setWindowsSystemProxy(false);
-      }
+      XrayProcessService.instance.cleanupSystemAndXray();
     } catch (_) {}
     try {
       await trayManager.destroy();

@@ -23,6 +23,9 @@ class CloudflareScannerService {
     "103.22.200.0/22",
     "103.31.4.0/22",
     "131.0.72.0/22",
+    "162.159.0.0/16",
+    "1.0.0.0/24",
+    "1.1.1.0/24",
   ];
 
   static const List<String> cfSubnets = [
@@ -111,6 +114,58 @@ class CloudflareScannerService {
         }
       } catch (_) {}
     }
+    return false;
+  }
+
+  static final Map<String, bool> _domainCfCache = {};
+
+  /// Check if a host (IP or domain name) is Cloudflare synchronously using cache or known rules
+  static bool isCloudflareHostSync(String host, [List<String>? cidrs]) {
+    final clean = host.trim().toLowerCase();
+    if (_domainCfCache.containsKey(clean)) {
+      return _domainCfCache[clean]!;
+    }
+    // Direct IP check
+    if (isCloudflareIp(clean, cidrs)) {
+      _domainCfCache[clean] = true;
+      return true;
+    }
+    // Well-known Cloudflare domain suffix check
+    if (clean == 'cloudflare.com' ||
+        clean.endsWith('.cloudflare.com') ||
+        clean == 'workers.dev' ||
+        clean.endsWith('.workers.dev') ||
+        clean == 'pages.dev' ||
+        clean.endsWith('.pages.dev') ||
+        clean.endsWith('.cfargotunnel.com')) {
+      _domainCfCache[clean] = true;
+      return true;
+    }
+    return false;
+  }
+
+  /// Asynchronously resolve domain and determine if it points to Cloudflare
+  static Future<bool> resolveAndCheckCloudflare(String host, [List<String>? cidrs]) async {
+    final clean = host.trim().toLowerCase();
+    if (_domainCfCache.containsKey(clean)) {
+      return _domainCfCache[clean]!;
+    }
+    if (isCloudflareHostSync(clean, cidrs)) {
+      _domainCfCache[clean] = true;
+      return true;
+    }
+
+    try {
+      final addresses = await InternetAddress.lookup(clean).timeout(const Duration(seconds: 3));
+      for (final addr in addresses) {
+        if (isCloudflareIp(addr.address, cidrs)) {
+          _domainCfCache[clean] = true;
+          return true;
+        }
+      }
+    } catch (_) {}
+
+    _domainCfCache[clean] = false;
     return false;
   }
 

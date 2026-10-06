@@ -26,6 +26,8 @@ class XrayProcessService {
   String? _findXrayBinary() {
     final exeDir = File(Platform.resolvedExecutable).parent.path;
     final candidates = [
+      "$exeDir/xray/xray.exe",
+      "xray/xray.exe",
       "xray.exe",
       "assets/bin/xray.exe",
       "$exeDir/xray.exe",
@@ -42,7 +44,7 @@ class XrayProcessService {
     return null;
   }
 
-  Map<String, dynamic> generateXrayConfig(ProxyNode node, {bool enableTun = false}) {
+  Map<String, dynamic> generateXrayConfig(ProxyNode node, {bool enableTun = false, bool enableUdp = true}) {
     final netName = (node.network == NetworkType.splithttp || node.network == NetworkType.xhttp)
         ? "xhttp"
         : node.network.name;
@@ -189,7 +191,7 @@ class XrayProcessService {
         "port": socksPort,
         "listen": "127.0.0.1",
         "protocol": "socks",
-        "settings": {"auth": "noauth", "udp": true},
+        "settings": {"auth": "noauth", "udp": enableUdp},
         "sniffing": {"enabled": true, "destOverride": ["http", "tls"]}
       },
       {
@@ -207,9 +209,26 @@ class XrayProcessService {
         "protocol": "tun",
         "settings": {
           "name": "v2raypro-tun",
-          "mtu": 1500
+          "mtu": 1500,
+          "gateway": [
+            "172.19.0.1/30"
+          ],
+          "dns": [
+            "1.1.1.1",
+            "8.8.8.8"
+          ],
+          "autoSystemRoutingTable": [
+            "0.0.0.0/0",
+            "0.0.0.0/1",
+            "128.0.0.0/1"
+          ],
+          "autoOutboundsInterface": "auto"
         },
-        "sniffing": {"enabled": true, "destOverride": ["http", "tls"]}
+        "sniffing": {
+          "enabled": true,
+          "destOverride": ["http", "tls", "quic"],
+          "metadataOnly": false
+        }
       });
     }
 
@@ -226,12 +245,15 @@ class XrayProcessService {
       "inbounds": inbounds,
       "outbounds": [
         outbound,
+        {"tag": "dns-out", "protocol": "dns"},
         {"tag": "direct", "protocol": "freedom"},
         {"tag": "block", "protocol": "blackhole"}
       ],
       "routing": {
         "domainStrategy": "IPIfNonMatch",
         "rules": [
+          if (enableTun)
+            {"type": "field", "inboundTag": ["tun-in"], "port": 53, "outboundTag": "dns-out"},
           {"type": "field", "outboundTag": "direct", "ip": ["geoip:private"]}
         ]
       }
@@ -268,12 +290,12 @@ class XrayProcessService {
     return await _isPortAvailable(port);
   }
 
-  Future<bool> start(ProxyNode node, {bool enableTun = false, bool setSysProxy = false}) async {
+  Future<bool> start(ProxyNode node, {bool enableTun = false, bool setSysProxy = false, bool enableUdp = true}) async {
     // Always stop and cleanup any existing process
     await stop();
 
     _state = EngineState.starting;
-    LogService.instance.add("Initializing Xray core for node: ${node.name} (${node.address}:${node.port}) [TUN: $enableTun, SysProxy: $setSysProxy]", level: LogLevel.info, source: "system");
+    LogService.instance.add("Initializing Xray core for node: ${node.name} (${node.address}:${node.port}) [TUN: $enableTun, SysProxy: $setSysProxy, UDP: $enableUdp]", level: LogLevel.info, source: "system");
 
     final binaryPath = _findXrayBinary();
     if (binaryPath == null) {
@@ -298,7 +320,7 @@ class XrayProcessService {
     }
 
     try {
-      final configJson = generateXrayConfig(node, enableTun: enableTun);
+      final configJson = generateXrayConfig(node, enableTun: enableTun, enableUdp: enableUdp);
       final tmpDir = Directory.systemTemp;
       _currentConfigFile = File("${tmpDir.path}/v2raypro_active_config.json");
       await _currentConfigFile!.writeAsString(jsonEncode(configJson));
@@ -306,6 +328,7 @@ class XrayProcessService {
       _process = await Process.start(
         binaryPath,
         ["run", "-c", _currentConfigFile!.path],
+        workingDirectory: File(binaryPath).parent.path,
         mode: ProcessStartMode.normal,
       );
 
@@ -385,6 +408,30 @@ class XrayProcessService {
     } catch (_) {}
     _state = EngineState.stopped;
     LogService.instance.add("Xray core stopped.", level: LogLevel.info, source: "system");
+  }
+
+  /// Complete system cleanup for startup and shutdown:
+  /// Clears Windows system proxy, terminates orphan xray processes, and removes temp config
+  void cleanupSystemAndXray() {
+    try {
+      if (Platform.isWindows) {
+        setWindowsSystemProxy(false);
+        // Kill any orphan xray.exe processes left running
+        try {
+          Process.runSync("taskkill", ["/F", "/IM", "xray.exe"]);
+        } catch (_) {}
+      }
+      if (_process != null) {
+        _process!.kill();
+        _process = null;
+      }
+      final tmpDir = Directory.systemTemp;
+      final activeConfig = File("${tmpDir.path}/v2raypro_active_config.json");
+      if (activeConfig.existsSync()) {
+        try { activeConfig.deleteSync(); } catch (_) {}
+      }
+      _state = EngineState.stopped;
+    } catch (_) {}
   }
 
   void _notifyWindowsProxyChanged() {
@@ -471,6 +518,31 @@ class XrayProcessService {
     } catch (_) {
       return null;
     }
+  }
+
+  /// Check if the process is running with Administrator privileges on Windows
+  bool isRunningAsAdmin() {
+    if (!Platform.isWindows) return true;
+    try {
+      final res = Process.runSync("net", ["session"]);
+      return res.exitCode == 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Relaunch application with Administrator privileges via UAC
+  Future<void> restartAsAdmin() async {
+    if (!Platform.isWindows) return;
+    try {
+      final exePath = Platform.resolvedExecutable;
+      await Process.start("powershell", [
+        "-NoProfile",
+        "-Command",
+        "Start-Process -FilePath '$exePath' -Verb RunAs",
+      ]);
+      exit(0);
+    } catch (_) {}
   }
 }
 

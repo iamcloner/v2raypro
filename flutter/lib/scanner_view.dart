@@ -648,6 +648,73 @@ class _ScannerViewState extends ConsumerState<ScannerView>
     );
   }
 
+  Widget _buildRadarTrafficWarningCard(BuildContext context, String locale) {
+    return Card(
+      color: Colors.amber.shade900.withValues(alpha: 0.2),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: Colors.amber, width: 1.2),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 22),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    AppStrings.get('radar_traffic_warning', locale: locale),
+                    style: const TextStyle(
+                      color: Colors.amber,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: () {
+                    ref.read(scannerProvider.notifier).dismissRadarWarning();
+                  },
+                  child: Text(
+                    AppStrings.get('dismiss', locale: locale),
+                    style: TextStyle(color: Colors.grey.shade400, fontSize: 12),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.amber.shade700,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  icon: const Icon(Icons.stop_rounded, size: 16),
+                  label: Text(
+                    AppStrings.get('stop_radar', locale: locale),
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                  ),
+                  onPressed: () {
+                    ref.read(scannerProvider.notifier).cancelScan();
+                    ref.read(scannerProvider.notifier).dismissRadarWarning();
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildRadarView(
       ScannerState state, dynamic activeNode, String locale) {
     final hasConnectedIp =
@@ -656,6 +723,10 @@ class _ScannerViewState extends ConsumerState<ScannerView>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (state.showRadarTrafficWarning) ...[
+          _buildRadarTrafficWarningCard(context, locale),
+          const SizedBox(height: 14),
+        ],
         // Live Radar Active Display Card
         Card(
           color: hasConnectedIp
@@ -914,6 +985,87 @@ class _ScannerViewState extends ConsumerState<ScannerView>
             ),
           ),
         ),
+        const SizedBox(height: 20),
+
+        // Discovered Responsive IPs in Radar Mode (Manual Switch Available)
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.dns_rounded,
+                            size: 20, color: AppTheme.successColor),
+                        const SizedBox(width: 8),
+                        Text(
+                          AppStrings.get('radar_discovered_ips', locale: locale),
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold, fontSize: 15),
+                        ),
+                      ],
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: AppTheme.successColor.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                            color: AppTheme.successColor.withValues(alpha: 0.4)),
+                      ),
+                      child: Text(
+                        '${state.results.length}',
+                        style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: AppTheme.successColor),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  AppStrings.get('radar_discovered_ips_hint', locale: locale),
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const SizedBox(height: 14),
+                if (state.results.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 20),
+                    child: Center(
+                      child: Text(
+                        state.isScanning
+                            ? AppStrings.get('scanning_subnets', locale: locale)
+                            : AppStrings.get('no_responsive_ips', locale: locale),
+                        style: const TextStyle(color: Colors.grey),
+                      ),
+                    ),
+                  )
+                else
+                  ListView.separated(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: state.results.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (context, index) {
+                      final res = state.results[index];
+                      return _buildTargetResultCard(
+                        res,
+                        index,
+                        locale,
+                        connectedIp: state.connectedIp,
+                      );
+                    },
+                  ),
+              ],
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -982,16 +1134,28 @@ class _ScannerViewState extends ConsumerState<ScannerView>
             separatorBuilder: (_, __) => const SizedBox(height: 10),
             itemBuilder: (context, index) {
               final res = filtered[index];
-              return _buildTargetResultCard(res, index, locale);
+              return _buildTargetResultCard(
+                res,
+                index,
+                locale,
+                connectedIp: state.connectedIp,
+              );
             },
           ),
       ],
     );
   }
 
-  Widget _buildTargetResultCard(ScanResult res, int index, String locale) {
+  Widget _buildTargetResultCard(
+    ScanResult res,
+    int index,
+    String locale, {
+    String? connectedIp,
+  }) {
     final lat = res.totalLatencyMs ?? res.tcpLatencyMs ?? 0;
     final isTop = index == 0;
+    final isConnected = connectedIp != null && res.ip == connectedIp;
+
     Color badgeColor;
     if (lat < 120) {
       badgeColor = AppTheme.successColor;
@@ -1002,16 +1166,20 @@ class _ScannerViewState extends ConsumerState<ScannerView>
     }
 
     return Card(
-      color: isTop
-          ? AppTheme.primaryAccent.withValues(alpha: 0.08)
-          : const Color(0xFF161B26),
+      color: isConnected
+          ? AppTheme.successColor.withValues(alpha: 0.08)
+          : (isTop
+              ? AppTheme.primaryAccent.withValues(alpha: 0.08)
+              : const Color(0xFF161B26)),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(
-          color: isTop
-              ? AppTheme.primaryAccent.withValues(alpha: 0.5)
-              : Colors.grey.shade800,
-          width: isTop ? 1.2 : 0.8,
+          color: isConnected
+              ? AppTheme.successColor.withValues(alpha: 0.7)
+              : (isTop
+                  ? AppTheme.primaryAccent.withValues(alpha: 0.5)
+                  : Colors.grey.shade800),
+          width: (isConnected || isTop) ? 1.2 : 0.8,
         ),
       ),
       child: Padding(
@@ -1023,9 +1191,11 @@ class _ScannerViewState extends ConsumerState<ScannerView>
               height: 32,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: isTop
-                    ? Colors.amber.withValues(alpha: 0.2)
-                    : Colors.grey.shade800,
+                color: isConnected
+                    ? AppTheme.successColor.withValues(alpha: 0.2)
+                    : (isTop
+                        ? Colors.amber.withValues(alpha: 0.2)
+                        : Colors.grey.shade800),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
@@ -1033,7 +1203,9 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 12,
-                  color: isTop ? Colors.amber : Colors.grey.shade300,
+                  color: isConnected
+                      ? AppTheme.successColor
+                      : (isTop ? Colors.amber : Colors.grey.shade300),
                 ),
               ),
             ),
@@ -1042,13 +1214,44 @@ class _ScannerViewState extends ConsumerState<ScannerView>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    res.ip,
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                    ),
+                  Row(
+                    children: [
+                      Text(
+                        res.ip,
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                      if (isConnected) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppTheme.successColor.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.check_circle_rounded,
+                                  size: 11, color: AppTheme.successColor),
+                              const SizedBox(width: 3),
+                              Text(
+                                AppStrings.get('currently_active', locale: locale),
+                                style: const TextStyle(
+                                  color: AppTheme.successColor,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                   const SizedBox(height: 2),
                   Text(
@@ -1088,31 +1291,50 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                 );
               },
             ),
-            FilledButton.icon(
-              style: FilledButton.styleFrom(
-                backgroundColor: AppTheme.primaryAccent,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8)),
+            if (isConnected)
+              FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppTheme.successColor.withValues(alpha: 0.25),
+                  foregroundColor: AppTheme.successColor,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8)),
+                  elevation: 0,
+                ),
+                icon: const Icon(Icons.check_rounded, size: 16),
+                label: Text(
+                  AppStrings.get('currently_active', locale: locale),
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+                onPressed: null,
+              )
+            else
+              FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppTheme.primaryAccent,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8)),
+                ),
+                icon: const Icon(Icons.swap_horiz_rounded, size: 16),
+                label: Text(
+                  AppStrings.get('switch_ip', locale: locale),
+                  style: const TextStyle(fontSize: 12),
+                ),
+                onPressed: () async {
+                  await ref
+                      .read(scannerProvider.notifier)
+                      .connectToCandidateIp(res.ip, lat);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                          'IP ${res.ip} ($lat ms) ${AppStrings.get('connected', locale: locale)}'),
+                    ),
+                  );
+                },
               ),
-              icon: const Icon(Icons.bolt_rounded, size: 16),
-              label: Text(
-                AppStrings.get('connect_apply', locale: locale),
-                style: const TextStyle(fontSize: 12),
-              ),
-              onPressed: () async {
-                await ref
-                    .read(scannerProvider.notifier)
-                    .connectToTargetIp(res.ip, lat);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                        'IP ${res.ip} ($lat ms) ${AppStrings.get('connected', locale: locale)}'),
-                  ),
-                );
-              },
-            ),
           ],
         ),
       ),

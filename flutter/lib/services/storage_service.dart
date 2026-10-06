@@ -17,13 +17,26 @@ class StorageService {
 
   File _getBackupFile(String filename) {
     final exeDir = File(Platform.resolvedExecutable).parent.path;
-    final primary = File("$exeDir/$filename");
+    final configDir = Directory("$exeDir/config");
+    final configTarget = File("${configDir.path}/$filename");
+    final legacyRoot = File("$exeDir/$filename");
+
     try {
-      if (!primary.existsSync()) {
-        primary.createSync(recursive: true);
+      if (!configDir.existsSync()) {
+        configDir.createSync(recursive: true);
       }
-      return primary;
+      // Migrate legacy file if it exists at root but not yet in config/
+      if (legacyRoot.existsSync() && !configTarget.existsSync()) {
+        try {
+          legacyRoot.copySync(configTarget.path);
+        } catch (_) {}
+      }
+      return configTarget;
     } catch (_) {
+      // Fallback to legacy root or temp
+      if (legacyRoot.existsSync()) {
+        return legacyRoot;
+      }
       final tmp = Directory.systemTemp.path;
       return File("$tmp/$filename");
     }
@@ -165,9 +178,84 @@ class StorageService {
     }
   }
 
+
+  Future<void> saveString(String key, String val) async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      await sp.setString(key, val);
+    } catch (_) {}
+  }
+
+  Future<String> loadString(String key, {String defaultValue = ""}) async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      return sp.getString(key) ?? defaultValue;
+    } catch (_) {
+      return defaultValue;
+    }
+  }
+
   Future<void> saveHttpPort(int val) => saveInt(_httpPortKey, val);
   Future<int> loadHttpPort() => loadInt(_httpPortKey, defaultValue: 10888);
 
   Future<void> saveSocksPort(int val) => saveInt(_socksPortKey, val);
   Future<int> loadSocksPort() => loadInt(_socksPortKey, defaultValue: 10999);
+
+  // Settings: Startup, Auto-connect, Themes
+  static const _startOnBootKey = "v2raypro_start_on_boot";
+  static const _autoConnectKey = "v2raypro_auto_connect";
+  static const _autoSysProxyKey = "v2raypro_auto_sys_proxy";
+  static const _autoTunKey = "v2raypro_auto_tun";
+  static const _themeModeKey = "v2raypro_theme_mode";
+
+  Future<void> setWindowsStartup(bool enable) async {
+    if (!Platform.isWindows) return;
+    try {
+      if (enable) {
+        final exe = Platform.resolvedExecutable;
+        Process.runSync("reg", [
+          "add",
+          r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+          "/v",
+          "V2RayPro",
+          "/t",
+          "REG_SZ",
+          "/d",
+          "\"$exe\"",
+          "/f",
+        ]);
+      } else {
+        Process.runSync("reg", [
+          "delete",
+          r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+          "/v",
+          "V2RayPro",
+          "/f",
+        ]);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> saveStartOnBoot(bool val) async {
+    await saveBool(_startOnBootKey, val);
+    await setWindowsStartup(val);
+  }
+
+  Future<bool> loadStartOnBoot() => loadBool(_startOnBootKey, defaultValue: false);
+
+  Future<void> saveAutoConnect(bool val) => saveBool(_autoConnectKey, val);
+  Future<bool> loadAutoConnect() => loadBool(_autoConnectKey, defaultValue: false);
+
+  Future<void> saveAutoSysProxy(bool val) => saveBool(_autoSysProxyKey, val);
+  Future<bool> loadAutoSysProxy() => loadBool(_autoSysProxyKey, defaultValue: false);
+
+  Future<void> saveAutoTun(bool val) => saveBool(_autoTunKey, val);
+  Future<bool> loadAutoTun() => loadBool(_autoTunKey, defaultValue: false);
+
+  static const _enableUdpKey = "v2raypro_enable_udp";
+  Future<void> saveEnableUdp(bool val) => saveBool(_enableUdpKey, val);
+  Future<bool> loadEnableUdp() => loadBool(_enableUdpKey, defaultValue: true);
+
+  Future<void> saveThemeMode(String mode) => saveString(_themeModeKey, mode);
+  Future<String> loadThemeMode() => loadString(_themeModeKey, defaultValue: "system");
 }

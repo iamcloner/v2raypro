@@ -585,8 +585,8 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                               itemBuilder: (context, nodeIdx) {
                                 final node = displayedNodes[nodeIdx];
                                 final isTesting = _testingNodeIds.contains(node.id);
-                                final cfRanges = ref.watch(cfRangesProvider);
-                                final isCf = CloudflareScannerService.isCloudflareIp(node.address, cfRanges);
+                                final cfHosts = ref.watch(cfCheckedHostsProvider);
+                                final isCf = cfHosts[node.address.trim().toLowerCase()] ?? ref.read(cfCheckedHostsProvider.notifier).isCloudflare(node.address);
 
                                 return ListTile(
                                   dense: true,

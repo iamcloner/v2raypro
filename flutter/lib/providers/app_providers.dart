@@ -2,6 +2,7 @@ import "dart:async";
 import "dart:convert";
 import "dart:io";
 import "dart:math";
+import "package:flutter/material.dart";
 import "package:flutter_riverpod/flutter_riverpod.dart";
 import "../models/proxy_node.dart";
 import "../models/scan_result.dart";
@@ -28,6 +29,13 @@ class ConnectionStatusNotifier extends StateNotifier<ConnectionStateEnum> {
     ref.read(outboundInfoProvider.notifier).fetch();
     _testPing();
     AppTrayService.instance.updateTrayMenu();
+
+    if (ref.read(autoEnableSysProxyOnConnectProvider) && !ref.read(isSystemProxyEnabledProvider)) {
+      ref.read(isSystemProxyEnabledProvider.notifier).toggle(true);
+    }
+    if (ref.read(autoEnableTunOnConnectProvider) && !ref.read(isTunEnabledProvider)) {
+      ref.read(isTunEnabledProvider.notifier).toggle(true);
+    }
   }
 
   void setDisconnected() {
@@ -47,29 +55,52 @@ class ConnectionStatusNotifier extends StateNotifier<ConnectionStateEnum> {
     }
   }
 
-  Future<void> toggleConnect() async {
+  Future<void> connect([ProxyNode? targetNode]) async {
     final nodes = ref.read(nodesProvider);
     if (nodes.isEmpty) {
       state = ConnectionStateEnum.error;
       return;
     }
 
-    final activeNode = nodes.firstWhere((n) => n.isActive, orElse: () => nodes.first);
-    final isTun = ref.read(isTunEnabledProvider);
-    final isSysProxy = ref.read(isSystemProxyEnabledProvider);
+    final activeNode = targetNode ?? nodes.firstWhere((n) => n.isActive, orElse: () => nodes.first);
+    final isTun = ref.read(isTunEnabledProvider) || ref.read(autoEnableTunOnConnectProvider);
+    final isSysProxy = ref.read(isSystemProxyEnabledProvider) || ref.read(autoEnableSysProxyOnConnectProvider);
+    final enableUdp = ref.read(enableUdpProvider);
 
-    if (state == ConnectionStateEnum.disconnected || state == ConnectionStateEnum.error) {
+    if (isTun && !XrayProcessService.instance.isRunningAsAdmin()) {
+      LogService.instance.add("TUN Mode requires Administrator privileges on Windows. Please restart application as Administrator.", level: LogLevel.warning, source: "system");
+      state = ConnectionStateEnum.error;
+      return;
+    }
+
+    state = ConnectionStateEnum.connecting;
+    final ok = await XrayProcessService.instance.start(
+      activeNode,
+      enableTun: isTun,
+      setSysProxy: isSysProxy,
+      enableUdp: enableUdp,
+    );
+    if (ok) {
+      setConnected();
+    } else {
+      state = ConnectionStateEnum.error;
+    }
+  }
+
+  Future<void> reconnectWithUpdatedSettings() async {
+    if (state == ConnectionStateEnum.connected) {
+      final nodes = ref.read(nodesProvider);
+      if (nodes.isEmpty) return;
+      final active = nodes.firstWhere((n) => n.isActive, orElse: () => nodes.first);
       state = ConnectionStateEnum.connecting;
-      final ok = await XrayProcessService.instance.start(
-        activeNode,
-        enableTun: isTun,
-        setSysProxy: isSysProxy,
-      );
-      if (ok) {
-        setConnected();
-      } else {
-        state = ConnectionStateEnum.error;
-      }
+      await XrayProcessService.instance.stop();
+      await connect(active);
+    }
+  }
+
+  Future<void> toggleConnect() async {
+    if (state == ConnectionStateEnum.disconnected || state == ConnectionStateEnum.error) {
+      await connect();
     } else if (state == ConnectionStateEnum.connected) {
       state = ConnectionStateEnum.disconnecting;
       await XrayProcessService.instance.stop();
@@ -549,6 +580,8 @@ class ScannerState {
   final int? currentBestLatency;
   final List<RadarLogEntry> radarLogs;
   final String? statusMessage;
+  final int radarHealthyCount;
+  final bool showRadarTrafficWarning;
 
   int get threshold => workers;
 
@@ -567,6 +600,8 @@ class ScannerState {
     this.currentBestLatency,
     this.radarLogs = const [],
     this.statusMessage,
+    this.radarHealthyCount = 0,
+    this.showRadarTrafficWarning = false,
   }) : workers = (workers ?? threshold ?? 20).clamp(5, 100);
 
   ScannerState copyWith({
@@ -584,6 +619,8 @@ class ScannerState {
     int? currentBestLatency,
     List<RadarLogEntry>? radarLogs,
     String? statusMessage,
+    int? radarHealthyCount,
+    bool? showRadarTrafficWarning,
   }) {
     return ScannerState(
       isScanning: isScanning ?? this.isScanning,
@@ -599,6 +636,8 @@ class ScannerState {
       currentBestLatency: currentBestLatency ?? this.currentBestLatency,
       radarLogs: radarLogs ?? this.radarLogs,
       statusMessage: statusMessage ?? this.statusMessage,
+      radarHealthyCount: radarHealthyCount ?? this.radarHealthyCount,
+      showRadarTrafficWarning: showRadarTrafficWarning ?? this.showRadarTrafficWarning,
     );
   }
 }
@@ -606,6 +645,7 @@ class ScannerState {
 class ScannerNotifier extends StateNotifier<ScannerState> {
   final Ref ref;
   bool _isCancelled = false;
+  bool _hasWarnedRadarTraffic = false;
 
   ScannerNotifier(this.ref) : super(ScannerState());
 
@@ -632,7 +672,12 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
     state = state.copyWith(isScanning: false, statusMessage: "Stopped");
   }
 
+  void dismissRadarWarning() {
+    state = state.copyWith(showRadarTrafficWarning: false);
+  }
+
   void resetScan() {
+    _hasWarnedRadarTraffic = false;
     if (state.isScanning) {
       cancelScan();
     }
@@ -650,6 +695,8 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
       currentBestLatency: null,
       radarLogs: [],
       statusMessage: null,
+      radarHealthyCount: 0,
+      showRadarTrafficWarning: false,
     );
   }
 
@@ -661,6 +708,7 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
     final customCidrs = ref.read(cfRangesProvider);
 
     _isCancelled = false;
+    _hasWarnedRadarTraffic = false;
     final strategy = state.strategy;
     final workers = state.workers;
 
@@ -671,11 +719,14 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
         total: 0, // 0 indicates infinite continuous stream
         scanned: 0,
         currentIp: "",
+        results: [],
         bestIp: null,
         connectedIp: activeNode.address,
         currentBestLatency: null,
         radarLogs: [],
         statusMessage: "Radar active...",
+        radarHealthyCount: 0,
+        showRadarTrafficWarning: false,
       );
 
       final rng = Random();
@@ -710,6 +761,12 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
           );
 
           if (lat != null) {
+            final newHealthyCount = state.radarHealthyCount + 1;
+            final shouldWarn = newHealthyCount >= 10 && !_hasWarnedRadarTraffic;
+            if (shouldWarn) {
+              _hasWarnedRadarTraffic = true;
+            }
+
             final scanRes = ScanResult(
               ip: ip,
               port: activeNode.port,
@@ -722,8 +779,26 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
               rankScore: lat.toDouble(),
             );
 
+            // Update state.results with all responsive IPs (sorted by latency ascending)
+            final existingIndex = state.results.indexWhere((r) => r.ip == ip);
+            List<ScanResult> updatedResults;
+            if (existingIndex >= 0) {
+              final existing = state.results[existingIndex];
+              if ((existing.totalLatencyMs ?? 99999) > lat) {
+                updatedResults = List<ScanResult>.from(state.results);
+                updatedResults[existingIndex] = scanRes;
+              } else {
+                updatedResults = state.results;
+              }
+            } else {
+              updatedResults = [...state.results, scanRes];
+            }
+            updatedResults.sort((a, b) => (a.totalLatencyMs ?? 99999).compareTo(b.totalLatencyMs ?? 99999));
+
             final prevBest = state.currentBestLatency;
-            if (prevBest == null || lat < prevBest) {
+            final isNewBest = prevBest == null || lat < prevBest;
+
+            if (isNewBest) {
               final improvement = prevBest != null ? (prevBest - lat) : null;
               final newEntry = RadarLogEntry(
                 ip: ip,
@@ -733,15 +808,18 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
               );
 
               state = state.copyWith(
+                results: updatedResults,
                 bestIp: scanRes,
                 connectedIp: ip,
                 currentBestLatency: lat,
                 radarLogs: [newEntry, ...state.radarLogs],
+                radarHealthyCount: newHealthyCount,
+                showRadarTrafficWarning: shouldWarn ? true : state.showRadarTrafficWarning,
               );
 
               // Apply the new best IP to active node
               LogService.instance.add(
-                "[Radar] Discovered responsive Cloudflare IP: $ip (${lat}ms)${improvement != null ? ' - improved by ${improvement}ms' : ''}",
+                "[Radar] Discovered new best Cloudflare IP: $ip (${lat}ms)${improvement != null ? ' - improved by ${improvement}ms' : ''}",
                 level: LogLevel.access,
                 source: "scanner",
               );
@@ -766,6 +844,17 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
                   ref.read(connectionStatusProvider.notifier).setConnected();
                 }
               }
+            } else {
+              state = state.copyWith(
+                results: updatedResults,
+                radarHealthyCount: newHealthyCount,
+                showRadarTrafficWarning: shouldWarn ? true : state.showRadarTrafficWarning,
+              );
+              LogService.instance.add(
+                "[Radar] Discovered responsive Cloudflare IP: $ip (${lat}ms)",
+                level: LogLevel.info,
+                source: "scanner",
+              );
             }
           }
         }
@@ -851,18 +940,18 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
     }
   }
 
-  Future<void> connectToTargetIp(String ip, int latencyMs) async {
+  Future<void> connectToCandidateIp(String ip, int latencyMs) async {
     final nodes = ref.read(nodesProvider);
     if (nodes.isEmpty) return;
     final activeNode = nodes.firstWhere((n) => n.isActive, orElse: () => nodes.first);
 
     LogService.instance.add(
-      "[Target] Connecting to selected IP: $ip (${latencyMs}ms)...",
+      "[Scanner] Connecting to selected IP: $ip (${latencyMs}ms)...",
       level: LogLevel.info,
       source: "scanner",
     );
     ref.read(nodesProvider.notifier).applyIp(activeNode.id, ip);
-    state = state.copyWith(connectedIp: ip, currentBestLatency: latencyMs);
+    state = state.copyWith(connectedIp: ip);
 
     final connState = ref.read(connectionStatusProvider);
     if (connState == ConnectionStateEnum.connected) {
@@ -883,6 +972,9 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
       }
     }
   }
+
+  Future<void> connectToTargetIp(String ip, int latencyMs) =>
+      connectToCandidateIp(ip, latencyMs);
 }
 
 final scannerProvider = StateNotifierProvider<ScannerNotifier, ScannerState>((ref) {
@@ -1013,9 +1105,10 @@ class OutboundInfoNotifier extends StateNotifier<OutboundInfo> {
     client.findProxy = (uri) => "PROXY 127.0.0.1:$httpPort;";
 
     // Fetch IPv4 & Geolocation through local proxy
+    // 1. Primary: ip-api.com
     try {
       final req = await client.getUrl(Uri.parse("http://ip-api.com/json/"));
-      final resp = await req.close().timeout(const Duration(seconds: 5));
+      final resp = await req.close().timeout(const Duration(seconds: 4));
       if (resp.statusCode == 200) {
         final body = await resp.transform(utf8.decoder).join();
         final data = jsonDecode(body);
@@ -1027,10 +1120,49 @@ class OutboundInfoNotifier extends StateNotifier<OutboundInfo> {
           isp = data["isp"]?.toString();
         }
       }
-    } catch (_) {
+    } catch (_) {}
+
+    // 2. Fallback 1: ipwho.is
+    if (countryCode == null || countryCode.isEmpty) {
+      try {
+        final req = await client.getUrl(Uri.parse("https://ipwho.is/"));
+        final resp = await req.close().timeout(const Duration(seconds: 4));
+        if (resp.statusCode == 200) {
+          final body = await resp.transform(utf8.decoder).join();
+          final data = jsonDecode(body);
+          if (data["success"] == true) {
+            ipv4 ??= data["ip"]?.toString();
+            country ??= data["country"]?.toString();
+            countryCode ??= data["country_code"]?.toString();
+            city ??= data["city"]?.toString();
+            isp ??= data["connection"]?["isp"]?.toString();
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 3. Fallback 2: api.ip.sb/geoip
+    if (countryCode == null || countryCode.isEmpty) {
+      try {
+        final req = await client.getUrl(Uri.parse("https://api.ip.sb/geoip"));
+        final resp = await req.close().timeout(const Duration(seconds: 4));
+        if (resp.statusCode == 200) {
+          final body = await resp.transform(utf8.decoder).join();
+          final data = jsonDecode(body);
+          ipv4 ??= data["ip"]?.toString();
+          country ??= data["country"]?.toString();
+          countryCode ??= data["country_code"]?.toString();
+          city ??= data["city"]?.toString();
+          isp ??= data["isp"]?.toString();
+        }
+      } catch (_) {}
+    }
+
+    // 4. Fallback 3: api4.ipify.org (IP only)
+    if (ipv4 == null) {
       try {
         final req = await client.getUrl(Uri.parse("https://api4.ipify.org?format=json"));
-        final resp = await req.close().timeout(const Duration(seconds: 4));
+        final resp = await req.close().timeout(const Duration(seconds: 3));
         if (resp.statusCode == 200) {
           final body = await resp.transform(utf8.decoder).join();
           final data = jsonDecode(body);
@@ -1078,4 +1210,124 @@ final connectedAtProvider = StateProvider<DateTime?>((ref) => null);
 
 // False by default: masks half of IP addresses with ***
 final showFullIpProvider = StateProvider<bool>((ref) => false);
+
+class CfCheckedHostsNotifier extends StateNotifier<Map<String, bool>> {
+  final Ref ref;
+  CfCheckedHostsNotifier(this.ref) : super({});
+
+  bool isCloudflare(String address) {
+    final addr = address.trim().toLowerCase();
+    if (state.containsKey(addr)) return state[addr]!;
+    final cfRanges = ref.read(cfRangesProvider);
+    final isCf = CloudflareScannerService.isCloudflareHostSync(addr, cfRanges);
+    state = {...state, addr: isCf};
+    if (!isCf && !addr.contains(RegExp(r'^\d+\.\d+\.\d+\.\d+$'))) {
+      CloudflareScannerService.resolveAndCheckCloudflare(addr, cfRanges).then((resolvedIsCf) {
+        if (resolvedIsCf) {
+          state = {...state, addr: true};
+        }
+      });
+    }
+    return isCf;
+  }
+}
+
+final cfCheckedHostsProvider = StateNotifierProvider<CfCheckedHostsNotifier, Map<String, bool>>((ref) {
+  return CfCheckedHostsNotifier(ref);
+});
+
+// Settings Providers
+class StartOnBootNotifier extends StateNotifier<bool> {
+  StartOnBootNotifier() : super(false) {
+    _load();
+  }
+  Future<void> _load() async {
+    state = await StorageService.instance.loadStartOnBoot();
+  }
+  Future<void> toggle(bool val) async {
+    state = val;
+    await StorageService.instance.saveStartOnBoot(val);
+  }
+}
+final startOnBootProvider = StateNotifierProvider<StartOnBootNotifier, bool>((ref) => StartOnBootNotifier());
+
+class AutoConnectNotifier extends StateNotifier<bool> {
+  AutoConnectNotifier() : super(false) {
+    _load();
+  }
+  Future<void> _load() async {
+    state = await StorageService.instance.loadAutoConnect();
+  }
+  Future<void> toggle(bool val) async {
+    state = val;
+    await StorageService.instance.saveAutoConnect(val);
+  }
+}
+final autoConnectOnLaunchProvider = StateNotifierProvider<AutoConnectNotifier, bool>((ref) => AutoConnectNotifier());
+
+class AutoSysProxyNotifier extends StateNotifier<bool> {
+  AutoSysProxyNotifier() : super(false) {
+    _load();
+  }
+  Future<void> _load() async {
+    state = await StorageService.instance.loadAutoSysProxy();
+  }
+  Future<void> toggle(bool val) async {
+    state = val;
+    await StorageService.instance.saveAutoSysProxy(val);
+  }
+}
+final autoEnableSysProxyOnConnectProvider = StateNotifierProvider<AutoSysProxyNotifier, bool>((ref) => AutoSysProxyNotifier());
+
+class AutoTunNotifier extends StateNotifier<bool> {
+  AutoTunNotifier() : super(false) {
+    _load();
+  }
+  Future<void> _load() async {
+    state = await StorageService.instance.loadAutoTun();
+  }
+  Future<void> toggle(bool val) async {
+    state = val;
+    await StorageService.instance.saveAutoTun(val);
+  }
+}
+final autoEnableTunOnConnectProvider = StateNotifierProvider<AutoTunNotifier, bool>((ref) => AutoTunNotifier());
+
+class ThemeModeNotifier extends StateNotifier<ThemeMode> {
+  ThemeModeNotifier() : super(ThemeMode.system) {
+    _load();
+  }
+  Future<void> _load() async {
+    final str = await StorageService.instance.loadThemeMode();
+    if (str == "light") {
+      state = ThemeMode.light;
+    } else if (str == "dark") {
+      state = ThemeMode.dark;
+    } else {
+      state = ThemeMode.system;
+    }
+  }
+  Future<void> setMode(ThemeMode mode) async {
+    state = mode;
+    final str = mode == ThemeMode.light ? "light" : (mode == ThemeMode.dark ? "dark" : "system");
+    await StorageService.instance.saveThemeMode(str);
+  }
+  Future<void> setTheme(ThemeMode mode) => setMode(mode);
+}
+final appThemeModeProvider = StateNotifierProvider<ThemeModeNotifier, ThemeMode>((ref) => ThemeModeNotifier());
+
+class EnableUdpNotifier extends StateNotifier<bool> {
+  EnableUdpNotifier() : super(true) {
+    _load();
+  }
+  Future<void> _load() async {
+    state = await StorageService.instance.loadEnableUdp();
+  }
+  Future<void> toggle(bool val) async {
+    state = val;
+    await StorageService.instance.saveEnableUdp(val);
+  }
+}
+final enableUdpProvider = StateNotifierProvider<EnableUdpNotifier, bool>((ref) => EnableUdpNotifier());
+
 

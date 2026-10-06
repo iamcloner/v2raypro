@@ -5,6 +5,7 @@ import 'logs_view.dart';
 import 'settings_view.dart';
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -20,29 +21,68 @@ import 'services/cloudflare_scanner_service.dart';
 import 'services/tray_service.dart';
 import 'services/xray_process_service.dart';
 import 'utils/ip_mask_util.dart';
+import 'widgets/country_flag_badge.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   RustBridge.instance.initialize();
+
+  // Startup safety check: If previous run left active proxy or orphan xray/TUN processes, clean them up immediately
+  try {
+    XrayProcessService.instance.cleanupSystemAndXray();
+  } catch (_) {}
+
   final container = ProviderContainer();
   await AppTrayService.instance.init(container);
   runApp(UncontrolledProviderScope(container: container, child: const V2RayProApp()));
 }
 
-class V2RayProApp extends ConsumerWidget {
+class V2RayProApp extends ConsumerStatefulWidget {
   const V2RayProApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<V2RayProApp> createState() => _V2RayProAppState();
+}
+
+class _V2RayProAppState extends ConsumerState<V2RayProApp> {
+  late final AppLifecycleListener _lifecycleListener;
+
+  @override
+  void initState() {
+    super.initState();
+    _lifecycleListener = AppLifecycleListener(
+      onExitRequested: () async {
+        try {
+          XrayProcessService.instance.cleanupSystemAndXray();
+        } catch (_) {}
+        return AppExitResponse.exit;
+      },
+      onDetach: () {
+        try {
+          XrayProcessService.instance.cleanupSystemAndXray();
+        } catch (_) {}
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _lifecycleListener.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final localeStr = ref.watch(currentLocaleProvider);
     final locale = Locale(localeStr);
+    final themeMode = ref.watch(appThemeModeProvider);
 
     return MaterialApp(
       title: 'V2Ray Pro',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
-      themeMode: ThemeMode.dark,
+      themeMode: themeMode,
       locale: locale,
       supportedLocales: const [
         Locale('en', ''),
@@ -69,13 +109,33 @@ class _MainShellState extends ConsumerState<MainShell> {
   int _selectedIndex = 0;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkAutoConnect();
+    });
+  }
+
+  void _checkAutoConnect() {
+    final autoConnect = ref.read(autoConnectOnLaunchProvider);
+    final status = ref.read(connectionStatusProvider);
+    if (autoConnect && status == ConnectionStateEnum.disconnected) {
+      final nodes = ref.read(nodesProvider);
+      final activeNode = nodes.isEmpty ? null : nodes.firstWhere((n) => n.isActive, orElse: () => nodes.first);
+      if (activeNode != null) {
+        ref.read(connectionStatusProvider.notifier).connect(activeNode);
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final locale = ref.watch(currentLocaleProvider);
     final isDesktop = MediaQuery.of(context).size.width >= 700;
     final nodes = ref.watch(nodesProvider);
     final activeNode = nodes.isEmpty ? null : nodes.firstWhere((n) => n.isActive, orElse: () => nodes.first);
-    final cfRanges = ref.watch(cfRangesProvider);
-    final isCf = activeNode != null && CloudflareScannerService.isCloudflareIp(activeNode.address, cfRanges);
+    final cfHosts = ref.watch(cfCheckedHostsProvider);
+    final isCf = activeNode != null && (cfHosts[activeNode.address.trim().toLowerCase()] ?? ref.read(cfCheckedHostsProvider.notifier).isCloudflare(activeNode.address));
 
     // Build pages and nav items dynamically: Scanner is completely excluded if active node is not Cloudflare
     final pages = <Widget>[
@@ -101,14 +161,69 @@ class _MainShellState extends ConsumerState<MainShell> {
               labelType: NavigationRailLabelType.all,
               backgroundColor: const Color(0xFF0F131C),
               leading: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 24),
-                child: Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: AppTheme.primaryAccent.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(Icons.shield_rounded, color: AppTheme.primaryAccent, size: 28),
+                padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 8),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 46,
+                      height: 46,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: const Color(0xFF00D2FF).withValues(alpha: 0.4),
+                          width: 1.5,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF00D2FF).withValues(alpha: 0.25),
+                            blurRadius: 14,
+                            spreadRadius: 1,
+                          ),
+                        ],
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: Image.asset(
+                        'assets/app_icon.png',
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          "V2Ray",
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 12,
+                            letterSpacing: 0.5,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(width: 3),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 4, vertical: 1.5),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF00D2FF), Color(0xFFFF7A00)],
+                            ),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text(
+                            "PRO",
+                            style: TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 8,
+                              color: Colors.white,
+                              letterSpacing: 0.6,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
               destinations: [
@@ -147,6 +262,53 @@ class _MainShellState extends ConsumerState<MainShell> {
     }
 
     return Scaffold(
+      appBar: AppBar(
+        title: Row(
+          children: [
+            Container(
+              width: 30,
+              height: 30,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: const Color(0xFF00D2FF).withValues(alpha: 0.4),
+                  width: 1.2,
+                ),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Image.asset('assets/app_icon.png', fit: BoxFit.cover),
+            ),
+            const SizedBox(width: 10),
+            const Text(
+              "V2Ray",
+              style: TextStyle(
+                fontWeight: FontWeight.w900,
+                fontSize: 17,
+                letterSpacing: 0.5,
+              ),
+            ),
+            const SizedBox(width: 5),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF00D2FF), Color(0xFFFF7A00)],
+                ),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: const Text(
+                "PRO",
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 9,
+                  color: Colors.white,
+                  letterSpacing: 0.8,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
       body: pages[_selectedIndex],
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
@@ -246,18 +408,22 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
     final isTun = ref.watch(isTunEnabledProvider);
     final connectedAt = ref.watch(connectedAtProvider);
     final outbound = ref.watch(outboundInfoProvider);
-    final cfRanges = ref.watch(cfRangesProvider);
+    final cfHosts = ref.watch(cfCheckedHostsProvider);
     final showFullIp = ref.watch(showFullIpProvider);
 
     final isConnected = status == ConnectionStateEnum.connected;
     final isConnecting = status == ConnectionStateEnum.connecting;
-    final isCf = activeNode != null && CloudflareScannerService.isCloudflareIp(activeNode.address, cfRanges);
+    final isCf = activeNode != null && (cfHosts[activeNode.address.trim().toLowerCase()] ?? ref.read(cfCheckedHostsProvider.notifier).isCloudflare(activeNode.address));
 
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // 0. Top Brand Header
+          _buildBrandHeader(context, status, isConnected, isConnecting, locale),
+          const SizedBox(height: 16),
+
           // 1. Top Section: Connect Card (50% width) and IP Info Card (50% width) side-by-side
           LayoutBuilder(
             builder: (context, constraints) {
@@ -314,90 +480,111 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
           Row(
             children: [
               Expanded(
-                child: Card(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.shield_outlined,
-                              color: (isConnected && isSysProxy) ? AppTheme.successColor : Colors.grey,
-                              size: 24,
-                            ),
-                            const SizedBox(width: 10),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  AppStrings.get('system_proxy', locale: locale),
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                                ),
-                                Text(
-                                  AppStrings.get('system_proxy_desc', locale: locale),
-                                  style: const TextStyle(fontSize: 10, color: Colors.grey),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                        Switch(
-                          value: isConnected && isSysProxy,
-                          activeColor: AppTheme.successColor,
-                          onChanged: !isConnected
-                              ? null
-                              : (val) {
-                                  ref.read(isSystemProxyEnabledProvider.notifier).toggle(val);
-                                },
-                        ),
-                      ],
+                child: Opacity(
+                  opacity: isConnected ? 1.0 : 0.45,
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.shield_outlined,
+                                color: (isConnected && isSysProxy) ? AppTheme.successColor : Colors.grey,
+                                size: 24,
+                              ),
+                              const SizedBox(width: 10),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    AppStrings.get('system_proxy', locale: locale),
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                  ),
+                                  Text(
+                                    isConnected
+                                        ? AppStrings.get('system_proxy_desc', locale: locale)
+                                        : AppStrings.get('connect_first_hint', locale: locale),
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: isConnected ? Colors.grey : AppTheme.secondaryAccent.withValues(alpha: 0.8),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                          Switch(
+                            value: isConnected && isSysProxy,
+                            activeColor: AppTheme.successColor,
+                            onChanged: isConnected
+                                ? (val) {
+                                    ref.read(isSystemProxyEnabledProvider.notifier).toggle(val);
+                                  }
+                                : null,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: Card(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.vpn_lock_rounded,
-                              color: (isConnected && isTun) ? AppTheme.primaryAccent : Colors.grey,
-                              size: 24,
-                            ),
-                            const SizedBox(width: 10),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  AppStrings.get('tun_mode', locale: locale),
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                                ),
-                                Text(
-                                  AppStrings.get('tun_mode_desc', locale: locale),
-                                  style: const TextStyle(fontSize: 10, color: Colors.grey),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                        Switch(
-                          value: isConnected && isTun,
-                          activeColor: AppTheme.primaryAccent,
-                          onChanged: !isConnected
-                              ? null
-                              : (val) {
-                                  ref.read(isTunEnabledProvider.notifier).toggle(val);
-                                },
-                        ),
-                      ],
+                child: Opacity(
+                  opacity: isConnected ? 1.0 : 0.45,
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.vpn_lock_rounded,
+                                color: (isConnected && isTun) ? AppTheme.primaryAccent : Colors.grey,
+                                size: 24,
+                              ),
+                              const SizedBox(width: 10),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    AppStrings.get('tun_mode', locale: locale),
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                  ),
+                                  Text(
+                                    isConnected
+                                        ? AppStrings.get('tun_mode_desc', locale: locale)
+                                        : AppStrings.get('connect_first_hint', locale: locale),
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: isConnected ? Colors.grey : AppTheme.primaryAccent.withValues(alpha: 0.8),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                          Switch(
+                            value: isConnected && isTun,
+                            activeColor: AppTheme.primaryAccent,
+                            onChanged: isConnected
+                                ? (val) async {
+                                    if (val && !XrayProcessService.instance.isRunningAsAdmin()) {
+                                      _showAdminElevationDialog(context, locale);
+                                      return;
+                                    }
+                                    ref.read(isTunEnabledProvider.notifier).toggle(val);
+                                    await ref.read(connectionStatusProvider.notifier).reconnectWithUpdatedSettings();
+                                  }
+                                : null,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -436,6 +623,194 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                 ),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBrandHeader(
+    BuildContext context,
+    ConnectionStateEnum status,
+    bool isConnected,
+    bool isConnecting,
+    String locale,
+  ) {
+    Color statusColor;
+    String statusText;
+
+    if (isConnected) {
+      statusColor = AppTheme.successColor;
+      statusText = AppStrings.get('connected', locale: locale);
+    } else if (isConnecting) {
+      statusColor = Colors.amber;
+      statusText = AppStrings.get('connecting', locale: locale);
+    } else {
+      statusColor = Colors.grey.shade400;
+      statusText = AppStrings.get('disconnected', locale: locale);
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF131722),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isConnected
+              ? const Color(0xFF00D2FF).withValues(alpha: 0.35)
+              : const Color(0xFF222938),
+          width: 1.2,
+        ),
+        boxShadow: [
+          if (isConnected)
+            BoxShadow(
+              color: const Color(0xFF00D2FF).withValues(alpha: 0.08),
+              blurRadius: 18,
+              offset: const Offset(0, 4),
+            ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: const Color(0xFF00D2FF).withValues(alpha: 0.5),
+                    width: 1.5,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF00D2FF).withValues(alpha: 0.25),
+                      blurRadius: 14,
+                      spreadRadius: 1,
+                    ),
+                  ],
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Image.asset('assets/app_icon.png', fit: BoxFit.cover),
+              ),
+              const SizedBox(width: 14),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      const Text(
+                        "V2Ray",
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.6,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF00D2FF), Color(0xFFFF7A00)],
+                          ),
+                          borderRadius: BorderRadius.circular(5),
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFFFF7A00).withValues(alpha: 0.35),
+                              blurRadius: 6,
+                            ),
+                          ],
+                        ),
+                        child: const Text(
+                          "PRO",
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 1.0,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.06),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: Colors.white12),
+                        ),
+                        child: const Text(
+                          "v1.2.0",
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontFamily: 'monospace',
+                            color: Colors.grey,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    AppStrings.get('app_tagline', locale: locale),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey.shade400,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: statusColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: statusColor.withValues(alpha: 0.4),
+                width: 1.0,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: statusColor,
+                    boxShadow: [
+                      if (isConnected)
+                        BoxShadow(
+                          color: statusColor.withValues(alpha: 0.6),
+                          blurRadius: 8,
+                          spreadRadius: 2,
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  statusText,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: statusColor,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -494,6 +869,11 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                   onPressed: nodes.isEmpty || isConnecting
                       ? null
                       : () {
+                          final isTun = ref.read(isTunEnabledProvider);
+                          if (!isConnected && isTun && !XrayProcessService.instance.isRunningAsAdmin()) {
+                            _showAdminElevationDialog(context, locale);
+                            return;
+                          }
                           ref.read(connectionStatusProvider.notifier).toggleConnect();
                         },
                 ),
@@ -617,11 +997,8 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                       if (isConnected)
                         Row(
                           children: [
-                            Text(
-                              outbound.flagEmoji,
-                              style: const TextStyle(fontSize: 16),
-                            ),
-                            const SizedBox(width: 6),
+                            CountryFlagBadge(countryCode: outbound.countryCode),
+                            const SizedBox(width: 8),
                             Flexible(
                               child: Text(
                                 outbound.country != null
@@ -903,6 +1280,49 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
     );
   }
 
+  void _showAdminElevationDialog(BuildContext context, String locale) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E2230),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.admin_panel_settings_rounded, color: Colors.amber, size: 28),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                AppStrings.get('tun_admin_required_title', locale: locale),
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          AppStrings.get('tun_admin_required_desc', locale: locale),
+          style: const TextStyle(fontSize: 13, color: Colors.white70, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text(AppStrings.get('cancel', locale: locale)),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primaryAccent,
+              foregroundColor: Colors.white,
+            ),
+            icon: const Icon(Icons.security_rounded, size: 18),
+            label: Text(AppStrings.get('restart_as_admin', locale: locale)),
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              await XrayProcessService.instance.restartAsAdmin();
+            },
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 

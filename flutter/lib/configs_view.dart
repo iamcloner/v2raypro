@@ -286,8 +286,8 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
                       itemBuilder: (context, index) {
                         final node = nodes[index];
                         final isTesting = _testingNodeIds.contains(node.id);
-                        final cfRanges = ref.watch(cfRangesProvider);
-                        final isCf = CloudflareScannerService.isCloudflareIp(node.address, cfRanges);
+                        final cfHosts = ref.watch(cfCheckedHostsProvider);
+                        final isCf = cfHosts[node.address.trim().toLowerCase()] ?? ref.read(cfCheckedHostsProvider.notifier).isCloudflare(node.address);
 
                         return Card(
                           child: ListTile(

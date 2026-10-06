@@ -22,6 +22,7 @@ dependencies:
   url_launcher: ^6.2.6
   tray_manager: ^0.7.0
   window_manager: ^0.5.2
+  local_notifier: ^0.1.6
 
 dev_dependencies:
   flutter_test:
@@ -34,6 +35,7 @@ flutter:
     - assets/bin/xray.exe
     - assets/fonts/tahoma.ttf
     - assets/app_icon.ico
+    - assets/app_icon.png
 
   fonts:
     - family: AppFont
