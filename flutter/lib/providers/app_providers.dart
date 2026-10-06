@@ -517,7 +517,7 @@ class RadarLogEntry {
 class ScannerState {
   final bool isScanning;
   final ScannerStrategy strategy;
-  final int threshold;
+  final int workers; // Concurrency from slider (5 to 100)
   final int total;
   final int scanned;
   final String currentIp;
@@ -528,10 +528,13 @@ class ScannerState {
   final List<RadarLogEntry> radarLogs;
   final String? statusMessage;
 
+  int get threshold => workers;
+
   ScannerState({
     this.isScanning = false,
     this.strategy = ScannerStrategy.radar,
-    this.threshold = 30,
+    int? workers,
+    int? threshold,
     this.total = 0,
     this.scanned = 0,
     this.currentIp = "",
@@ -541,11 +544,12 @@ class ScannerState {
     this.currentBestLatency,
     this.radarLogs = const [],
     this.statusMessage,
-  });
+  }) : workers = (workers ?? threshold ?? 20).clamp(5, 100);
 
   ScannerState copyWith({
     bool? isScanning,
     ScannerStrategy? strategy,
+    int? workers,
     int? threshold,
     int? total,
     int? scanned,
@@ -560,7 +564,7 @@ class ScannerState {
     return ScannerState(
       isScanning: isScanning ?? this.isScanning,
       strategy: strategy ?? this.strategy,
-      threshold: threshold ?? this.threshold,
+      workers: workers ?? threshold ?? this.workers,
       total: total ?? this.total,
       scanned: scanned ?? this.scanned,
       currentIp: currentIp ?? this.currentIp,
@@ -585,15 +589,37 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
     state = state.copyWith(strategy: strategy);
   }
 
-  void setThreshold(int threshold) {
+  void setWorkers(int workers) {
     if (state.isScanning) return;
-    state = state.copyWith(threshold: threshold.clamp(5, 100));
+    state = state.copyWith(workers: workers.clamp(5, 100));
   }
+
+  void setThreshold(int threshold) => setWorkers(threshold);
 
   void cancelScan() {
     _isCancelled = true;
     CloudflareScannerService.instance.cancel();
     state = state.copyWith(isScanning: false, statusMessage: "Stopped");
+  }
+
+  void resetScan() {
+    if (state.isScanning) {
+      cancelScan();
+    }
+    state = ScannerState(
+      strategy: state.strategy,
+      workers: state.workers,
+      isScanning: false,
+      total: 0,
+      scanned: 0,
+      currentIp: "",
+      results: [],
+      bestIp: null,
+      connectedIp: null,
+      currentBestLatency: null,
+      radarLogs: [],
+      statusMessage: null,
+    );
   }
 
   Future<void> startScan() async {
@@ -607,7 +633,7 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
 
     // 1. Generate unique shuffled candidates from CIDR ranges in Settings
     final candidates = CloudflareScannerService.generateCandidateIps(
-      count: state.threshold,
+      count: 200,
       cidrs: customCidrs,
     );
 
@@ -625,7 +651,7 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
     );
 
     final strategy = state.strategy;
-    const int workers = 6;
+    final workers = state.workers; // Use the slider's concurrent workers
 
     for (int i = 0; i < candidates.length; i += workers) {
       if (_isCancelled) break;

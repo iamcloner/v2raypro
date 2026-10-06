@@ -16,8 +16,9 @@ class ScannerView extends ConsumerStatefulWidget {
 
 class _ScannerViewState extends ConsumerState<ScannerView>
     with SingleTickerProviderStateMixin {
-  double _threshold = 30.0;
+  double _workers = 20.0;
   String _searchQuery = '';
+  bool _showStrategyInfo = false;
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
 
@@ -51,6 +52,11 @@ class _ScannerViewState extends ConsumerState<ScannerView>
         CloudflareScannerService.isCloudflareIp(
             activeNode.address, ref.watch(cfRangesProvider));
 
+    // Keep slider in sync with provider workers if not editing
+    if (!state.isScanning && _workers.round() != state.workers) {
+      _workers = state.workers.toDouble();
+    }
+
     // Handle radar animation
     if (state.isScanning && state.strategy == ScannerStrategy.radar) {
       if (!_pulseController.isAnimating) {
@@ -69,15 +75,15 @@ class _ScannerViewState extends ConsumerState<ScannerView>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // 1. Target Node Info Header
+            // 1. Target Node Info Header with Reset & Restore Buttons
             _buildNodeHeaderCard(activeNode, isCf, locale),
             const SizedBox(height: 16),
 
-            // 2. Strategy Switcher (Radar vs Target)
+            // 2. Strategy Switcher with Info Guide Button
             _buildStrategySelector(state, locale),
             const SizedBox(height: 16),
 
-            // 3. Scan Threshold Slider & Controls
+            // 3. Scan Concurrency Slider & Action Controls
             _buildControlsCard(state, activeNode, isCf, locale),
             const SizedBox(height: 16),
 
@@ -87,7 +93,7 @@ class _ScannerViewState extends ConsumerState<ScannerView>
               const SizedBox(height: 16),
             ],
 
-            // 5. Strategy Specific View
+            // 5. Strategy Specific View (Radar or Target)
             if (state.strategy == ScannerStrategy.radar)
               _buildRadarView(state, activeNode, locale)
             else
@@ -120,26 +126,56 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                     ),
                   ],
                 ),
-                if (activeNode?.originalAddress != null)
-                  OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 8),
+                Row(
+                  children: [
+                    // Reset Scan Button
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.grey.shade300,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 8),
+                      ),
+                      icon: const Icon(Icons.restart_alt_rounded, size: 16),
+                      label: Text(
+                        AppStrings.get('reset_scan', locale: locale),
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      onPressed: () {
+                        ref.read(scannerProvider.notifier).resetScan();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                                AppStrings.get('scan_reset_done', locale: locale)),
+                          ),
+                        );
+                      },
                     ),
-                    icon: const Icon(Icons.restore_rounded, size: 16),
-                    label: Text(
-                      AppStrings.get('restore_original', locale: locale),
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                    onPressed: () {
-                      ref
-                          .read(nodesProvider.notifier)
-                          .restoreAddress(activeNode!.id);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Original host restored')),
-                      );
-                    },
-                  ),
+                    if (activeNode?.originalAddress != null) ...[
+                      const SizedBox(width: 8),
+                      OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 8),
+                        ),
+                        icon: const Icon(Icons.restore_rounded, size: 16),
+                        label: Text(
+                          AppStrings.get('restore_original', locale: locale),
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        onPressed: () {
+                          ref
+                              .read(nodesProvider.notifier)
+                              .restoreAddress(activeNode!.id);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                                content: Text(AppStrings.get('original_restored',
+                                    locale: locale))),
+                          );
+                        },
+                      ),
+                    ],
+                  ],
+                ),
               ],
             ),
             const SizedBox(height: 10),
@@ -216,59 +252,118 @@ class _ScannerViewState extends ConsumerState<ScannerView>
   }
 
   Widget _buildStrategySelector(ScannerState state, String locale) {
-    final isRadar = state.strategy == ScannerStrategy.radar;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
           children: [
-            SegmentedButton<ScannerStrategy>(
-              segments: [
-                ButtonSegment<ScannerStrategy>(
-                  value: ScannerStrategy.radar,
-                  icon: const Icon(Icons.radar_rounded),
-                  label: Text(
-                    AppStrings.get('radar', locale: locale),
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ),
-                ButtonSegment<ScannerStrategy>(
-                  value: ScannerStrategy.target,
-                  icon: const Icon(Icons.track_changes_rounded),
-                  label: Text(
-                    AppStrings.get('target', locale: locale),
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ],
-              selected: {state.strategy},
-              onSelectionChanged: state.isScanning
-                  ? null
-                  : (selection) {
-                      ref
-                          .read(scannerProvider.notifier)
-                          .setStrategy(selection.first);
-                    },
-            ),
-            const SizedBox(height: 10),
             Row(
               children: [
-                Icon(
-                  isRadar ? Icons.radar_rounded : Icons.track_changes_rounded,
-                  size: 16,
-                  color: AppTheme.primaryAccent,
-                ),
-                const SizedBox(width: 8),
                 Expanded(
-                  child: Text(
-                    isRadar
-                        ? AppStrings.get('radar_desc', locale: locale)
-                        : AppStrings.get('target_desc', locale: locale),
-                    style: const TextStyle(color: Colors.grey, fontSize: 12),
+                  child: SegmentedButton<ScannerStrategy>(
+                    segments: [
+                      ButtonSegment<ScannerStrategy>(
+                        value: ScannerStrategy.radar,
+                        icon: const Icon(Icons.radar_rounded),
+                        label: Text(
+                          AppStrings.get('radar', locale: locale),
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      ButtonSegment<ScannerStrategy>(
+                        value: ScannerStrategy.target,
+                        icon: const Icon(Icons.track_changes_rounded),
+                        label: Text(
+                          AppStrings.get('target', locale: locale),
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
+                    selected: {state.strategy},
+                    onSelectionChanged: state.isScanning
+                        ? null
+                        : (selection) {
+                            ref
+                                .read(scannerProvider.notifier)
+                                .setStrategy(selection.first);
+                          },
                   ),
+                ),
+                const SizedBox(width: 10),
+                // Strategy Explanation Guide Button
+                IconButton.filledTonal(
+                  icon: Icon(
+                    _showStrategyInfo
+                        ? Icons.info_rounded
+                        : Icons.info_outline_rounded,
+                    color: AppTheme.primaryAccent,
+                  ),
+                  tooltip: AppStrings.get('strategy_info_tooltip', locale: locale),
+                  onPressed: () {
+                    setState(() => _showStrategyInfo = !_showStrategyInfo);
+                  },
                 ),
               ],
             ),
+            // Expandable Strategy Explanation Box
+            if (_showStrategyInfo) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryAccent.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                      color: AppTheme.primaryAccent.withValues(alpha: 0.3)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.radar_rounded,
+                            size: 18, color: AppTheme.primaryAccent),
+                        const SizedBox(width: 6),
+                        Text(
+                          AppStrings.get('radar_how_it_works', locale: locale),
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                              color: AppTheme.primaryAccent),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      AppStrings.get('radar_full_desc', locale: locale),
+                      style:
+                          const TextStyle(color: Colors.grey, fontSize: 12, height: 1.4),
+                    ),
+                    const Divider(height: 16, color: Colors.white12),
+                    Row(
+                      children: [
+                        const Icon(Icons.track_changes_rounded,
+                            size: 18, color: Colors.amber),
+                        const SizedBox(width: 6),
+                        Text(
+                          AppStrings.get('target_how_it_works', locale: locale),
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                              color: Colors.amber),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      AppStrings.get('target_full_desc', locale: locale),
+                      style:
+                          const TextStyle(color: Colors.grey, fontSize: 12, height: 1.4),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -287,13 +382,24 @@ class _ScannerViewState extends ConsumerState<ScannerView>
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(Icons.tune_rounded, size: 18, color: Colors.grey),
-                    const SizedBox(width: 6),
+                    Row(
+                      children: [
+                        const Icon(Icons.tune_rounded,
+                            size: 18, color: Colors.grey),
+                        const SizedBox(width: 6),
+                        Text(
+                          AppStrings.get('concurrent_workers', locale: locale),
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
                     Text(
-                      AppStrings.get('scan_count', locale: locale),
-                      style: const TextStyle(fontWeight: FontWeight.w600),
+                      AppStrings.get('concurrent_workers_hint', locale: locale),
+                      style: const TextStyle(fontSize: 11, color: Colors.grey),
                     ),
                   ],
                 ),
@@ -307,7 +413,7 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                         color: AppTheme.primaryAccent.withValues(alpha: 0.4)),
                   ),
                   child: Text(
-                    '${_threshold.round()} IP',
+                    '${_workers.round()} Threads',
                     style: const TextStyle(
                       fontFamily: 'monospace',
                       fontWeight: FontWeight.bold,
@@ -326,18 +432,18 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                 overlayColor: AppTheme.primaryAccent.withValues(alpha: 0.2),
               ),
               child: Slider(
-                value: _threshold,
+                value: _workers,
                 min: 5.0,
                 max: 100.0,
                 divisions: 19,
-                label: '${_threshold.round()}',
+                label: '${_workers.round()}',
                 onChanged: state.isScanning
                     ? null
                     : (val) {
-                        setState(() => _threshold = val);
+                        setState(() => _workers = val);
                         ref
                             .read(scannerProvider.notifier)
-                            .setThreshold(val.round());
+                            .setWorkers(val.round());
                       },
               ),
             ),
@@ -546,8 +652,8 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                   const SizedBox(height: 6),
                   Text(
                     state.isScanning
-                        ? 'به محض یافتن اولین پینگ، متصل می‌شود و اسکن برای پینگ‌های کمتر ادامه می‌یابد.'
-                        : 'روی دکمه «شروع رادار» کلیک کنید تا اسکن خودکار فعال شود.',
+                        ? AppStrings.get('radar_first_connect_hint', locale: locale)
+                        : AppStrings.get('radar_start_prompt', locale: locale),
                     style: const TextStyle(color: Colors.grey, fontSize: 12),
                     textAlign: TextAlign.center,
                   ),
@@ -602,8 +708,8 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                     child: Center(
                       child: Text(
                         state.isScanning
-                            ? 'در حال اسکن و پایش رنج‌ها...'
-                            : 'هنوز بهبودی ثبت نشده است.',
+                            ? AppStrings.get('scanning_subnets', locale: locale)
+                            : AppStrings.get('no_improvements_yet', locale: locale),
                         style: const TextStyle(color: Colors.grey),
                       ),
                     ),
@@ -720,7 +826,7 @@ class _ScannerViewState extends ConsumerState<ScannerView>
             Expanded(
               child: TextField(
                 decoration: InputDecoration(
-                  hintText: 'Filter IP...',
+                  hintText: AppStrings.get('filter_ip_hint', locale: locale),
                   prefixIcon: const Icon(Icons.search, size: 20),
                   filled: true,
                   fillColor: const Color(0xFF171C28),
@@ -742,7 +848,7 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(
-                '${filtered.length} پاسخ‌دهنده',
+                '${filtered.length} ${AppStrings.get('responsive_count', locale: locale)}',
                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
               ),
             ),
@@ -839,7 +945,7 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'Port: ${res.port}  •  ${res.latencyTier}',
+                    '${AppStrings.get('server_port', locale: locale)}: ${res.port}  •  ${res.latencyTier}',
                     style: const TextStyle(color: Colors.grey, fontSize: 11),
                   ),
                 ],
@@ -906,4 +1012,5 @@ class _ScannerViewState extends ConsumerState<ScannerView>
     );
   }
 }
+
 
