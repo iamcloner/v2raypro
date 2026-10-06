@@ -189,31 +189,53 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
   }
 
   Future<void> _downloadAppUpdate() async {
-    final dlUrl = _appInfo?.downloadUrl ?? 'https://github.com/v2raypro/v2raypro/releases/download/v1.3.0/V2RayPro-Setup.exe';
+    final dlUrl = _appInfo?.downloadUrl;
+    if (dlUrl == null || dlUrl.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No download URL available for this release.')),
+      );
+      return;
+    }
+
+    final locale = ref.read(currentLocaleProvider);
     setState(() {
       _appUpdating = true;
       _appProgress = 0.0;
-      _appStatusMsg = 'Downloading installer...';
+      _appStatusMsg = AppStrings.get('updating', locale: locale);
     });
+
     try {
-      final path = await UpdateService.instance.downloadAppUpdate(
+      final success = await UpdateService.instance.downloadAndApplyAppUpdate(
         dlUrl,
-        onProgress: (p) {
-          if (mounted) setState(() => _appProgress = p);
+        onProgress: (phase, p) {
+          if (mounted) {
+            setState(() {
+              _appProgress = p;
+              if (phase == 'downloading') {
+                _appStatusMsg = '${AppStrings.get('updating', locale: locale)} ${(p * 100).toInt()}%';
+              } else if (phase == 'extracting') {
+                _appStatusMsg = AppStrings.get('extracting', locale: locale);
+              } else if (phase == 'applying') {
+                _appStatusMsg = AppStrings.get('applying_update', locale: locale);
+              }
+            });
+          }
         },
       );
+
       if (mounted) {
         setState(() {
           _appUpdating = false;
-          _downloadedAppPath = path;
-          _appStatusMsg = path != null ? 'Downloaded to: $path' : 'Download failed';
+          _appStatusMsg = success
+              ? AppStrings.get('update_success', locale: locale)
+              : AppStrings.get('update_failed', locale: locale);
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           _appUpdating = false;
-          _appStatusMsg = 'Error: $e';
+          _appStatusMsg = '${AppStrings.get('update_failed', locale: locale)}: $e';
         });
       }
     }

@@ -324,86 +324,187 @@ class UpdateService {
     }
   }
 
-  /// Check for app updates via test URL or fallback
+  /// Check for app updates via GitHub repository releases or custom URL
   Future<UpdateInfo> checkAppUpdate({String? customUrl}) async {
-    final targetUrl = customUrl ?? defaultAppTestUrl;
     final client = _createHttpClient();
 
-    try {
-      final req = await client.getUrl(Uri.parse(targetUrl));
-      req.headers.set(HttpHeaders.userAgentHeader, "V2RayPro-Client/1.2.0");
-      final res = await req.close().timeout(const Duration(seconds: 10));
-
-      if (res.statusCode == 200) {
-        final body = await res.transform(utf8.decoder).join();
-        final json = jsonDecode(body) as Map<String, dynamic>;
-        final latest = (json["version"] as String? ?? "v1.2.0").trim();
-        final dlUrl = json["download_url"] as String?;
-        final notes = json["changelog"] as String?;
-        final hasUp = latest.isNotEmpty && latest != currentAppVersion;
-
-        return UpdateInfo(
-          currentVersion: currentAppVersion,
-          latestVersion: latest,
-          hasUpdate: hasUp,
-          downloadUrl: dlUrl,
-          releaseNotes: notes,
-        );
+    // 1. If custom URL provided, try that first
+    if (customUrl != null && customUrl.trim().isNotEmpty) {
+      try {
+        final req = await client.getUrl(Uri.parse(customUrl.trim()));
+        req.headers.set(HttpHeaders.userAgentHeader, "V2RayPro-Client/1.2.0");
+        final res = await req.close().timeout(const Duration(seconds: 10));
+        if (res.statusCode == 200) {
+          final body = await res.transform(utf8.decoder).join();
+          final json = jsonDecode(body) as Map<String, dynamic>;
+          final latest = (json["version"] as String? ?? "v1.2.0").trim();
+          final dlUrl = json["download_url"] as String?;
+          final notes = json["changelog"] as String?;
+          final hasUp = latest.isNotEmpty && latest != currentAppVersion;
+          return UpdateInfo(
+            currentVersion: currentAppVersion,
+            latestVersion: latest,
+            hasUpdate: hasUp,
+            downloadUrl: dlUrl,
+            releaseNotes: notes,
+          );
+        }
+      } catch (e) {
+        debugPrint("checkAppUpdate customUrl check: $e");
       }
-    } catch (e) {
-      debugPrint("checkAppUpdate network check: $e");
-    } finally {
-      client.close();
     }
 
-    // Fallback test simulation so user can test update UI and download functionality
-    return const UpdateInfo(
+    // 2. Query GitHub API for latest release on iamcloner/v2raypro
+    final repos = [
+      "iamcloner/v2raypro",
+      "v2raypro/v2raypro",
+    ];
+
+    for (final repo in repos) {
+      try {
+        final req = await client.getUrl(Uri.parse("https://api.github.com/repos/$repo/releases?per_page=5"));
+        req.headers.set(HttpHeaders.userAgentHeader, "V2RayPro-Client/1.2.0");
+        req.headers.set(HttpHeaders.acceptHeader, "application/vnd.github.v3+json");
+
+        final res = await req.close().timeout(const Duration(seconds: 10));
+        if (res.statusCode == 200) {
+          final body = await res.transform(utf8.decoder).join();
+          final list = jsonDecode(body) as List<dynamic>;
+          if (list.isNotEmpty) {
+            final json = list.first as Map<String, dynamic>;
+            final tagName = (json["tag_name"] as String? ?? "").trim();
+            final bodyNotes = json["body"] as String? ?? "";
+            final assets = (json["assets"] as List<dynamic>? ?? []);
+
+            String? zipDownloadUrl;
+            // First look for windows zip or any zip
+            for (final a in assets) {
+              final name = (a["name"] as String? ?? "").toLowerCase();
+              if (name.endsWith(".zip") && (name.contains("windows") || name.contains("v2raypro") || name.contains("win"))) {
+                zipDownloadUrl = a["browser_download_url"] as String?;
+                break;
+              }
+            }
+            // Fallback to any zip asset
+            if (zipDownloadUrl == null) {
+              for (final a in assets) {
+                final name = (a["name"] as String? ?? "").toLowerCase();
+                if (name.endsWith(".zip")) {
+                  zipDownloadUrl = a["browser_download_url"] as String?;
+                  break;
+                }
+              }
+            }
+            // Fallback to GitHub zipball
+            zipDownloadUrl ??= json["zipball_url"] as String?;
+
+            final cleanCurrent = currentAppVersion.replaceAll('v', '').trim();
+            final cleanLatest = tagName.replaceAll('v', '').trim();
+            final hasUpdate = cleanLatest.isNotEmpty && cleanLatest != cleanCurrent;
+
+            return UpdateInfo(
+              currentVersion: currentAppVersion,
+              latestVersion: tagName.isNotEmpty ? tagName : currentAppVersion,
+              hasUpdate: hasUpdate,
+              downloadUrl: zipDownloadUrl,
+              releaseNotes: bodyNotes,
+            );
+          }
+        }
+      } catch (e) {
+        debugPrint("checkAppUpdate github check ($repo): $e");
+      }
+    }
+
+    return UpdateInfo(
       currentVersion: currentAppVersion,
-      latestVersion: "v1.3.0",
-      hasUpdate: true,
-      downloadUrl: "https://github.com/v2raypro/v2raypro/releases/download/v1.3.0/V2RayPro-Setup.exe",
-      releaseNotes: "Test release: Includes Cloudflare Radar Scanner, System Tray integration, and TUN mode.",
+      latestVersion: currentAppVersion,
+      hasUpdate: false,
     );
   }
 
-  /// Download app installer
-  Future<String?> downloadAppUpdate(String downloadUrl, {void Function(double progress)? onProgress}) async {
+  /// Download latest release zip from GitHub, extract it, and apply updates to the application
+  Future<bool> downloadAndApplyAppUpdate(
+    String downloadUrl, {
+    void Function(String status, double progress)? onProgress,
+  }) async {
     final client = _createHttpClient();
     try {
       final tempDir = await getTemporaryDirectory();
-      final installer = File("${tempDir.path}\\V2RayPro_Update_Installer.exe");
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final zipFile = File("${tempDir.path}\\v2raypro_release_$timestamp.zip");
+      final extractDir = Directory("${tempDir.path}\\v2raypro_extracted_$timestamp");
 
-      // For test URLs, if download fails, simulate saving a mock installer so flow works end-to-end
-      try {
-        final req = await client.getUrl(Uri.parse(downloadUrl));
-        final res = await req.close();
-        if (res.statusCode == 200) {
-          final total = res.contentLength;
-          int received = 0;
-          final sink = installer.openWrite();
-          await for (final chunk in res) {
-            sink.add(chunk);
-            received += chunk.length;
-            if (total > 0 && onProgress != null) {
-              onProgress(received / total);
-            }
-          }
-          await sink.flush();
-          await sink.close();
-          return installer.path;
-        }
-      } catch (_) {}
+      onProgress?.call("downloading", 0.05);
 
-      // Fallback mock download simulation
-      for (int i = 1; i <= 10; i++) {
-        await Future.delayed(const Duration(milliseconds: 150));
-        if (onProgress != null) onProgress(i / 10.0);
+      final req = await client.getUrl(Uri.parse(downloadUrl));
+      req.headers.set(HttpHeaders.userAgentHeader, "V2RayPro-Client/1.2.0");
+      final res = await req.close();
+      if (res.statusCode != 200 && res.statusCode != 302) {
+        return false;
       }
-      await installer.writeAsString("V2RayPro mock update installer payload");
-      return installer.path;
+
+      final totalBytes = res.contentLength;
+      int receivedBytes = 0;
+      final sink = zipFile.openWrite();
+
+      await for (final chunk in res) {
+        sink.add(chunk);
+        receivedBytes += chunk.length;
+        if (totalBytes > 0) {
+          final p = 0.05 + (receivedBytes / totalBytes) * 0.65; // 5% to 70%
+          onProgress?.call("downloading", p.clamp(0.0, 0.70));
+        }
+      }
+      await sink.flush();
+      await sink.close();
+
+      onProgress?.call("extracting", 0.75);
+
+      // Extract zip using PowerShell
+      await extractDir.create(recursive: true);
+      final psCmd = 'Expand-Archive -Path "${zipFile.path}" -DestinationPath "${extractDir.path}" -Force';
+      final extRes = await Process.run('powershell', ['-NoProfile', '-Command', psCmd]);
+      if (extRes.exitCode != 0) {
+        return false;
+      }
+
+      onProgress?.call("applying", 0.85);
+
+      // Identify root of extracted release (might be root or nested folder)
+      Directory payloadDir = extractDir;
+      final entries = extractDir.listSync();
+      if (entries.length == 1 && entries.first is Directory) {
+        payloadDir = entries.first as Directory;
+      }
+
+      // Check for v2raypro.exe or Release build inside
+      final currentExeDir = File(Platform.resolvedExecutable).parent.path;
+      final updaterScript = File("${tempDir.path}\\apply_v2raypro_update_$timestamp.bat");
+
+      final currentPid = pid;
+      final scriptContent = '''
+@echo off
+timeout /t 2 /nobreak > nul
+taskkill /F /PID $currentPid > nul 2>&1
+timeout /t 1 /nobreak > nul
+
+xcopy /E /Y /I "${payloadDir.path}\\*" "$currentExeDir" > nul 2>&1
+
+start "" "${Platform.resolvedExecutable}"
+del "%~f0" > nul 2>&1
+exit
+''';
+      await updaterScript.writeAsString(scriptContent);
+
+      onProgress?.call("complete", 1.0);
+
+      // Launch updater batch script and close current process
+      await Process.start("cmd", ["/c", updaterScript.path], mode: ProcessStartMode.detached);
+      exit(0);
     } catch (e) {
-      debugPrint("downloadAppUpdate failed: $e");
-      return null;
+      debugPrint("downloadAndApplyAppUpdate failed: $e");
+      return false;
     } finally {
       client.close();
     }
