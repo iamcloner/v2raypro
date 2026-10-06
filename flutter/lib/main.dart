@@ -61,18 +61,27 @@ class MainShell extends ConsumerStatefulWidget {
 class _MainShellState extends ConsumerState<MainShell> {
   int _selectedIndex = 0;
 
-  final List<Widget> _pages = const [
-    DashboardView(),
-    ConfigsView(),
-    SubscriptionsView(),
-    ScannerView(),
-    SettingsView(),
-  ];
-
   @override
   Widget build(BuildContext context) {
     final locale = ref.watch(currentLocaleProvider);
     final isDesktop = MediaQuery.of(context).size.width >= 700;
+    final nodes = ref.watch(nodesProvider);
+    final activeNode = nodes.isEmpty ? null : nodes.firstWhere((n) => n.isActive, orElse: () => nodes.first);
+    final cfRanges = ref.watch(cfRangesProvider);
+    final isCf = activeNode != null && CloudflareScannerService.isCloudflareIp(activeNode.address, cfRanges);
+
+    // Build pages and nav items dynamically: Scanner is completely excluded if active node is not Cloudflare
+    final pages = <Widget>[
+      const DashboardView(),
+      const ConfigsView(),
+      const SubscriptionsView(),
+      if (isCf) const ScannerView(),
+      const SettingsView(),
+    ];
+
+    if (_selectedIndex >= pages.length) {
+      _selectedIndex = 0;
+    }
 
     if (isDesktop) {
       return Scaffold(
@@ -107,10 +116,11 @@ class _MainShellState extends ConsumerState<MainShell> {
                   icon: const Icon(Icons.rss_feed_rounded),
                   label: Text(AppStrings.get('subscriptions', locale: locale)),
                 ),
-                NavigationRailDestination(
-                  icon: const Icon(Icons.radar_rounded),
-                  label: Text(AppStrings.get('scanner', locale: locale)),
-                ),
+                if (isCf)
+                  NavigationRailDestination(
+                    icon: const Icon(Icons.radar_rounded),
+                    label: Text(AppStrings.get('scanner', locale: locale)),
+                  ),
                 NavigationRailDestination(
                   icon: const Icon(Icons.settings_rounded),
                   label: Text(AppStrings.get('settings', locale: locale)),
@@ -118,14 +128,14 @@ class _MainShellState extends ConsumerState<MainShell> {
               ],
             ),
             const VerticalDivider(thickness: 1, width: 1, color: Color(0xFF1E2433)),
-            Expanded(child: _pages[_selectedIndex]),
+            Expanded(child: pages[_selectedIndex]),
           ],
         ),
       );
     }
 
     return Scaffold(
-      body: _pages[_selectedIndex],
+      body: pages[_selectedIndex],
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
         onDestinationSelected: (idx) => setState(() => _selectedIndex = idx),
@@ -142,10 +152,11 @@ class _MainShellState extends ConsumerState<MainShell> {
             icon: const Icon(Icons.rss_feed_rounded),
             label: AppStrings.get('subscriptions', locale: locale),
           ),
-          NavigationDestination(
-            icon: const Icon(Icons.radar_rounded),
-            label: AppStrings.get('scanner', locale: locale),
-          ),
+          if (isCf)
+            NavigationDestination(
+              icon: const Icon(Icons.radar_rounded),
+              label: AppStrings.get('scanner', locale: locale),
+            ),
           NavigationDestination(
             icon: const Icon(Icons.settings_rounded),
             label: AppStrings.get('settings', locale: locale),
@@ -308,11 +319,13 @@ class DashboardView extends ConsumerWidget {
                           ],
                         ),
                         Switch(
-                          value: isSysProxy,
+                          value: isConnected && isSysProxy,
                           activeColor: AppTheme.successColor,
-                          onChanged: (val) {
-                            ref.read(isSystemProxyEnabledProvider.notifier).toggle(val);
-                          },
+                          onChanged: !isConnected
+                              ? null
+                              : (val) {
+                                  ref.read(isSystemProxyEnabledProvider.notifier).toggle(val);
+                                },
                         ),
                       ],
                     ),
@@ -331,7 +344,7 @@ class DashboardView extends ConsumerWidget {
                           children: [
                             Icon(
                               Icons.vpn_lock_rounded,
-                              color: isTun ? AppTheme.primaryAccent : Colors.grey,
+                              color: (isConnected && isTun) ? AppTheme.primaryAccent : Colors.grey,
                               size: 24,
                             ),
                             const SizedBox(width: 10),
@@ -351,11 +364,13 @@ class DashboardView extends ConsumerWidget {
                           ],
                         ),
                         Switch(
-                          value: isTun,
+                          value: isConnected && isTun,
                           activeColor: AppTheme.primaryAccent,
-                          onChanged: (val) {
-                            ref.read(isTunEnabledProvider.notifier).toggle(val);
-                          },
+                          onChanged: !isConnected
+                              ? null
+                              : (val) {
+                                  ref.read(isTunEnabledProvider.notifier).toggle(val);
+                                },
                         ),
                       ],
                     ),

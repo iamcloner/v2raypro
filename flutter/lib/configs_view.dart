@@ -1,4 +1,6 @@
+﻿import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/l10n/translations.dart';
 import 'core/theme/app_theme.dart';
@@ -6,7 +8,8 @@ import 'models/proxy_node.dart';
 import 'providers/app_providers.dart';
 import 'services/cloudflare_scanner_service.dart';
 import 'services/xray_process_service.dart';
-import 'utils/config_parser.dart';
+import 'widgets/add_config_dialog.dart';
+import 'widgets/edit_config_dialog.dart';
 
 class ConfigsView extends ConsumerStatefulWidget {
   const ConfigsView({super.key});
@@ -16,61 +19,11 @@ class ConfigsView extends ConsumerStatefulWidget {
 }
 
 class _ConfigsViewState extends ConsumerState<ConfigsView> {
-  final _importController = TextEditingController();
   final Set<String> _testingNodeIds = {};
   bool _isTestingAll = false;
-
-  void _showImportDialog(String locale) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(AppStrings.get('add_config', locale: locale)),
-        content: SizedBox(
-          width: 500,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: _importController,
-                maxLines: 5,
-                decoration: const InputDecoration(
-                  hintText: 'Paste vless://, vmess://, trojan://, ss://, or multi-line configurations...',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            child: const Text('Cancel'),
-            onPressed: () => Navigator.pop(ctx),
-          ),
-          FilledButton(
-            child: const Text('Import'),
-            onPressed: () {
-              final text = _importController.text.trim();
-              if (text.isNotEmpty) {
-                final nodes = ConfigParser.parseBatch(text);
-                if (nodes.isNotEmpty) {
-                  ref.read(nodesProvider.notifier).addNodes(nodes);
-                  _importController.clear();
-                  Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('${nodes.length} configuration(s) added successfully')),
-                  );
-                } else {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('No valid proxy configurations found.')),
-                  );
-                }
-              }
-            },
-          ),
-        ],
-      ),
-    );
-  }
+  bool _cancelTestingAll = false;
+  int _totalToTest = 0;
+  int _testedCount = 0;
 
   Future<void> _testNodeLatency(ProxyNode node) async {
     if (_testingNodeIds.contains(node.id)) return;
@@ -88,22 +41,51 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
     }
   }
 
-  Future<void> _testAllNodes() async {
-    final nodes = ref.read(nodesProvider);
-    if (nodes.isEmpty || _isTestingAll) return;
+  Future<void> _testAllNodes(List<ProxyNode> nodes) async {
+    if (nodes.isEmpty) return;
+    if (_isTestingAll) {
+      // User clicked while testing -> cancel!
+      setState(() {
+        _cancelTestingAll = true;
+      });
+      return;
+    }
 
     setState(() {
       _isTestingAll = true;
+      _cancelTestingAll = false;
+      _totalToTest = nodes.length;
+      _testedCount = 0;
     });
 
-    for (final node in nodes) {
-      if (!mounted) break;
-      await _testNodeLatency(node);
+    for (int i = 0; i < nodes.length; i += 10) {
+      if (_cancelTestingAll || !mounted) break;
+      final chunk = nodes.sublist(i, math.min(i + 10, nodes.length));
+      setState(() {
+        _testingNodeIds.addAll(chunk.map((n) => n.id));
+      });
+
+      await Future.wait(chunk.map((n) async {
+        if (_cancelTestingAll) return;
+        final lat = await XrayProcessService.instance.testNodeLatency(n);
+        if (mounted) {
+          ref.read(nodesProvider.notifier).updateLatency(n.id, lat);
+        }
+      }));
+
+      if (mounted) {
+        setState(() {
+          _testingNodeIds.removeAll(chunk.map((n) => n.id));
+          _testedCount += chunk.length;
+        });
+      }
     }
 
     if (mounted) {
       setState(() {
         _isTestingAll = false;
+        _cancelTestingAll = false;
+        _testingNodeIds.clear();
       });
     }
   }
@@ -123,6 +105,9 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
     });
     final locale = ref.watch(currentLocaleProvider);
 
+    final progress = _totalToTest > 0 ? (_testedCount / _totalToTest).clamp(0.0, 1.0) : 0.0;
+    final progressPercent = (progress * 100).toInt();
+
     return Scaffold(
       body: Padding(
         padding: const EdgeInsets.all(24),
@@ -139,22 +124,39 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
                   children: [
                     if (nodes.isNotEmpty)
                       OutlinedButton.icon(
+                        style: _isTestingAll
+                            ? OutlinedButton.styleFrom(
+                                side: const BorderSide(color: Colors.amber, width: 1.5),
+                              )
+                            : null,
                         icon: _isTestingAll
-                            ? const SizedBox(
+                            ? SizedBox(
                                 width: 14,
                                 height: 14,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  value: progress > 0 ? progress : null,
+                                  strokeWidth: 2,
+                                  color: Colors.amber,
+                                ),
                               )
                             : const Icon(Icons.speed_rounded, size: 18),
-                        label: Text(_isTestingAll ? 'Testing...' : 'Test All Ping'),
-                        onPressed: _isTestingAll ? null : _testAllNodes,
+                        label: Text(
+                          _isTestingAll
+                              ? '$progressPercent% (${AppStrings.get("cancel_scan", locale: locale)})'
+                              : AppStrings.get('test_all', locale: locale),
+                          style: TextStyle(
+                            color: _isTestingAll ? Colors.amber : null,
+                            fontWeight: _isTestingAll ? FontWeight.bold : FontWeight.normal,
+                          ),
+                        ),
+                        onPressed: () => _testAllNodes(nodes),
                       ),
                     const SizedBox(width: 12),
                     FilledButton.icon(
                       style: FilledButton.styleFrom(backgroundColor: AppTheme.primaryAccent),
                       icon: const Icon(Icons.add),
                       label: Text(AppStrings.get('add_config', locale: locale)),
-                      onPressed: () => _showImportDialog(locale),
+                      onPressed: () => AddConfigDialog.show(context, locale),
                     ),
                   ],
                 ),
@@ -242,7 +244,7 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
                           children: [
                             if (isTesting)
                               const Padding(
-                                padding: EdgeInsets.symmetric(horizontal: 12),
+                                padding: EdgeInsets.symmetric(horizontal: 10),
                                 child: SizedBox(
                                   width: 16,
                                   height: 16,
@@ -269,6 +271,21 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
                               icon: const Icon(Icons.bolt_rounded, size: 20, color: Colors.cyanAccent),
                               tooltip: 'Ping test',
                               onPressed: () => _testNodeLatency(node),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.edit_outlined, size: 20, color: Colors.white70),
+                              tooltip: AppStrings.get('edit_config', locale: locale),
+                              onPressed: () => EditConfigDialog.show(context, node, locale),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.share_outlined, size: 20, color: Colors.white70),
+                              tooltip: AppStrings.get('share_config', locale: locale),
+                              onPressed: () {
+                                Clipboard.setData(ClipboardData(text: node.toShareUrl()));
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text(AppStrings.get('share_copied', locale: locale))),
+                                );
+                              },
                             ),
                             IconButton(
                               icon: const Icon(Icons.delete_outline_rounded, color: Colors.grey),

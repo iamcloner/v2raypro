@@ -1,12 +1,15 @@
-import "package:flutter/material.dart";
-import "package:flutter_riverpod/flutter_riverpod.dart";
-import "core/l10n/translations.dart";
-import "core/theme/app_theme.dart";
-import "models/proxy_node.dart";
-import "models/subscription_item.dart";
-import "providers/app_providers.dart";
-import "services/cloudflare_scanner_service.dart";
-import "services/xray_process_service.dart";
+﻿import 'dart:math' as math;
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'core/l10n/translations.dart';
+import 'core/theme/app_theme.dart';
+import 'models/proxy_node.dart';
+import 'models/subscription_item.dart';
+import 'providers/app_providers.dart';
+import 'services/cloudflare_scanner_service.dart';
+import 'services/xray_process_service.dart';
+import 'widgets/edit_config_dialog.dart';
 
 class SubscriptionsView extends ConsumerStatefulWidget {
   const SubscriptionsView({super.key});
@@ -21,6 +24,10 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
   final Set<String> _updatingSubIds = {};
   final Set<String> _testingNodeIds = {};
   final Set<String> _expandedSubConfigs = {};
+  final Map<String, bool> _testingSubMap = {};
+  final Map<String, bool> _cancelSubMap = {};
+  final Map<String, int> _subTestedCount = {};
+  final Map<String, int> _subTotalCount = {};
   bool _isUpdatingAll = false;
 
   void _showAddDialog(String locale) {
@@ -127,6 +134,55 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
     }
   }
 
+  Future<void> _testAllSubNodes(SubscriptionItem sub, List<ProxyNode> subNodes) async {
+    final subId = sub.id;
+    if (subNodes.isEmpty) return;
+    if (_testingSubMap[subId] == true) {
+      // Cancel requested
+      setState(() {
+        _cancelSubMap[subId] = true;
+      });
+      return;
+    }
+
+    setState(() {
+      _testingSubMap[subId] = true;
+      _cancelSubMap[subId] = false;
+      _subTotalCount[subId] = subNodes.length;
+      _subTestedCount[subId] = 0;
+    });
+
+    for (int i = 0; i < subNodes.length; i += 10) {
+      if (_cancelSubMap[subId] == true || !mounted) break;
+      final chunk = subNodes.sublist(i, math.min(i + 10, subNodes.length));
+      setState(() {
+        _testingNodeIds.addAll(chunk.map((n) => n.id));
+      });
+
+      await Future.wait(chunk.map((n) async {
+        if (_cancelSubMap[subId] == true) return;
+        final lat = await XrayProcessService.instance.testNodeLatency(n);
+        if (mounted) {
+          ref.read(nodesProvider.notifier).updateLatency(n.id, lat);
+        }
+      }));
+
+      if (mounted) {
+        setState(() {
+          _testingNodeIds.removeAll(chunk.map((n) => n.id));
+          _subTestedCount[subId] = (_subTestedCount[subId] ?? 0) + chunk.length;
+        });
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _testingSubMap[subId] = false;
+        _cancelSubMap[subId] = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final subs = ref.watch(subscriptionsProvider);
@@ -212,6 +268,12 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                     final isExpandedAll = _expandedSubConfigs.contains(sub.id);
                     final displayedNodes = isExpandedAll ? subNodes : subNodes.take(3).toList();
 
+                    final isTestingSub = _testingSubMap[sub.id] == true;
+                    final totalSub = _subTotalCount[sub.id] ?? 0;
+                    final testedSub = _subTestedCount[sub.id] ?? 0;
+                    final subProgress = totalSub > 0 ? (testedSub / totalSub).clamp(0.0, 1.0) : 0.0;
+                    final subPercent = (subProgress * 100).toInt();
+
                     return Card(
                       clipBehavior: Clip.antiAlias,
                       child: ExpansionTile(
@@ -229,6 +291,41 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
+                            if (subNodes.isNotEmpty) ...[
+                              OutlinedButton.icon(
+                                style: isTestingSub
+                                    ? OutlinedButton.styleFrom(
+                                        side: const BorderSide(color: Colors.amber, width: 1.2),
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      )
+                                    : OutlinedButton.styleFrom(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      ),
+                                icon: isTestingSub
+                                    ? SizedBox(
+                                        width: 12,
+                                        height: 12,
+                                        child: CircularProgressIndicator(
+                                          value: subProgress > 0 ? subProgress : null,
+                                          strokeWidth: 2,
+                                          color: Colors.amber,
+                                        ),
+                                      )
+                                    : const Icon(Icons.speed_rounded, size: 16),
+                                label: Text(
+                                  isTestingSub
+                                      ? '$subPercent% (${AppStrings.get("cancel_scan", locale: locale)})'
+                                      : AppStrings.get("test_all_sub", locale: locale),
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: isTestingSub ? Colors.amber : null,
+                                    fontWeight: isTestingSub ? FontWeight.bold : FontWeight.normal,
+                                  ),
+                                ),
+                                onPressed: () => _testAllSubNodes(sub, subNodes),
+                              ),
+                              const SizedBox(width: 6),
+                            ],
                             if (isUpdating)
                               const Padding(
                                 padding: EdgeInsets.symmetric(horizontal: 12),
@@ -360,7 +457,7 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                                     children: [
                                       if (isTesting)
                                         const Padding(
-                                          padding: EdgeInsets.symmetric(horizontal: 10),
+                                          padding: EdgeInsets.symmetric(horizontal: 8),
                                           child: SizedBox(
                                             width: 14,
                                             height: 14,
@@ -387,6 +484,21 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                                         icon: const Icon(Icons.bolt_rounded, size: 18, color: Colors.cyanAccent),
                                         tooltip: "Ping test",
                                         onPressed: () => _testNodeLatency(node),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.edit_outlined, size: 18, color: Colors.white70),
+                                        tooltip: AppStrings.get("edit_config", locale: locale),
+                                        onPressed: () => EditConfigDialog.show(context, node, locale),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.share_outlined, size: 18, color: Colors.white70),
+                                        tooltip: AppStrings.get("share_config", locale: locale),
+                                        onPressed: () {
+                                          Clipboard.setData(ClipboardData(text: node.toShareUrl()));
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(content: Text(AppStrings.get("share_copied", locale: locale))),
+                                          );
+                                        },
                                       ),
                                     ],
                                   ),

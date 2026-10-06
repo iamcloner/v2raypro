@@ -134,41 +134,101 @@ class ProxyNode {
 
   ProxyNode copyWith({
     String? name,
+    ProtocolType? protocol,
     String? address,
     int? port,
+    String? uuidOrPassword,
+    int? alterId,
+    String? cipher,
+    NetworkType? network,
+    String? path,
+    String? host,
+    String? serviceName,
+    SecurityType? security,
+    String? sni,
+    List<String>? alpn,
+    bool? allowInsecure,
+    String? fingerprint,
+    String? publicKey,
+    String? shortId,
+    String? spiderX,
+    String? mode,
+    String? extra,
+    String? subscriptionId,
     int? latencyMs,
+    DateTime? lastTestedAt,
     bool? isActive,
     String? originalAddress,
-    String? subscriptionId,
   }) {
     return ProxyNode(
       id: id,
       name: name ?? this.name,
-      protocol: protocol,
+      protocol: protocol ?? this.protocol,
       address: address ?? this.address,
       port: port ?? this.port,
-      uuidOrPassword: uuidOrPassword,
-      alterId: alterId,
-      cipher: cipher,
-      network: network,
-      path: path,
-      host: host,
-      serviceName: serviceName,
-      security: security,
-      sni: sni,
-      alpn: alpn,
-      allowInsecure: allowInsecure,
-      fingerprint: fingerprint,
-      publicKey: publicKey,
-      shortId: shortId,
-      spiderX: spiderX,
-      mode: mode,
-      extra: extra,
+      uuidOrPassword: uuidOrPassword ?? this.uuidOrPassword,
+      alterId: alterId ?? this.alterId,
+      cipher: cipher ?? this.cipher,
+      network: network ?? this.network,
+      path: path ?? this.path,
+      host: host ?? this.host,
+      serviceName: serviceName ?? this.serviceName,
+      security: security ?? this.security,
+      sni: sni ?? this.sni,
+      alpn: alpn ?? this.alpn,
+      allowInsecure: allowInsecure ?? this.allowInsecure,
+      fingerprint: fingerprint ?? this.fingerprint,
+      publicKey: publicKey ?? this.publicKey,
+      shortId: shortId ?? this.shortId,
+      spiderX: spiderX ?? this.spiderX,
+      mode: mode ?? this.mode,
+      extra: extra ?? this.extra,
       subscriptionId: subscriptionId ?? this.subscriptionId,
       latencyMs: latencyMs ?? this.latencyMs,
-      lastTestedAt: lastTestedAt,
+      lastTestedAt: lastTestedAt ?? this.lastTestedAt,
       isActive: isActive ?? this.isActive,
       originalAddress: originalAddress ?? this.originalAddress,
     );
+  }
+
+  String toShareUrl() {
+    switch (protocol) {
+      case ProtocolType.vless:
+        final params = <String, String>{};
+        if (security == SecurityType.tls) params['security'] = 'tls';
+        if (security == SecurityType.reality) params['security'] = 'reality';
+        if (sni != null && sni!.isNotEmpty) params['sni'] = sni!;
+        if (fingerprint != null && fingerprint!.isNotEmpty) params['fp'] = fingerprint!;
+        if (publicKey != null && publicKey!.isNotEmpty) params['pbk'] = publicKey!;
+        if (shortId != null && shortId!.isNotEmpty) params['sid'] = shortId!;
+        if (spiderX != null && spiderX!.isNotEmpty) params['spx'] = spiderX!;
+        params['type'] = network.name;
+        if (host != null && host!.isNotEmpty) params['host'] = host!;
+        if (path != null && path!.isNotEmpty) params['path'] = path!;
+        if (mode != null && mode!.isNotEmpty) params['mode'] = mode!;
+        if (extra != null && extra!.isNotEmpty) params['extra'] = extra!;
+
+        final query = params.entries
+            .map((e) => '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}')
+            .join('&');
+        final frag = Uri.encodeComponent(name);
+        return 'vless://$uuidOrPassword@$address:$port${query.isNotEmpty ? "?$query" : ""}${frag.isNotEmpty ? "#$frag" : ""}';
+
+      case ProtocolType.trojan:
+        final params = <String, String>{};
+        if (security == SecurityType.tls) params['security'] = 'tls';
+        if (sni != null && sni!.isNotEmpty) params['sni'] = sni!;
+        params['type'] = network.name;
+        if (host != null && host!.isNotEmpty) params['host'] = host!;
+        if (path != null && path!.isNotEmpty) params['path'] = path!;
+        final query = params.entries
+            .map((e) => '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}')
+            .join('&');
+        final frag = Uri.encodeComponent(name);
+        return 'trojan://$uuidOrPassword@$address:$port${query.isNotEmpty ? "?$query" : ""}${frag.isNotEmpty ? "#$frag" : ""}';
+
+      default:
+        return 'vless://$uuidOrPassword@$address:$port#${Uri.encodeComponent(name)}';
+    }
   }
 }

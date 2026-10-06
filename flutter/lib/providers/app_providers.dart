@@ -173,6 +173,11 @@ class NodesNotifier extends StateNotifier<List<ProxyNode>> {
     _save();
   }
 
+  void updateNode(ProxyNode updated) {
+    state = state.map((n) => n.id == updated.id ? updated : n).toList();
+    _save();
+  }
+
   void applyIp(String nodeId, String newIp) {
     state = state.map((n) {
       if (n.id == nodeId) {
