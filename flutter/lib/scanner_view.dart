@@ -4,6 +4,7 @@ import 'core/l10n/translations.dart';
 import 'core/theme/app_theme.dart';
 import 'models/scan_result.dart';
 import 'providers/app_providers.dart';
+import 'services/cloudflare_scanner_service.dart';
 
 class ScannerView extends ConsumerStatefulWidget {
   const ScannerView({super.key});
@@ -66,12 +67,72 @@ class _ScannerViewState extends ConsumerState<ScannerView> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    Text(
-                      activeNode == null
-                          ? AppStrings.get('no_nodes', locale: locale)
-                          : ('Target: ' + activeNode.name + ' (' + activeNode.address + ')'),
-                      style: const TextStyle(color: Colors.grey, fontSize: 13),
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            activeNode == null
+                                ? AppStrings.get('no_nodes', locale: locale)
+                                : ('Target: ' + activeNode.name + ' (' + activeNode.address + ')'),
+                            style: const TextStyle(color: Colors.grey, fontSize: 13),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (activeNode != null &&
+                            CloudflareScannerService.isCloudflareIp(
+                                activeNode.address, ref.watch(cfRangesProvider))) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: Colors.amber.withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: Colors.amber, width: 0.8),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.star_rounded, size: 13, color: Colors.amber),
+                                SizedBox(width: 2),
+                                Text(
+                                  "CF",
+                                  style: TextStyle(
+                                    color: Colors.amber,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
+                    if (activeNode != null &&
+                        !CloudflareScannerService.isCloudflareIp(
+                            activeNode.address, ref.watch(cfRangesProvider))) ...[
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.amber.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.info_outline_rounded, color: Colors.amber, size: 20),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                AppStrings.get('scanner_cf_only_notice', locale: locale),
+                                style: const TextStyle(color: Colors.amber, fontSize: 12),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 16),
                     Row(
                       children: [
@@ -88,7 +149,9 @@ class _ScannerViewState extends ConsumerState<ScannerView> {
                                   ? AppStrings.get('cancel_scan', locale: locale)
                                   : AppStrings.get('find_best_ip', locale: locale),
                             ),
-                            onPressed: activeNode == null
+                            onPressed: (activeNode == null ||
+                                    !CloudflareScannerService.isCloudflareIp(
+                                        activeNode.address, ref.watch(cfRangesProvider)))
                                 ? null
                                 : () {
                                     if (state.isScanning) {

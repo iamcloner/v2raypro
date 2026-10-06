@@ -20,6 +20,7 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
   final _urlController = TextEditingController();
   final Set<String> _updatingSubIds = {};
   final Set<String> _testingNodeIds = {};
+  final Set<String> _expandedSubConfigs = {};
   bool _isUpdatingAll = false;
 
   void _showAddDialog(String locale) {
@@ -198,6 +199,19 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                     final isUpdating = _updatingSubIds.contains(sub.id);
                     final subNodes = allNodes.where((n) => n.subscriptionId == sub.id).toList();
 
+                    // Sort subNodes by ping latency ascending (lowest ping first, untested/null last)
+                    subNodes.sort((a, b) {
+                      if (a.latencyMs != null && b.latencyMs != null) {
+                        return a.latencyMs!.compareTo(b.latencyMs!);
+                      }
+                      if (a.latencyMs != null && b.latencyMs == null) return -1;
+                      if (a.latencyMs == null && b.latencyMs != null) return 1;
+                      return a.name.compareTo(b.name);
+                    });
+
+                    final isExpandedAll = _expandedSubConfigs.contains(sub.id);
+                    final displayedNodes = isExpandedAll ? subNodes : subNodes.take(3).toList();
+
                     return Card(
                       clipBehavior: Clip.antiAlias,
                       child: ExpansionTile(
@@ -278,14 +292,14 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                                 style: const TextStyle(color: Colors.grey, fontSize: 13),
                               ),
                             )
-                          else
+                          else ...[
                             ListView.separated(
                               shrinkWrap: true,
                               physics: const NeverScrollableScrollPhysics(),
-                              itemCount: subNodes.length,
+                              itemCount: displayedNodes.length,
                               separatorBuilder: (c, i) => const Divider(height: 1, indent: 56),
                               itemBuilder: (context, nodeIdx) {
-                                final node = subNodes[nodeIdx];
+                                final node = displayedNodes[nodeIdx];
                                 final isTesting = _testingNodeIds.contains(node.id);
                                 final cfRanges = ref.watch(cfRangesProvider);
                                 final isCf = CloudflareScannerService.isCloudflareIp(node.address, cfRanges);
@@ -382,6 +396,34 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                                 );
                               },
                             ),
+                            if (subNodes.length > 3)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
+                                child: Center(
+                                  child: TextButton.icon(
+                                    icon: Icon(
+                                      isExpandedAll ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                                      size: 18,
+                                    ),
+                                    label: Text(
+                                      isExpandedAll
+                                          ? AppStrings.get("show_less_configs", locale: locale)
+                                          : "${AppStrings.get("show_all_configs", locale: locale)} (${subNodes.length})",
+                                      style: const TextStyle(fontSize: 12),
+                                    ),
+                                    onPressed: () {
+                                      setState(() {
+                                        if (isExpandedAll) {
+                                          _expandedSubConfigs.remove(sub.id);
+                                        } else {
+                                          _expandedSubConfigs.add(sub.id);
+                                        }
+                                      });
+                                    },
+                                  ),
+                                ),
+                              ),
+                          ],
                         ],
                       ),
                     );

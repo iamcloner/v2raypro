@@ -112,6 +112,15 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
   Widget build(BuildContext context) {
     final allNodes = ref.watch(nodesProvider);
     final nodes = allNodes.where((n) => n.subscriptionId == null).toList();
+    // Sort by latest ping latency ascending (lowest ping first, null/untested last)
+    nodes.sort((a, b) {
+      if (a.latencyMs != null && b.latencyMs != null) {
+        return a.latencyMs!.compareTo(b.latencyMs!);
+      }
+      if (a.latencyMs != null && b.latencyMs == null) return -1;
+      if (a.latencyMs == null && b.latencyMs != null) return 1;
+      return a.name.compareTo(b.name);
+    });
     final locale = ref.watch(currentLocaleProvider);
 
     return Scaffold(

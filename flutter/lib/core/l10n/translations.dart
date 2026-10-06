@@ -59,6 +59,9 @@ class AppStrings {
       "auto_update_hourly_desc": "Automatically refresh nodes every 1 hour",
       "sub_configs": "Configurations",
       "no_sub_nodes": "No nodes found in this subscription.",
+      "show_all_configs": "Show All Configs",
+      "show_less_configs": "Show Top 3 Lowest Ping",
+      "scanner_cf_only_notice": "Scanner is only available for Cloudflare configurations. Please select a Cloudflare node first.",
     },
     "fa": {
       "app_title": "وی‌تو‌ری پرو",
@@ -119,6 +122,9 @@ class AppStrings {
       "auto_update_hourly_desc": "بروزرسانی خودکار کانفیگ‌ها هر ۱ ساعت یکبار",
       "sub_configs": "کانفیگ‌های این اشتراک",
       "no_sub_nodes": "هیچ کانفیگی در این ساب وجود ندارد.",
+      "show_all_configs": "نمایش همه کانفیگ‌ها",
+      "show_less_configs": "نمایش ۳ کانفیگ با کمترین پینگ",
+      "scanner_cf_only_notice": "اسکنر فقط برای کانفیگ‌های دارای آی‌پی کلودفلر فعال می‌شود. لطفاً ابتدا یک کانفیگ کلودفلر انتخاب کنید.",
     }
   };
 
