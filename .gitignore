@@ -1,0 +1,41 @@
+﻿# ========================================================
+# Output and Build Artifacts
+# ========================================================
+build/windows/
+build/android/
+build/ios/
+build/linux/
+build/macos/
+build/web/
+
+flutter/build/
+flutter/.dart_tool/
+flutter/.flutter-plugins
+flutter/.flutter-plugins-dependencies
+flutter/.packages
+
+# Rust Build Artifacts
+rust/target/
+**/target/
+**/*.rs.bk
+
+# ========================================================
+# Runtime Configs & Logs
+# ========================================================
+*.log
+**/v2raypro_active_config.json
+test_tun.json
+test_generated_tun.json
+
+# ========================================================
+# IDE & System Files
+# ========================================================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+ehthumbs.db
+[Dd]esktop.ini
