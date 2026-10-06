@@ -27,9 +27,28 @@ void main() {
       expect(info.releaseNotes, 'New features');
     });
 
-    test('UpdateService defaultAppRepoUrl points to iamcloner/v2raypro', () {
-      expect(UpdateService.defaultAppRepoUrl, contains('iamcloner/v2raypro'));
-      expect(UpdateService.defaultAppTestUrl, contains('iamcloner/v2raypro'));
+    test('UpdateService defaultAppRepoUrl points to iamcloner/v2raypro releases', () {
+      expect(UpdateService.defaultAppRepoUrl, 'https://github.com/iamcloner/v2raypro/releases');
+      expect(UpdateService.defaultAppTestUrl, 'https://github.com/iamcloner/v2raypro/releases');
+    });
+
+    test('UpdateService semver isVersionNewer accurately detects newer releases', () {
+      expect(UpdateService.isVersionNewer('v1.2.1', 'v1.2.0'), isTrue);
+      expect(UpdateService.isVersionNewer('v1.3.0', 'v1.2.0'), isTrue);
+      expect(UpdateService.isVersionNewer('v2.0.0', 'v1.2.0'), isTrue);
+      expect(UpdateService.isVersionNewer('v1.2.0', 'v1.2.0'), isFalse);
+      expect(UpdateService.isVersionNewer('v1.1.9', 'v1.2.0'), isFalse);
+      expect(UpdateService.isVersionNewer('1.2.1', '1.2.0'), isTrue);
+    });
+
+    test('UpdateService findOsSpecificZipAsset picks Windows zip asset', () {
+      final assets = [
+        {'name': 'v2raypro-v1.2.0-linux.zip', 'browser_download_url': 'https://linux.zip'},
+        {'name': 'v2raypro-v1.2.0-windows.zip', 'browser_download_url': 'https://windows.zip'},
+        {'name': 'v2raypro-v1.2.0-macos.zip', 'browser_download_url': 'https://macos.zip'},
+      ];
+      final url = UpdateService.findOsSpecificZipAsset(assets);
+      expect(url, 'https://windows.zip');
     });
 
     test('ScannerState manages radar traffic warning properties', () {

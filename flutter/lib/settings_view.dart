@@ -659,7 +659,7 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                               isDense: true,
                               contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                               border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
-                              hintText: 'https://github.com/iamcloner/v2raypro/releases/tag/v1.2.0',
+                              hintText: 'https://github.com/iamcloner/v2raypro/releases',
                             ),
                           ),
                           const SizedBox(height: 10),

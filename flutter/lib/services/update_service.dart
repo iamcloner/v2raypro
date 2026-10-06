@@ -26,7 +26,7 @@ class UpdateService {
   UpdateService._internal();
 
   static const String currentAppVersion = "v1.2.0";
-  static const String defaultAppRepoUrl = "https://github.com/iamcloner/v2raypro/releases/tag/v1.2.0";
+  static const String defaultAppRepoUrl = "https://github.com/iamcloner/v2raypro/releases";
   static const String defaultAppTestUrl = defaultAppRepoUrl;
 
   HttpClient _createHttpClient() {
@@ -325,37 +325,81 @@ class UpdateService {
     }
   }
 
+  /// Check if version [latest] is strictly newer than [current] (semver-aware)
+  static bool isVersionNewer(String latest, String current) {
+    final cleanLatest = latest.replaceAll(RegExp(r'[^0-9\.]'), '').trim();
+    final cleanCurrent = current.replaceAll(RegExp(r'[^0-9\.]'), '').trim();
+    if (cleanLatest.isEmpty) return false;
+    if (cleanCurrent.isEmpty) return true;
+
+    final latestParts = cleanLatest.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+    final currentParts = cleanCurrent.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+
+    final maxLen = latestParts.length > currentParts.length ? latestParts.length : currentParts.length;
+    for (int i = 0; i < maxLen; i++) {
+      final l = i < latestParts.length ? latestParts[i] : 0;
+      final c = i < currentParts.length ? currentParts[i] : 0;
+      if (l > c) return true;
+      if (l < c) return false;
+    }
+    return false;
+  }
+
+  /// Locate the release zip asset corresponding to the current host operating system
+  static String? findOsSpecificZipAsset(List<dynamic> assets) {
+    final isWindows = Platform.isWindows;
+    final isMacOS = Platform.isMacOS;
+    final isLinux = Platform.isLinux;
+
+    // 1. Primary: OS-specific match
+    for (final a in assets) {
+      final name = (a["name"] as String? ?? "").toLowerCase();
+      if (!name.endsWith(".zip")) continue;
+
+      if (isWindows) {
+        if (name.contains("windows") || name.contains("win64") || name.contains("win32") || name.contains("win")) {
+          return a["browser_download_url"] as String?;
+        }
+      } else if (isMacOS) {
+        if (name.contains("macos") || name.contains("darwin") || name.contains("mac") || name.contains("osx")) {
+          return a["browser_download_url"] as String?;
+        }
+      } else if (isLinux) {
+        if (name.contains("linux")) {
+          return a["browser_download_url"] as String?;
+        }
+      }
+    }
+
+    // 2. Secondary: Zip matching app name
+    for (final a in assets) {
+      final name = (a["name"] as String? ?? "").toLowerCase();
+      if (name.endsWith(".zip") && name.contains("v2raypro")) {
+        return a["browser_download_url"] as String?;
+      }
+    }
+
+    // 3. Fallback: Any zip file in release assets
+    for (final a in assets) {
+      final name = (a["name"] as String? ?? "").toLowerCase();
+      if (name.endsWith(".zip")) {
+        return a["browser_download_url"] as String?;
+      }
+    }
+
+    return null;
+  }
+
   UpdateInfo _parseReleaseJson(Map<String, dynamic> json, {String? targetTag}) {
     final tagName = (json["tag_name"] as String? ?? targetTag ?? currentAppVersion).trim();
     final bodyNotes = json["body"] as String? ?? "";
     final assets = (json["assets"] as List<dynamic>? ?? []);
 
-    String? zipDownloadUrl;
-    // 1. Look for windows zip or v2raypro zip
-    for (final a in assets) {
-      final name = (a["name"] as String? ?? "").toLowerCase();
-      if (name.endsWith(".zip") && (name.contains("windows") || name.contains("v2raypro") || name.contains("win"))) {
-        zipDownloadUrl = a["browser_download_url"] as String?;
-        break;
-      }
-    }
-    // 2. Fallback to any zip asset
-    if (zipDownloadUrl == null) {
-      for (final a in assets) {
-        final name = (a["name"] as String? ?? "").toLowerCase();
-        if (name.endsWith(".zip")) {
-          zipDownloadUrl = a["browser_download_url"] as String?;
-          break;
-        }
-      }
-    }
-    // 3. Fallback to direct release asset or zipball
+    String? zipDownloadUrl = findOsSpecificZipAsset(assets);
     zipDownloadUrl ??= json["zipball_url"] as String?;
     zipDownloadUrl ??= "https://github.com/iamcloner/v2raypro/releases/download/$tagName/v2raypro-$tagName-windows.zip";
 
-    final cleanCurrent = currentAppVersion.replaceAll('v', '').trim();
-    final cleanLatest = tagName.replaceAll('v', '').trim();
-    final hasUpdate = cleanLatest.isNotEmpty && cleanLatest != cleanCurrent;
+    final hasUpdate = isVersionNewer(tagName, currentAppVersion);
 
     return UpdateInfo(
       currentVersion: currentAppVersion,
@@ -405,12 +449,24 @@ class UpdateService {
         }
       }
 
-      // Check if it's a GitHub repo URL (e.g. https://github.com/iamcloner/v2raypro)
+      // Check if it's a GitHub repo/releases URL (e.g. https://github.com/iamcloner/v2raypro/releases or https://github.com/iamcloner/v2raypro)
       final repoMatch = RegExp(r'github\.com/([^/]+)/([^/?#]+)').firstMatch(trimmed);
       if (repoMatch != null) {
         final owner = repoMatch.group(1);
         final repo = repoMatch.group(2);
         try {
+          // Try /releases/latest first
+          final reqLatest = await client.getUrl(Uri.parse("https://api.github.com/repos/$owner/$repo/releases/latest"));
+          reqLatest.headers.set(HttpHeaders.userAgentHeader, "V2RayPro-Client/1.2.0");
+          reqLatest.headers.set(HttpHeaders.acceptHeader, "application/vnd.github.v3+json");
+          final resLatest = await reqLatest.close().timeout(const Duration(seconds: 10));
+          if (resLatest.statusCode == 200) {
+            final body = await resLatest.transform(utf8.decoder).join();
+            final json = jsonDecode(body) as Map<String, dynamic>;
+            return _parseReleaseJson(json);
+          }
+
+          // Fallback to releases list
           final req = await client.getUrl(Uri.parse("https://api.github.com/repos/$owner/$repo/releases?per_page=5"));
           req.headers.set(HttpHeaders.userAgentHeader, "V2RayPro-Client/1.2.0");
           req.headers.set(HttpHeaders.acceptHeader, "application/vnd.github.v3+json");
@@ -438,7 +494,7 @@ class UpdateService {
           final latest = (json["version"] as String? ?? currentAppVersion).trim();
           final dlUrl = json["download_url"] as String?;
           final notes = json["changelog"] as String?;
-          final hasUp = latest.isNotEmpty && latest != currentAppVersion;
+          final hasUp = isVersionNewer(latest, currentAppVersion);
           return UpdateInfo(
             currentVersion: currentAppVersion,
             latestVersion: latest,
@@ -452,17 +508,28 @@ class UpdateService {
       }
     }
 
-    // 2. Default: Query GitHub API for iamcloner/v2raypro release
+    // 2. Default: Query GitHub API for latest release on iamcloner/v2raypro
     final repos = [
       "iamcloner/v2raypro",
     ];
 
     for (final repo in repos) {
       try {
+        // First try /releases/latest
+        final reqLatest = await client.getUrl(Uri.parse("https://api.github.com/repos/$repo/releases/latest"));
+        reqLatest.headers.set(HttpHeaders.userAgentHeader, "V2RayPro-Client/1.2.0");
+        reqLatest.headers.set(HttpHeaders.acceptHeader, "application/vnd.github.v3+json");
+        final resLatest = await reqLatest.close().timeout(const Duration(seconds: 10));
+        if (resLatest.statusCode == 200) {
+          final body = await resLatest.transform(utf8.decoder).join();
+          final json = jsonDecode(body) as Map<String, dynamic>;
+          return _parseReleaseJson(json);
+        }
+
+        // Fallback to releases list
         final req = await client.getUrl(Uri.parse("https://api.github.com/repos/$repo/releases?per_page=5"));
         req.headers.set(HttpHeaders.userAgentHeader, "V2RayPro-Client/1.2.0");
         req.headers.set(HttpHeaders.acceptHeader, "application/vnd.github.v3+json");
-
         final res = await req.close().timeout(const Duration(seconds: 10));
         if (res.statusCode == 200) {
           final body = await res.transform(utf8.decoder).join();
@@ -470,16 +537,6 @@ class UpdateService {
           if (list.isNotEmpty) {
             return _parseReleaseJson(list.first as Map<String, dynamic>);
           }
-        }
-
-        final reqTag = await client.getUrl(Uri.parse("https://api.github.com/repos/$repo/releases/tags/v1.2.0"));
-        reqTag.headers.set(HttpHeaders.userAgentHeader, "V2RayPro-Client/1.2.0");
-        reqTag.headers.set(HttpHeaders.acceptHeader, "application/vnd.github.v3+json");
-        final resTag = await reqTag.close().timeout(const Duration(seconds: 10));
-        if (resTag.statusCode == 200) {
-          final bodyTag = await resTag.transform(utf8.decoder).join();
-          final jsonTag = jsonDecode(bodyTag) as Map<String, dynamic>;
-          return _parseReleaseJson(jsonTag, targetTag: "v1.2.0");
         }
       } catch (e) {
         debugPrint("checkAppUpdate github check ($repo): $e");
@@ -587,7 +644,7 @@ taskkill /F /PID $currentPid > nul 2>&1
 taskkill /F /IM v2raypro.exe > nul 2>&1
 timeout /t 1 /nobreak > nul
 
-xcopy /E /Y /I "${payloadDir.path}\\*" "$currentExeDir\\" > nul 2>&1
+xcopy /E /Y /I /H /R "${payloadDir.path}\\*" "$currentExeDir\\" > nul 2>&1
 
 start "" "${Platform.resolvedExecutable}"
 del "%~f0" > nul 2>&1
