@@ -448,7 +448,48 @@ final cfRangesProvider = StateNotifierProvider<CloudflareRangesNotifier, List<St
 // Default to English as requested
 final currentLocaleProvider = StateProvider<String>((ref) => "en");
 
-// Port settings provider
-final httpPortProvider = StateProvider<int>((ref) => 10888);
-final socksPortProvider = StateProvider<int>((ref) => 10999);
+// Port settings providers with persistence and automatic XrayProcessService sync
+class HttpPortNotifier extends StateNotifier<int> {
+  HttpPortNotifier() : super(10888) {
+    _init();
+  }
+
+  Future<void> _init() async {
+    final p = await StorageService.instance.loadHttpPort();
+    state = p;
+    XrayProcessService.instance.httpPort = p;
+  }
+
+  void setPort(int port) {
+    state = port;
+    XrayProcessService.instance.httpPort = port;
+    StorageService.instance.saveHttpPort(port);
+  }
+}
+
+final httpPortProvider = StateNotifierProvider<HttpPortNotifier, int>((ref) {
+  return HttpPortNotifier();
+});
+
+class SocksPortNotifier extends StateNotifier<int> {
+  SocksPortNotifier() : super(10999) {
+    _init();
+  }
+
+  Future<void> _init() async {
+    final p = await StorageService.instance.loadSocksPort();
+    state = p;
+    XrayProcessService.instance.socksPort = p;
+  }
+
+  void setPort(int port) {
+    state = port;
+    XrayProcessService.instance.socksPort = port;
+    StorageService.instance.saveSocksPort(port);
+  }
+}
+
+final socksPortProvider = StateNotifierProvider<SocksPortNotifier, int>((ref) {
+  return SocksPortNotifier();
+});
 

@@ -14,11 +14,15 @@ class SettingsView extends ConsumerStatefulWidget {
 
 class _SettingsViewState extends ConsumerState<SettingsView> {
   late TextEditingController _cfRangesController;
+  late TextEditingController _httpPortController;
+  late TextEditingController _socksPortController;
   bool _initialized = false;
 
   @override
   void dispose() {
     _cfRangesController.dispose();
+    _httpPortController.dispose();
+    _socksPortController.dispose();
     super.dispose();
   }
 
@@ -31,6 +35,8 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
 
     if (!_initialized) {
       _cfRangesController = TextEditingController(text: cfRanges.join('\n'));
+      _httpPortController = TextEditingController(text: httpPort.toString());
+      _socksPortController = TextEditingController(text: socksPort.toString());
       _initialized = true;
     }
 
@@ -86,19 +92,38 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                 ListTile(
                   leading: const Icon(Icons.settings_ethernet_rounded, color: AppTheme.primaryAccent),
                   title: Text(AppStrings.get('http_port', locale: locale)),
-                  subtitle: Text(httpPort.toString() + ' (Default: 10888)'),
+                  subtitle: Text('Current: $httpPort  •  (Default: 10888)'),
                   trailing: SizedBox(
-                    width: 100,
+                    width: 140,
                     child: TextField(
+                      controller: _httpPortController,
                       keyboardType: TextInputType.number,
-                      textAlign: TextAlign.end,
-                      decoration: const InputDecoration(border: InputBorder.none),
-                      controller: TextEditingController(text: httpPort.toString()),
+                      textAlign: TextAlign.center,
+                      decoration: InputDecoration(
+                        isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                        suffixIcon: IconButton(
+                          icon: const Icon(Icons.check_rounded, size: 18, color: AppTheme.successColor),
+                          tooltip: "Save port",
+                          onPressed: () {
+                            final p = int.tryParse(_httpPortController.text.trim());
+                            if (p != null && p > 0 && p < 65536) {
+                              ref.read(httpPortProvider.notifier).setPort(p);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('HTTP port updated to $p')),
+                              );
+                            }
+                          },
+                        ),
+                      ),
                       onSubmitted: (val) {
-                        final p = int.tryParse(val);
-                        if (p != null && p > 0 && p < 65535) {
-                          ref.read(httpPortProvider.notifier).state = p;
-                          XrayProcessService.instance.httpPort = p;
+                        final p = int.tryParse(val.trim());
+                        if (p != null && p > 0 && p < 65536) {
+                          ref.read(httpPortProvider.notifier).setPort(p);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('HTTP port updated to $p')),
+                          );
                         }
                       },
                     ),
@@ -108,19 +133,38 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                 ListTile(
                   leading: const Icon(Icons.swap_calls_rounded, color: AppTheme.secondaryAccent),
                   title: Text(AppStrings.get('socks_port', locale: locale)),
-                  subtitle: Text(socksPort.toString() + ' (Default: 10999)'),
+                  subtitle: Text('Current: $socksPort  •  (Default: 10999)'),
                   trailing: SizedBox(
-                    width: 100,
+                    width: 140,
                     child: TextField(
+                      controller: _socksPortController,
                       keyboardType: TextInputType.number,
-                      textAlign: TextAlign.end,
-                      decoration: const InputDecoration(border: InputBorder.none),
-                      controller: TextEditingController(text: socksPort.toString()),
+                      textAlign: TextAlign.center,
+                      decoration: InputDecoration(
+                        isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                        suffixIcon: IconButton(
+                          icon: const Icon(Icons.check_rounded, size: 18, color: AppTheme.successColor),
+                          tooltip: "Save port",
+                          onPressed: () {
+                            final p = int.tryParse(_socksPortController.text.trim());
+                            if (p != null && p > 0 && p < 65536) {
+                              ref.read(socksPortProvider.notifier).setPort(p);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('SOCKS port updated to $p')),
+                              );
+                            }
+                          },
+                        ),
+                      ),
                       onSubmitted: (val) {
-                        final p = int.tryParse(val);
-                        if (p != null && p > 0 && p < 65535) {
-                          ref.read(socksPortProvider.notifier).state = p;
-                          XrayProcessService.instance.socksPort = p;
+                        final p = int.tryParse(val.trim());
+                        if (p != null && p > 0 && p < 65536) {
+                          ref.read(socksPortProvider.notifier).setPort(p);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('SOCKS port updated to $p')),
+                          );
                         }
                       },
                     ),

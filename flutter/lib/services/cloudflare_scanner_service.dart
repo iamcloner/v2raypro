@@ -84,6 +84,36 @@ class CloudflareScannerService {
     }
   }
 
+  /// Check if a given IPv4 address belongs to any Cloudflare CIDR (default or custom)
+  static bool isCloudflareIp(String ip, [List<String>? cidrs]) {
+    final targetIp = ip.trim();
+    final parts = targetIp.split('.').map(int.tryParse).toList();
+    if (parts.length != 4 || parts.any((p) => p == null || p < 0 || p > 255)) {
+      return false;
+    }
+    final int ipInt = (parts[0]! << 24) | (parts[1]! << 16) | (parts[2]! << 8) | parts[3]!;
+    final ranges = (cidrs != null && cidrs.isNotEmpty) ? cidrs : defaultCidrs;
+
+    for (final cidr in ranges) {
+      try {
+        final cidrParts = cidr.trim().split('/');
+        final baseParts = cidrParts[0].split('.').map(int.tryParse).toList();
+        if (baseParts.length != 4 || baseParts.any((p) => p == null)) continue;
+
+        final prefixLen = cidrParts.length > 1 ? int.parse(cidrParts[1]) : 32;
+        if (prefixLen < 0 || prefixLen > 32) continue;
+
+        final int baseInt = (baseParts[0]! << 24) | (baseParts[1]! << 16) | (baseParts[2]! << 8) | baseParts[3]!;
+        final int mask = prefixLen == 0 ? 0 : (~0 << (32 - prefixLen));
+
+        if ((ipInt & mask) == (baseInt & mask)) {
+          return true;
+        }
+      } catch (_) {}
+    }
+    return false;
+  }
+
   bool _isCancelled = false;
 
   void cancel() {

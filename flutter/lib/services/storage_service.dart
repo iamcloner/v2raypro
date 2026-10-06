@@ -148,4 +148,26 @@ class StorageService {
     } catch (_) {}
     return [];
   }
+
+  Future<void> saveInt(String key, int val) async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      await sp.setInt(key, val);
+    } catch (_) {}
+  }
+
+  Future<int> loadInt(String key, {int defaultValue = 0}) async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      return sp.getInt(key) ?? defaultValue;
+    } catch (_) {
+      return defaultValue;
+    }
+  }
+
+  Future<void> saveHttpPort(int val) => saveInt(_httpPortKey, val);
+  Future<int> loadHttpPort() => loadInt(_httpPortKey, defaultValue: 10888);
+
+  Future<void> saveSocksPort(int val) => saveInt(_socksPortKey, val);
+  Future<int> loadSocksPort() => loadInt(_socksPortKey, defaultValue: 10999);
 }

@@ -13,6 +13,7 @@ import 'core/ffi/rust_bridge.dart';
 import 'core/l10n/translations.dart';
 import 'core/theme/app_theme.dart';
 import 'providers/app_providers.dart';
+import 'services/cloudflare_scanner_service.dart';
 import 'services/xray_process_service.dart';
 
 void main() {
@@ -223,9 +224,50 @@ class DashboardView extends ConsumerWidget {
                   ),
                   if (activeNode != null) ...[
                     const SizedBox(height: 4),
-                    Text(
-                      '${activeNode.name} (${activeNode.address}:${activeNode.port})',
-                      style: const TextStyle(fontSize: 13, color: Colors.grey),
+                    Builder(
+                      builder: (context) {
+                        final cfRanges = ref.watch(cfRangesProvider);
+                        final isCf = CloudflareScannerService.isCloudflareIp(activeNode.address, cfRanges);
+                        return Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                '${activeNode.name} (${activeNode.address}:${activeNode.port})',
+                                style: const TextStyle(fontSize: 13, color: Colors.grey),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (isCf) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: Colors.amber.withValues(alpha: 0.2),
+                                  borderRadius: BorderRadius.circular(4),
+                                  border: Border.all(color: Colors.amber, width: 0.8),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.star_rounded, size: 13, color: Colors.amber),
+                                    SizedBox(width: 2),
+                                    Text(
+                                      "CF",
+                                      style: TextStyle(
+                                        color: Colors.amber,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ],
+                        );
+                      },
                     ),
                   ],
                 ],

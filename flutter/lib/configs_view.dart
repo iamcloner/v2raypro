@@ -4,6 +4,7 @@ import 'core/l10n/translations.dart';
 import 'core/theme/app_theme.dart';
 import 'models/proxy_node.dart';
 import 'providers/app_providers.dart';
+import 'services/cloudflare_scanner_service.dart';
 import 'services/xray_process_service.dart';
 import 'utils/config_parser.dart';
 
@@ -175,6 +176,8 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
                   itemBuilder: (context, index) {
                     final node = nodes[index];
                     final isTesting = _testingNodeIds.contains(node.id);
+                    final cfRanges = ref.watch(cfRangesProvider);
+                    final isCf = CloudflareScannerService.isCloudflareIp(node.address, cfRanges);
 
                     return Card(
                       child: ListTile(
@@ -182,7 +185,46 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
                           node.isActive ? Icons.radio_button_checked : Icons.radio_button_off,
                           color: node.isActive ? AppTheme.primaryAccent : Colors.grey,
                         ),
-                        title: Text(node.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                        title: Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                node.name,
+                                style: const TextStyle(fontWeight: FontWeight.bold),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (isCf) ...[
+                              const SizedBox(width: 6),
+                              Tooltip(
+                                message: "Cloudflare IP (★)",
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.amber.withValues(alpha: 0.2),
+                                    borderRadius: BorderRadius.circular(4),
+                                    border: Border.all(color: Colors.amber, width: 0.8),
+                                  ),
+                                  child: const Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.star_rounded, size: 14, color: Colors.amber),
+                                      SizedBox(width: 2),
+                                      Text(
+                                        "CF",
+                                        style: TextStyle(
+                                          color: Colors.amber,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
                         subtitle: Text(
                           '${node.address}:${node.port}  •  ${node.protocol.name.toUpperCase()}  •  ${node.network.name.toUpperCase()}',
                         ),
