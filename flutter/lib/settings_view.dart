@@ -177,9 +177,9 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
           _appInfo = info;
           _appChecking = false;
           if (info.hasUpdate) {
-            _appStatusMsg = locale == 'fa' ? 'نسخه جدید در دسترس است: ${info.latestVersion}' : 'New version available: ${info.latestVersion}';
-          } else if (info.downloadUrl != null) {
-            _appStatusMsg = locale == 'fa' ? 'نسخه ${info.latestVersion} آماده دانلود و نصب است' : 'Version ${info.latestVersion} is ready to download';
+            _appStatusMsg = locale == 'fa'
+                ? 'نسخه جدید در دسترس است: ${info.latestVersion}'
+                : 'New version available: ${info.latestVersion}';
           } else {
             _appStatusMsg = AppStrings.get('up_to_date', locale: locale);
           }
@@ -610,7 +610,7 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                     trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (_appInfo?.downloadUrl != null && !_appUpdating)
+                      if (_appInfo?.hasUpdate == true && !_appUpdating)
                         ElevatedButton.icon(
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppTheme.successColor,
@@ -619,9 +619,7 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                           ),
                           icon: const Icon(Icons.downloading_rounded, size: 16),
                           label: Text(
-                            _appInfo!.hasUpdate
-                                ? AppStrings.get('update_now', locale: locale)
-                                : (locale == 'fa' ? 'نصب / دریافت نسخه' : 'Download & Install'),
+                            AppStrings.get('update_now', locale: locale),
                             style: const TextStyle(fontSize: 11),
                           ),
                           onPressed: _downloadAppUpdate,
