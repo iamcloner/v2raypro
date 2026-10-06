@@ -236,9 +236,9 @@ class XrayProcessService {
       "log": {"loglevel": "warning"},
       "dns": {
         "servers": [
-          "https+local://1.1.1.1/dns-query",
           "8.8.8.8",
           "1.1.1.1",
+          "https://1.1.1.1/dns-query",
           "localhost"
         ]
       },
