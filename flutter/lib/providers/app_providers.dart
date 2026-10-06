@@ -1,30 +1,37 @@
 import "package:flutter_riverpod/flutter_riverpod.dart";
-import "../core/ffi/rust_bridge.dart";
 import "../models/proxy_node.dart";
 import "../models/scan_result.dart";
+import "../services/cloudflare_scanner_service.dart";
+import "../services/xray_process_service.dart";
 
-enum ConnectionStateEnum { disconnected, connecting, connected, disconnecting }
+enum ConnectionStateEnum { disconnected, connecting, connected, disconnecting, error }
 
 class ConnectionStatusNotifier extends StateNotifier<ConnectionStateEnum> {
-  ConnectionStatusNotifier() : super(ConnectionStateEnum.disconnected);
+  final Ref ref;
+  ConnectionStatusNotifier(this.ref) : super(ConnectionStateEnum.disconnected);
 
-  void toggleConnect() {
-    if (state == ConnectionStateEnum.disconnected) {
+  Future<void> toggleConnect() async {
+    final nodes = ref.read(nodesProvider);
+    final activeNode = nodes.firstWhere((n) => n.isActive, orElse: () => nodes.first);
+
+    if (state == ConnectionStateEnum.disconnected || state == ConnectionStateEnum.error) {
       state = ConnectionStateEnum.connecting;
-      Future.delayed(const Duration(seconds: 1), () {
+      final ok = await XrayProcessService.instance.start(activeNode);
+      if (ok) {
         state = ConnectionStateEnum.connected;
-      });
+      } else {
+        state = ConnectionStateEnum.error;
+      }
     } else if (state == ConnectionStateEnum.connected) {
       state = ConnectionStateEnum.disconnecting;
-      Future.delayed(const Duration(milliseconds: 500), () {
-        state = ConnectionStateEnum.disconnected;
-      });
+      await XrayProcessService.instance.stop();
+      state = ConnectionStateEnum.disconnected;
     }
   }
 }
 
 final connectionStatusProvider = StateNotifierProvider<ConnectionStatusNotifier, ConnectionStateEnum>((ref) {
-  return ConnectionStatusNotifier();
+  return ConnectionStatusNotifier(ref);
 });
 
 class NodesNotifier extends StateNotifier<List<ProxyNode>> {
@@ -138,9 +145,8 @@ class ScannerState {
 }
 
 class ScannerNotifier extends StateNotifier<ScannerState> {
-  ScannerNotifier() : super(ScannerState()) {
-    RustBridge.instance.eventStream.listen(_handleEvent);
-  }
+  final Ref ref;
+  ScannerNotifier(this.ref) : super(ScannerState());
 
   void _handleEvent(Map<String, dynamic> evt) {
     final type = evt["type"];
@@ -175,16 +181,25 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
   }
 
   void startScan({required int candidates, required int workers}) {
-    RustBridge.instance.startScan(candidates: candidates, workers: workers);
+    final nodes = ref.read(nodesProvider);
+    final activeNode = nodes.firstWhere((n) => n.isActive, orElse: () => nodes.first);
+
+    CloudflareScannerService.instance.scanCandidates(
+      candidateCount: candidates,
+      workers: workers,
+      targetPort: activeNode.port,
+      targetSni: activeNode.sni ?? activeNode.host,
+    ).listen(_handleEvent);
   }
 
   void cancelScan() {
-    RustBridge.instance.cancelScan();
+    CloudflareScannerService.instance.cancel();
+    state = state.copyWith(isScanning: false);
   }
 }
 
 final scannerProvider = StateNotifierProvider<ScannerNotifier, ScannerState>((ref) {
-  return ScannerNotifier();
+  return ScannerNotifier(ref);
 });
 
 final currentLocaleProvider = StateProvider<String>((ref) => "fa");
