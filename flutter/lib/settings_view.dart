@@ -168,6 +168,7 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
       _appChecking = true;
       _appStatusMsg = null;
     });
+    final locale = ref.read(currentLocaleProvider);
     try {
       final customUrl = _appTestUrlController.text.trim().isNotEmpty ? _appTestUrlController.text.trim() : null;
       final info = await UpdateService.instance.checkAppUpdate(customUrl: customUrl);
@@ -175,7 +176,13 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
         setState(() {
           _appInfo = info;
           _appChecking = false;
-          _appStatusMsg = info.hasUpdate ? 'New version available: ${info.latestVersion}' : 'Application is up to date';
+          if (info.hasUpdate) {
+            _appStatusMsg = locale == 'fa' ? 'نسخه جدید در دسترس است: ${info.latestVersion}' : 'New version available: ${info.latestVersion}';
+          } else if (info.downloadUrl != null) {
+            _appStatusMsg = locale == 'fa' ? 'نسخه ${info.latestVersion} آماده دانلود و نصب است' : 'Version ${info.latestVersion} is ready to download';
+          } else {
+            _appStatusMsg = AppStrings.get('up_to_date', locale: locale);
+          }
         });
       }
     } catch (e) {
@@ -196,7 +203,11 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
       );
       return;
     }
+    await _downloadAppUpdateDirectly(dlUrl);
+  }
 
+  Future<void> _downloadAppUpdateDirectly(String url) async {
+    if (url.trim().isEmpty) return;
     final locale = ref.read(currentLocaleProvider);
     setState(() {
       _appUpdating = true;
@@ -206,7 +217,7 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
 
     try {
       final success = await UpdateService.instance.downloadAndApplyAppUpdate(
-        dlUrl,
+        url.trim(),
         onProgress: (phase, p) {
           if (mounted) {
             setState(() {
@@ -596,10 +607,10 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                       ],
                     ],
                   ),
-                  trailing: Row(
+                    trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (_appInfo?.hasUpdate == true && !_appUpdating)
+                      if (_appInfo?.downloadUrl != null && !_appUpdating)
                         ElevatedButton.icon(
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppTheme.successColor,
@@ -607,7 +618,12 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                           ),
                           icon: const Icon(Icons.downloading_rounded, size: 16),
-                          label: Text(AppStrings.get('update_now', locale: locale), style: const TextStyle(fontSize: 11)),
+                          label: Text(
+                            _appInfo!.hasUpdate
+                                ? AppStrings.get('update_now', locale: locale)
+                                : (locale == 'fa' ? 'نصب / دریافت نسخه' : 'Download & Install'),
+                            style: const TextStyle(fontSize: 11),
+                          ),
                           onPressed: _downloadAppUpdate,
                         )
                       else
@@ -631,9 +647,9 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          const Text(
-                            'Update Server URL (Test / Staging URL):',
-                            style: TextStyle(fontSize: 11, color: Colors.grey),
+                          Text(
+                            locale == 'fa' ? 'آدرس مخزن / انتشار در گیت‌هاب (GitHub Release URL):' : 'Update Repository / Release URL:',
+                            style: const TextStyle(fontSize: 11, color: Colors.grey),
                           ),
                           const SizedBox(height: 6),
                           TextField(
@@ -643,8 +659,22 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                               isDense: true,
                               contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                               border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
-                              hintText: 'https://...',
+                              hintText: 'https://github.com/iamcloner/v2raypro/releases/tag/v1.2.0',
                             ),
+                          ),
+                          const SizedBox(height: 10),
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppTheme.primaryAccent,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                            ),
+                            icon: const Icon(Icons.cloud_download_rounded, size: 18),
+                            label: Text(
+                              locale == 'fa' ? 'دانلود و نصب مستقیم فایل فشرده از این آدرس' : 'Download & Apply Update Directly from URL',
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                            ),
+                            onPressed: _appUpdating ? null : () => _downloadAppUpdateDirectly(_appTestUrlController.text.trim()),
                           ),
                           if (_downloadedAppPath != null) ...[
                             const SizedBox(height: 10),

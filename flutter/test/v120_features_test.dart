@@ -27,6 +27,11 @@ void main() {
       expect(info.releaseNotes, 'New features');
     });
 
+    test('UpdateService defaultAppRepoUrl points to iamcloner/v2raypro', () {
+      expect(UpdateService.defaultAppRepoUrl, contains('iamcloner/v2raypro'));
+      expect(UpdateService.defaultAppTestUrl, contains('iamcloner/v2raypro'));
+    });
+
     test('ScannerState manages radar traffic warning properties', () {
       final state1 = ScannerState(
         isScanning: true,
