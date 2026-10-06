@@ -130,76 +130,86 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
             ),
           ),
           const SizedBox(height: 20),
-          Text(
-            AppStrings.get('cf_ranges_title', locale: locale),
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            AppStrings.get('cf_ranges_desc', locale: locale),
-            style: const TextStyle(fontSize: 12, color: Colors.grey),
-          ),
-          const SizedBox(height: 12),
           Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  TextField(
-                    controller: _cfRangesController,
-                    maxLines: 8,
-                    style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
-                    decoration: InputDecoration(
-                      hintText: AppStrings.get('cf_ranges_hint', locale: locale),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      filled: true,
-                      fillColor: Theme.of(context).cardColor,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
+            clipBehavior: Clip.antiAlias,
+            child: ExpansionTile(
+              initiallyExpanded: false,
+              leading: const Icon(Icons.network_ping_rounded, color: AppTheme.secondaryAccent),
+              title: Text(
+                AppStrings.get('cf_ranges_title', locale: locale),
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              subtitle: Text(
+                '${cfRanges.length} CIDR ranges configured  •  Tap to view / edit',
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      OutlinedButton.icon(
-                        icon: const Icon(Icons.restore_rounded, size: 16),
-                        label: Text(AppStrings.get('reset_default', locale: locale)),
-                        onPressed: () {
-                          ref.read(cfRangesProvider.notifier).resetToDefault();
-                          setState(() {
-                            _cfRangesController.text = ref.read(cfRangesProvider).join('\n');
-                          });
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(AppStrings.get('reset_default', locale: locale))),
-                          );
-                        },
+                      Text(
+                        AppStrings.get('cf_ranges_desc', locale: locale),
+                        style: const TextStyle(fontSize: 12, color: Colors.grey),
                       ),
-                      const SizedBox(width: 12),
-                      ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.primaryAccent,
-                          foregroundColor: Colors.white,
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _cfRangesController,
+                        maxLines: 8,
+                        style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+                        decoration: InputDecoration(
+                          hintText: AppStrings.get('cf_ranges_hint', locale: locale),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          filled: true,
+                          fillColor: Theme.of(context).cardColor,
                         ),
-                        icon: const Icon(Icons.save_rounded, size: 16),
-                        label: Text(AppStrings.get('save_ranges', locale: locale)),
-                        onPressed: () {
-                          final lines = _cfRangesController.text
-                              .split('\n')
-                              .map((l) => l.trim())
-                              .where((l) => l.isNotEmpty && !l.startsWith('#'))
-                              .toList();
-                          ref.read(cfRangesProvider.notifier).updateRanges(lines);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(AppStrings.get('ranges_saved', locale: locale))),
-                          );
-                        },
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          OutlinedButton.icon(
+                            icon: const Icon(Icons.restore_rounded, size: 16),
+                            label: Text(AppStrings.get('reset_default', locale: locale)),
+                            onPressed: () {
+                              ref.read(cfRangesProvider.notifier).resetToDefault();
+                              setState(() {
+                                _cfRangesController.text = ref.read(cfRangesProvider).join('\n');
+                              });
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text(AppStrings.get('reset_default', locale: locale))),
+                              );
+                            },
+                          ),
+                          const SizedBox(width: 12),
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppTheme.primaryAccent,
+                              foregroundColor: Colors.white,
+                            ),
+                            icon: const Icon(Icons.save_rounded, size: 16),
+                            label: Text(AppStrings.get('save_ranges', locale: locale)),
+                            onPressed: () {
+                              final lines = _cfRangesController.text
+                                  .split('\n')
+                                  .map((l) => l.trim())
+                                  .where((l) => l.isNotEmpty && !l.startsWith('#'))
+                                  .toList();
+                              ref.read(cfRangesProvider.notifier).updateRanges(lines);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text(AppStrings.get('ranges_saved', locale: locale))),
+                              );
+                            },
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ],

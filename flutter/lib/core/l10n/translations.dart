@@ -55,6 +55,10 @@ class AppStrings {
       "save_ranges": "Save Ranges",
       "reset_default": "Reset to Default",
       "ranges_saved": "Cloudflare ranges saved successfully",
+      "auto_update_hourly": "Auto Update (Hourly)",
+      "auto_update_hourly_desc": "Automatically refresh nodes every 1 hour",
+      "sub_configs": "Configurations",
+      "no_sub_nodes": "No nodes found in this subscription.",
     },
     "fa": {
       "app_title": "وی‌تو‌ری پرو",
@@ -111,6 +115,10 @@ class AppStrings {
       "save_ranges": "ذخیره رنج‌ها",
       "reset_default": "بازنشانی به پیش‌فرض",
       "ranges_saved": "رنج‌های کلودفلر با موفقیت ذخیره شدند",
+      "auto_update_hourly": "بروزرسانی خودکار (هر یک ساعت)",
+      "auto_update_hourly_desc": "بروزرسانی خودکار کانفیگ‌ها هر ۱ ساعت یکبار",
+      "sub_configs": "کانفیگ‌های این اشتراک",
+      "no_sub_nodes": "هیچ کانفیگی در این ساب وجود ندارد.",
     }
   };
 

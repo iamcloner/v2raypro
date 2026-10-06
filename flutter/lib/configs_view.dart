@@ -109,7 +109,8 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
 
   @override
   Widget build(BuildContext context) {
-    final nodes = ref.watch(nodesProvider);
+    final allNodes = ref.watch(nodesProvider);
+    final nodes = allNodes.where((n) => n.subscriptionId == null).toList();
     final locale = ref.watch(currentLocaleProvider);
 
     return Scaffold(

@@ -1,9 +1,11 @@
-﻿import "package:flutter/material.dart";
+import "package:flutter/material.dart";
 import "package:flutter_riverpod/flutter_riverpod.dart";
 import "core/l10n/translations.dart";
 import "core/theme/app_theme.dart";
+import "models/proxy_node.dart";
 import "models/subscription_item.dart";
 import "providers/app_providers.dart";
+import "services/xray_process_service.dart";
 
 class SubscriptionsView extends ConsumerStatefulWidget {
   const SubscriptionsView({super.key});
@@ -16,6 +18,7 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
   final _nameController = TextEditingController();
   final _urlController = TextEditingController();
   final Set<String> _updatingSubIds = {};
+  final Set<String> _testingNodeIds = {};
   bool _isUpdatingAll = false;
 
   void _showAddDialog(String locale) {
@@ -110,9 +113,22 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
     }
   }
 
+  Future<void> _testNodeLatency(ProxyNode node) async {
+    if (_testingNodeIds.contains(node.id)) return;
+    setState(() => _testingNodeIds.add(node.id));
+
+    final latency = await XrayProcessService.instance.testNodeLatency(node);
+    ref.read(nodesProvider.notifier).updateLatency(node.id, latency);
+
+    if (mounted) {
+      setState(() => _testingNodeIds.remove(node.id));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final subs = ref.watch(subscriptionsProvider);
+    final allNodes = ref.watch(nodesProvider);
     final locale = ref.watch(currentLocaleProvider);
 
     return Scaffold(
@@ -179,20 +195,22 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                   itemBuilder: (context, index) {
                     final sub = subs[index];
                     final isUpdating = _updatingSubIds.contains(sub.id);
+                    final subNodes = allNodes.where((n) => n.subscriptionId == sub.id).toList();
 
                     return Card(
-                      child: ListTile(
+                      clipBehavior: Clip.antiAlias,
+                      child: ExpansionTile(
+                        initiallyExpanded: false,
                         leading: CircleAvatar(
                           backgroundColor: AppTheme.primaryAccent.withValues(alpha: 0.15),
                           child: const Icon(Icons.rss_feed_rounded, color: AppTheme.primaryAccent),
                         ),
                         title: Text(sub.name, style: const TextStyle(fontWeight: FontWeight.bold)),
                         subtitle: Text(
-                          "${sub.nodeCount} nodes  •  ${sub.lastUpdated != null ? 'Updated: ' + sub.lastUpdated!.toLocal().toString().substring(0, 16) : 'Never updated'}\n${sub.url}",
-                          maxLines: 2,
+                          "${sub.nodeCount} nodes  •  ${sub.lastUpdated != null ? 'Updated: ' + sub.lastUpdated!.toLocal().toString().substring(0, 16) : 'Never updated'}",
+                          maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        isThreeLine: true,
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -220,6 +238,109 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                             ),
                           ],
                         ),
+                        children: [
+                          Container(
+                            color: Theme.of(context).cardColor.withValues(alpha: 0.4),
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      AppStrings.get("auto_update_hourly", locale: locale),
+                                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                                    ),
+                                    Text(
+                                      AppStrings.get("auto_update_hourly_desc", locale: locale),
+                                      style: const TextStyle(fontSize: 11, color: Colors.grey),
+                                    ),
+                                  ],
+                                ),
+                                Switch(
+                                  value: sub.autoUpdate,
+                                  activeColor: AppTheme.primaryAccent,
+                                  onChanged: (val) {
+                                    ref.read(subscriptionsProvider.notifier).toggleAutoUpdate(sub.id, val);
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Divider(height: 1),
+                          if (subNodes.isEmpty)
+                            Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Text(
+                                AppStrings.get("no_sub_nodes", locale: locale),
+                                style: const TextStyle(color: Colors.grey, fontSize: 13),
+                              ),
+                            )
+                          else
+                            ListView.separated(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              itemCount: subNodes.length,
+                              separatorBuilder: (c, i) => const Divider(height: 1, indent: 56),
+                              itemBuilder: (context, nodeIdx) {
+                                final node = subNodes[nodeIdx];
+                                final isTesting = _testingNodeIds.contains(node.id);
+
+                                return ListTile(
+                                  dense: true,
+                                  leading: Icon(
+                                    node.isActive ? Icons.radio_button_checked : Icons.radio_button_off,
+                                    color: node.isActive ? AppTheme.primaryAccent : Colors.grey,
+                                    size: 20,
+                                  ),
+                                  title: Text(node.name, style: const TextStyle(fontSize: 14)),
+                                  subtitle: Text(
+                                    "${node.address}:${node.port}  •  ${node.protocol.name.toUpperCase()}  •  ${node.network.name.toUpperCase()}",
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      if (isTesting)
+                                        const Padding(
+                                          padding: EdgeInsets.symmetric(horizontal: 10),
+                                          child: SizedBox(
+                                            width: 14,
+                                            height: 14,
+                                            child: CircularProgressIndicator(strokeWidth: 2),
+                                          ),
+                                        )
+                                      else if (node.latencyMs != null)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: AppTheme.successColor.withValues(alpha: 0.15),
+                                            borderRadius: BorderRadius.circular(4),
+                                          ),
+                                          child: Text(
+                                            "${node.latencyMs} ms",
+                                            style: const TextStyle(
+                                              color: AppTheme.successColor,
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                      IconButton(
+                                        icon: const Icon(Icons.bolt_rounded, size: 18, color: Colors.cyanAccent),
+                                        tooltip: "Ping test",
+                                        onPressed: () => _testNodeLatency(node),
+                                      ),
+                                    ],
+                                  ),
+                                  onTap: () {
+                                    ref.read(nodesProvider.notifier).setActive(node.id);
+                                  },
+                                );
+                              },
+                            ),
+                        ],
                       ),
                     );
                   },

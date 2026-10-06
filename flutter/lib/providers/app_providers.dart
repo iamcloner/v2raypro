@@ -1,3 +1,4 @@
+import "dart:async";
 import "dart:convert";
 import "dart:io";
 import "package:flutter_riverpod/flutter_riverpod.dart";
@@ -205,17 +206,59 @@ final nodesProvider = StateNotifierProvider<NodesNotifier, List<ProxyNode>>((ref
 
 class SubscriptionsNotifier extends StateNotifier<List<SubscriptionItem>> {
   final Ref ref;
+  Timer? _autoUpdateTimer;
+
   SubscriptionsNotifier(this.ref) : super([]) {
     _init();
+    _startAutoUpdateTimer();
+  }
+
+  @override
+  void dispose() {
+    _autoUpdateTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startAutoUpdateTimer() {
+    // Check every 10 minutes if any autoUpdate subscription hasn't been updated for 1 hour
+    _autoUpdateTimer = Timer.periodic(const Duration(minutes: 10), (timer) {
+      _checkHourlyAutoUpdate();
+    });
+  }
+
+  Future<void> _checkHourlyAutoUpdate() async {
+    final now = DateTime.now();
+    for (final s in state) {
+      if (s.autoUpdate) {
+        if (s.lastUpdated == null || now.difference(s.lastUpdated!).inMinutes >= 60) {
+          await updateSubscription(s.id);
+        }
+      }
+    }
   }
 
   Future<void> _init() async {
     final saved = await StorageService.instance.loadSubscriptions();
     state = saved;
+    // Also perform initial check
+    _checkHourlyAutoUpdate();
   }
 
   void _save() {
     StorageService.instance.saveSubscriptions(state);
+  }
+
+  void toggleAutoUpdate(String id, bool val) {
+    state = state.map((s) {
+      if (s.id == id) {
+        return s.copyWith(autoUpdate: val);
+      }
+      return s;
+    }).toList();
+    _save();
+    if (val) {
+      _checkHourlyAutoUpdate();
+    }
   }
 
   Future<int> addSubscription(String name, String url) async {
