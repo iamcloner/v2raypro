@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:uuid/uuid.dart';
 import '../models/proxy_node.dart';
 
 class ConfigParser {
@@ -110,7 +111,7 @@ class ConfigParser {
       }
 
       return ProxyNode(
-        id: 'node-${DateTime.now().millisecondsSinceEpoch}-${(1000 + (DateTime.now().microsecond % 9000))}',
+        id: const Uuid().v4(),
         name: name,
         protocol: ProtocolType.vless,
         address: address,
@@ -183,7 +184,7 @@ class ConfigParser {
       }
 
       return ProxyNode(
-        id: 'node-${DateTime.now().millisecondsSinceEpoch}-${(1000 + (DateTime.now().microsecond % 9000))}',
+        id: const Uuid().v4(),
         name: name,
         protocol: ProtocolType.vmess,
         address: address,
@@ -245,7 +246,7 @@ class ConfigParser {
       }
 
       return ProxyNode(
-        id: 'node-${DateTime.now().millisecondsSinceEpoch}-${(1000 + (DateTime.now().microsecond % 9000))}',
+        id: const Uuid().v4(),
         name: name,
         protocol: ProtocolType.trojan,
         address: address,
@@ -314,7 +315,7 @@ class ConfigParser {
       if (address.isEmpty) return null;
 
       return ProxyNode(
-        id: 'node-${DateTime.now().millisecondsSinceEpoch}-${(1000 + (DateTime.now().microsecond % 9000))}',
+        id: const Uuid().v4(),
         name: name,
         protocol: ProtocolType.shadowsocks,
         address: address,

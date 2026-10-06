@@ -9,6 +9,7 @@ import "../services/cloudflare_scanner_service.dart";
 import "../services/storage_service.dart";
 import "../services/xray_process_service.dart";
 import "../utils/config_parser.dart";
+import "package:uuid/uuid.dart";
 
 enum ConnectionStateEnum { disconnected, connecting, connected, disconnecting, error }
 
@@ -99,7 +100,33 @@ class NodesNotifier extends StateNotifier<List<ProxyNode>> {
   Future<void> _init() async {
     final saved = await StorageService.instance.loadNodes();
     if (saved.isNotEmpty) {
-      state = saved;
+      final seenIds = <String>{};
+      bool hasActive = false;
+      final fixed = <ProxyNode>[];
+      for (final n in saved) {
+        String uniqueId = n.id;
+        if (seenIds.contains(uniqueId) || uniqueId.isEmpty) {
+          uniqueId = const Uuid().v4();
+        }
+        seenIds.add(uniqueId);
+
+        bool active = n.isActive;
+        if (active) {
+          if (hasActive) {
+            active = false;
+          } else {
+            hasActive = true;
+          }
+        }
+        fixed.add(n.copyWith(id: uniqueId, isActive: active));
+      }
+
+      if (fixed.isNotEmpty && !hasActive) {
+        fixed[0] = fixed[0].copyWith(isActive: true);
+      }
+
+      state = fixed;
+      _save();
     }
   }
 
@@ -128,7 +155,7 @@ class NodesNotifier extends StateNotifier<List<ProxyNode>> {
   void updateLatency(String id, int? latencyMs) {
     state = state.map((n) {
       if (n.id == id) {
-        return n.copyWith(latencyMs: latencyMs);
+        return n.copyWith(latencyMs: latencyMs, lastTestedAt: DateTime.now());
       }
       return n;
     }).toList();
@@ -154,17 +181,67 @@ class NodesNotifier extends StateNotifier<List<ProxyNode>> {
   }
 
   void replaceSubscriptionNodes(String subId, List<ProxyNode> newNodes) {
+    final oldSubNodes = state.where((n) => n.subscriptionId == subId).toList();
     final nonSubNodes = state.where((n) => n.subscriptionId != subId).toList();
-    final wasEmpty = nonSubNodes.isEmpty;
-    final list = List<ProxyNode>.from(nonSubNodes);
-    for (int i = 0; i < newNodes.length; i++) {
-      final n = newNodes[i];
-      list.add(n.copyWith(isActive: wasEmpty && i == 0 ? true : n.isActive));
+
+    bool isSameConfig(ProxyNode a, ProxyNode b) {
+      return a.protocol == b.protocol &&
+          a.address.trim().toLowerCase() == b.address.trim().toLowerCase() &&
+          a.port == b.port &&
+          a.uuidOrPassword.trim() == b.uuidOrPassword.trim() &&
+          a.network == b.network &&
+          (a.path ?? '').trim() == (b.path ?? '').trim();
     }
-    if (list.isNotEmpty && !list.any((n) => n.isActive)) {
-      list[0].isActive = true;
+
+    final updatedSubNodes = <ProxyNode>[];
+    final usedOldNodes = <ProxyNode>{};
+
+    for (final newNode in newNodes) {
+      ProxyNode? match;
+      for (final old in oldSubNodes) {
+        if (!usedOldNodes.contains(old) && isSameConfig(old, newNode)) {
+          match = old;
+          usedOldNodes.add(old);
+          break;
+        }
+      }
+
+      if (match != null) {
+        // Config hasn't changed: preserve its id, ping latency, lastTestedAt, isActive and clean IP!
+        updatedSubNodes.add(newNode.copyWith(
+          id: match.id,
+          latencyMs: match.latencyMs,
+          lastTestedAt: match.lastTestedAt,
+          isActive: match.isActive,
+          originalAddress: match.originalAddress,
+          subscriptionId: subId,
+        ));
+      } else {
+        updatedSubNodes.add(newNode.copyWith(
+          subscriptionId: subId,
+          isActive: false,
+        ));
+      }
     }
-    state = list;
+
+    final combined = [...nonSubNodes, ...updatedSubNodes];
+
+    // Ensure strictly at most one node is active globally
+    bool hasActive = false;
+    for (int i = 0; i < combined.length; i++) {
+      if (combined[i].isActive) {
+        if (hasActive) {
+          combined[i] = combined[i].copyWith(isActive: false);
+        } else {
+          hasActive = true;
+        }
+      }
+    }
+    if (combined.isNotEmpty && !hasActive) {
+      combined[0] = combined[0].copyWith(isActive: true);
+    }
+
+    state = combined;
     _save();
   }
 

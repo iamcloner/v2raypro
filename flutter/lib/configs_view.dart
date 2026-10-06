@@ -1,4 +1,4 @@
-﻿import 'dart:math' as math;
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -268,17 +268,20 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
                                 ),
                               ),
                             IconButton(
+                              visualDensity: VisualDensity.compact,
                               icon: const Icon(Icons.bolt_rounded, size: 20, color: Colors.cyanAccent),
                               tooltip: 'Ping test',
                               onPressed: () => _testNodeLatency(node),
                             ),
                             IconButton(
-                              icon: const Icon(Icons.edit_outlined, size: 20, color: Colors.white70),
+                              visualDensity: VisualDensity.compact,
+                              icon: const Icon(Icons.edit_rounded, size: 20, color: Colors.amberAccent),
                               tooltip: AppStrings.get('edit_config', locale: locale),
                               onPressed: () => EditConfigDialog.show(context, node, locale),
                             ),
                             IconButton(
-                              icon: const Icon(Icons.share_outlined, size: 20, color: Colors.white70),
+                              visualDensity: VisualDensity.compact,
+                              icon: const Icon(Icons.share_rounded, size: 20, color: Colors.purpleAccent),
                               tooltip: AppStrings.get('share_config', locale: locale),
                               onPressed: () {
                                 Clipboard.setData(ClipboardData(text: node.toShareUrl()));
@@ -288,7 +291,8 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
                               },
                             ),
                             IconButton(
-                              icon: const Icon(Icons.delete_outline_rounded, color: Colors.grey),
+                              visualDensity: VisualDensity.compact,
+                              icon: Icon(Icons.delete_outline_rounded, size: 20, color: Colors.redAccent.shade100),
                               onPressed: () {
                                 ref.read(nodesProvider.notifier).removeNode(node.id);
                               },

@@ -1,4 +1,4 @@
-﻿import "package:flutter_test/flutter_test.dart";
+import "package:flutter_test/flutter_test.dart";
 import "../lib/models/subscription_item.dart";
 import "../lib/utils/config_parser.dart";
 
@@ -31,5 +31,18 @@ trojan://password123@104.16.1.1:443?security=tls&sni=example.com#Node2
     expect(nodes.length, 2);
     expect(nodes[0].name, "Node1");
     expect(nodes[1].name, "Node2");
+    expect(nodes[0].id != nodes[1].id, true);
+  });
+
+  test("ConfigParser batch parse generates all unique IDs", () {
+    final urls = List.generate(
+      10,
+      (i) => "vless://uuid$i@1.1.1.$i:443?type=tcp#Node$i",
+    ).join("\n");
+
+    final nodes = ConfigParser.parseBatch(urls);
+    expect(nodes.length, 10);
+    final ids = nodes.map((n) => n.id).toSet();
+    expect(ids.length, 10); // All 10 must have strictly unique IDs
   });
 }

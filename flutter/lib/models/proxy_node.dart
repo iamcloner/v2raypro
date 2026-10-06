@@ -133,6 +133,7 @@ class ProxyNode {
   }
 
   ProxyNode copyWith({
+    String? id,
     String? name,
     ProtocolType? protocol,
     String? address,
@@ -161,7 +162,7 @@ class ProxyNode {
     String? originalAddress,
   }) {
     return ProxyNode(
-      id: id,
+      id: id ?? this.id,
       name: name ?? this.name,
       protocol: protocol ?? this.protocol,
       address: address ?? this.address,
