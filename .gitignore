@@ -1,4 +1,4 @@
-﻿# ========================================================
+# ========================================================
 # Output and Build Artifacts
 # ========================================================
 build/windows/
@@ -7,6 +7,7 @@ build/ios/
 build/linux/
 build/macos/
 build/web/
+*.zip
 
 flutter/build/
 flutter/.dart_tool/

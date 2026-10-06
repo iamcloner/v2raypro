@@ -19,6 +19,7 @@ import 'core/theme/app_theme.dart';
 import 'providers/app_providers.dart';
 import 'services/cloudflare_scanner_service.dart';
 import 'services/tray_service.dart';
+import 'services/update_service.dart';
 import 'services/xray_process_service.dart';
 import 'utils/ip_mask_util.dart';
 import 'widgets/country_flag_badge.dart';
@@ -746,9 +747,9 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                           borderRadius: BorderRadius.circular(4),
                           border: Border.all(color: Colors.white12),
                         ),
-                        child: const Text(
-                          "v1.2.0",
-                          style: TextStyle(
+                        child: Text(
+                          UpdateService.currentAppVersion,
+                          style: const TextStyle(
                             fontSize: 10,
                             fontFamily: 'monospace',
                             color: Colors.grey,

@@ -25,7 +25,7 @@ class UpdateService {
   static final UpdateService instance = UpdateService._internal();
   UpdateService._internal();
 
-  static const String currentAppVersion = "v1.2.0";
+  static const String currentAppVersion = "v1.3.0";
   static const String defaultAppRepoUrl = "https://github.com/iamcloner/v2raypro/releases";
   static const String defaultAppTestUrl = defaultAppRepoUrl;
 
@@ -547,7 +547,7 @@ class UpdateService {
       currentVersion: currentAppVersion,
       latestVersion: currentAppVersion,
       hasUpdate: false,
-      downloadUrl: "https://github.com/iamcloner/v2raypro/releases/download/v1.2.0/v2raypro-v1.2.0-windows.zip",
+      downloadUrl: "https://github.com/iamcloner/v2raypro/releases/download/v1.3.0/v2raypro-v1.3.0-windows.zip",
     );
   }
 
