@@ -1,6 +1,7 @@
 import "dart:async";
 import "dart:convert";
 import "dart:io";
+import "dart:math";
 import "package:flutter_riverpod/flutter_riverpod.dart";
 import "../models/proxy_node.dart";
 import "../models/scan_result.dart";
@@ -16,6 +17,14 @@ enum ConnectionStateEnum { disconnected, connecting, connected, disconnecting, e
 class ConnectionStatusNotifier extends StateNotifier<ConnectionStateEnum> {
   final Ref ref;
   ConnectionStatusNotifier(this.ref) : super(ConnectionStateEnum.disconnected);
+
+  void setConnected() {
+    state = ConnectionStateEnum.connected;
+  }
+
+  void setDisconnected() {
+    state = ConnectionStateEnum.disconnected;
+  }
 
   Future<void> toggleConnect() async {
     final nodes = ref.read(nodesProvider);
@@ -489,96 +498,261 @@ final subscriptionsProvider = StateNotifierProvider<SubscriptionsNotifier, List<
   return SubscriptionsNotifier(ref);
 });
 
+enum ScannerStrategy { radar, target }
+
+class RadarLogEntry {
+  final String ip;
+  final int latencyMs;
+  final DateTime timestamp;
+  final int? improvementMs;
+
+  RadarLogEntry({
+    required this.ip,
+    required this.latencyMs,
+    required this.timestamp,
+    this.improvementMs,
+  });
+}
+
 class ScannerState {
   final bool isScanning;
+  final ScannerStrategy strategy;
+  final int threshold;
   final int total;
   final int scanned;
   final String currentIp;
   final List<ScanResult> results;
   final ScanResult? bestIp;
+  final String? connectedIp;
+  final int? currentBestLatency;
+  final List<RadarLogEntry> radarLogs;
+  final String? statusMessage;
 
   ScannerState({
     this.isScanning = false,
+    this.strategy = ScannerStrategy.radar,
+    this.threshold = 30,
     this.total = 0,
     this.scanned = 0,
     this.currentIp = "",
     this.results = const [],
     this.bestIp,
+    this.connectedIp,
+    this.currentBestLatency,
+    this.radarLogs = const [],
+    this.statusMessage,
   });
 
   ScannerState copyWith({
     bool? isScanning,
+    ScannerStrategy? strategy,
+    int? threshold,
     int? total,
     int? scanned,
     String? currentIp,
     List<ScanResult>? results,
     ScanResult? bestIp,
+    String? connectedIp,
+    int? currentBestLatency,
+    List<RadarLogEntry>? radarLogs,
+    String? statusMessage,
   }) {
     return ScannerState(
       isScanning: isScanning ?? this.isScanning,
+      strategy: strategy ?? this.strategy,
+      threshold: threshold ?? this.threshold,
       total: total ?? this.total,
       scanned: scanned ?? this.scanned,
       currentIp: currentIp ?? this.currentIp,
       results: results ?? this.results,
       bestIp: bestIp ?? this.bestIp,
+      connectedIp: connectedIp ?? this.connectedIp,
+      currentBestLatency: currentBestLatency ?? this.currentBestLatency,
+      radarLogs: radarLogs ?? this.radarLogs,
+      statusMessage: statusMessage ?? this.statusMessage,
     );
   }
 }
 
 class ScannerNotifier extends StateNotifier<ScannerState> {
   final Ref ref;
+  bool _isCancelled = false;
+
   ScannerNotifier(this.ref) : super(ScannerState());
 
-  void _handleEvent(Map<String, dynamic> evt) {
-    final type = evt["type"];
-    final data = evt["data"] as Map<String, dynamic>? ?? {};
-
-    if (type == "ScanStarted") {
-      state = state.copyWith(
-        isScanning: true,
-        total: data["total"] ?? 0,
-        scanned: 0,
-        results: [],
-        bestIp: null,
-      );
-    } else if (type == "ScanProgress") {
-      state = state.copyWith(
-        scanned: data["scanned"] ?? state.scanned,
-        currentIp: data["current_ip"] ?? state.currentIp,
-      );
-    } else if (type == "ScanResult") {
-      final res = ScanResult.fromJson(data);
-      final updatedResults = [...state.results, res];
-      ScanResult? newBest = state.bestIp;
-      if (res.tcpSuccess && res.tlsSuccess) {
-        if (newBest == null || res.rankScore < newBest.rankScore) {
-          newBest = res;
-        }
-      }
-      state = state.copyWith(results: updatedResults, bestIp: newBest);
-    } else if (type == "ScanFinished" || type == "ScanCancelled") {
-      state = state.copyWith(isScanning: false);
-    }
+  void setStrategy(ScannerStrategy strategy) {
+    if (state.isScanning) return;
+    state = state.copyWith(strategy: strategy);
   }
 
-  void startScan({required int candidates, required int workers}) {
+  void setThreshold(int threshold) {
+    if (state.isScanning) return;
+    state = state.copyWith(threshold: threshold.clamp(5, 100));
+  }
+
+  void cancelScan() {
+    _isCancelled = true;
+    CloudflareScannerService.instance.cancel();
+    state = state.copyWith(isScanning: false, statusMessage: "Stopped");
+  }
+
+  Future<void> startScan() async {
+    if (state.isScanning) return;
     final nodes = ref.read(nodesProvider);
     if (nodes.isEmpty) return;
     final activeNode = nodes.firstWhere((n) => n.isActive, orElse: () => nodes.first);
     final customCidrs = ref.read(cfRangesProvider);
 
-    CloudflareScannerService.instance.scanCandidates(
-      candidateCount: candidates,
-      workers: workers,
-      targetPort: activeNode.port,
-      targetSni: activeNode.sni ?? activeNode.host,
-      customCidrs: customCidrs,
-    ).listen(_handleEvent);
+    _isCancelled = false;
+
+    // 1. Generate unique shuffled candidates from CIDR ranges in Settings
+    final candidates = CloudflareScannerService.generateCandidateIps(
+      count: state.threshold,
+      cidrs: customCidrs,
+    );
+
+    state = state.copyWith(
+      isScanning: true,
+      total: candidates.length,
+      scanned: 0,
+      currentIp: "",
+      results: [],
+      bestIp: null,
+      connectedIp: activeNode.address,
+      currentBestLatency: null,
+      radarLogs: [],
+      statusMessage: state.strategy == ScannerStrategy.radar ? "Radar active..." : "Scanning...",
+    );
+
+    final strategy = state.strategy;
+    const int workers = 6;
+
+    for (int i = 0; i < candidates.length; i += workers) {
+      if (_isCancelled) break;
+      final chunk = candidates.sublist(i, min(i + workers, candidates.length));
+
+      final futures = chunk.map((ip) async {
+        final candidateNode = activeNode.copyWith(address: ip);
+        final lat = await XrayProcessService.instance.testNodeLatency(
+          candidateNode,
+          timeout: const Duration(seconds: 3),
+        );
+        return MapEntry(ip, lat);
+      });
+
+      final chunkResults = await Future.wait(futures);
+      if (_isCancelled) break;
+
+      for (final entry in chunkResults) {
+        if (_isCancelled) break;
+        final ip = entry.key;
+        final lat = entry.value;
+
+        state = state.copyWith(
+          scanned: state.scanned + 1,
+          currentIp: ip,
+        );
+
+        if (lat != null) {
+          final scanRes = ScanResult(
+            ip: ip,
+            port: activeNode.port,
+            tcpSuccess: true,
+            tcpLatencyMs: lat,
+            tlsSuccess: activeNode.security == SecurityType.tls || activeNode.security == SecurityType.reality,
+            tlsLatencyMs: lat,
+            protocolSuccess: true,
+            totalLatencyMs: lat,
+            rankScore: lat.toDouble(),
+          );
+
+          if (strategy == ScannerStrategy.radar) {
+            // Radar Strategy:
+            // First responding IP connects.
+            // Any subsequent IP with LOWER ping replaces it immediately.
+            final prevBest = state.currentBestLatency;
+            if (prevBest == null || lat < prevBest) {
+              final improvement = prevBest != null ? (prevBest - lat) : null;
+              final newEntry = RadarLogEntry(
+                ip: ip,
+                latencyMs: lat,
+                timestamp: DateTime.now(),
+                improvementMs: improvement,
+              );
+
+              state = state.copyWith(
+                bestIp: scanRes,
+                connectedIp: ip,
+                currentBestLatency: lat,
+                radarLogs: [newEntry, ...state.radarLogs],
+              );
+
+              // Apply the new best IP to active node
+              ref.read(nodesProvider.notifier).applyIp(activeNode.id, ip);
+
+              // Connect or hot-switch Xray connection
+              final connState = ref.read(connectionStatusProvider);
+              if (connState == ConnectionStateEnum.connected) {
+                await XrayProcessService.instance.stop();
+                await XrayProcessService.instance.start(
+                  activeNode.copyWith(address: ip),
+                  enableTun: ref.read(isTunEnabledProvider),
+                  setSysProxy: ref.read(isSystemProxyEnabledProvider),
+                );
+              } else {
+                final ok = await XrayProcessService.instance.start(
+                  activeNode.copyWith(address: ip),
+                  enableTun: ref.read(isTunEnabledProvider),
+                  setSysProxy: ref.read(isSystemProxyEnabledProvider),
+                );
+                if (ok) {
+                  ref.read(connectionStatusProvider.notifier).setConnected();
+                }
+              }
+            }
+          } else {
+            // Target Strategy:
+            // Add to list and sort by lowest latency
+            final updatedList = [...state.results, scanRes];
+            updatedList.sort((a, b) => (a.totalLatencyMs ?? 99999).compareTo(b.totalLatencyMs ?? 99999));
+            state = state.copyWith(
+              results: updatedList,
+              bestIp: updatedList.first,
+            );
+          }
+        }
+      }
+    }
+
+    state = state.copyWith(isScanning: false, statusMessage: "Finished");
   }
 
-  void cancelScan() {
-    CloudflareScannerService.instance.cancel();
-    state = state.copyWith(isScanning: false);
+  Future<void> connectToTargetIp(String ip, int latencyMs) async {
+    final nodes = ref.read(nodesProvider);
+    if (nodes.isEmpty) return;
+    final activeNode = nodes.firstWhere((n) => n.isActive, orElse: () => nodes.first);
+
+    ref.read(nodesProvider.notifier).applyIp(activeNode.id, ip);
+    state = state.copyWith(connectedIp: ip, currentBestLatency: latencyMs);
+
+    final connState = ref.read(connectionStatusProvider);
+    if (connState == ConnectionStateEnum.connected) {
+      await XrayProcessService.instance.stop();
+      await XrayProcessService.instance.start(
+        activeNode.copyWith(address: ip),
+        enableTun: ref.read(isTunEnabledProvider),
+        setSysProxy: ref.read(isSystemProxyEnabledProvider),
+      );
+    } else {
+      final ok = await XrayProcessService.instance.start(
+        activeNode.copyWith(address: ip),
+        enableTun: ref.read(isTunEnabledProvider),
+        setSysProxy: ref.read(isSystemProxyEnabledProvider),
+      );
+      if (ok) {
+        ref.read(connectionStatusProvider.notifier).setConnected();
+      }
+    }
   }
 }
 

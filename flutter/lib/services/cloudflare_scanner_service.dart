@@ -114,6 +114,29 @@ class CloudflareScannerService {
     return false;
   }
 
+  /// Generate a unique, shuffled list of candidate IPs sampled from given or default CIDRs.
+  static List<String> generateCandidateIps({
+    required int count,
+    List<String>? cidrs,
+    Random? rng,
+  }) {
+    final rand = rng ?? Random();
+    final ranges = (cidrs != null && cidrs.isNotEmpty) ? cidrs : defaultCidrs;
+    final Set<String> candidates = {};
+
+    int attempts = 0;
+    while (candidates.length < count && attempts < count * 80) {
+      attempts++;
+      final cidr = ranges[rand.nextInt(ranges.length)];
+      final ip = sampleIpFromCidr(cidr, rand);
+      candidates.add(ip);
+    }
+
+    final list = candidates.toList();
+    list.shuffle(rand);
+    return list;
+  }
+
   bool _isCancelled = false;
 
   void cancel() {
