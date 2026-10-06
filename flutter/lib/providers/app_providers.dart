@@ -7,6 +7,7 @@ import "../models/proxy_node.dart";
 import "../models/scan_result.dart";
 import "../models/subscription_item.dart";
 import "../models/log_entry.dart";
+import "../models/outbound_info.dart";
 import "../services/cloudflare_scanner_service.dart";
 import "../services/log_service.dart";
 import "../services/storage_service.dart";
@@ -21,11 +22,26 @@ class ConnectionStatusNotifier extends StateNotifier<ConnectionStateEnum> {
   ConnectionStatusNotifier(this.ref) : super(ConnectionStateEnum.disconnected);
 
   void setConnected() {
+    ref.read(connectedAtProvider.notifier).state = DateTime.now();
     state = ConnectionStateEnum.connected;
+    ref.read(outboundInfoProvider.notifier).fetch();
+    _testPing();
   }
 
   void setDisconnected() {
+    ref.read(connectedAtProvider.notifier).state = null;
+    ref.read(outboundInfoProvider.notifier).reset();
     state = ConnectionStateEnum.disconnected;
+  }
+
+  Future<void> _testPing() async {
+    final nodes = ref.read(nodesProvider);
+    if (nodes.isEmpty) return;
+    final active = nodes.firstWhere((n) => n.isActive, orElse: () => nodes.first);
+    final lat = await XrayProcessService.instance.testNodeLatency(active);
+    if (lat != null) {
+      ref.read(nodesProvider.notifier).updateLatency(active.id, lat);
+    }
   }
 
   Future<void> toggleConnect() async {
@@ -47,14 +63,14 @@ class ConnectionStatusNotifier extends StateNotifier<ConnectionStateEnum> {
         setSysProxy: isSysProxy,
       );
       if (ok) {
-        state = ConnectionStateEnum.connected;
+        setConnected();
       } else {
         state = ConnectionStateEnum.error;
       }
     } else if (state == ConnectionStateEnum.connected) {
       state = ConnectionStateEnum.disconnecting;
       await XrayProcessService.instance.stop();
-      state = ConnectionStateEnum.disconnected;
+      setDisconnected();
     }
   }
 }
@@ -973,4 +989,87 @@ class LogsNotifier extends StateNotifier<List<LogEntry>> {
 final logsProvider = StateNotifierProvider<LogsNotifier, List<LogEntry>>((ref) {
   return LogsNotifier();
 });
+
+class OutboundInfoNotifier extends StateNotifier<OutboundInfo> {
+  final Ref ref;
+  OutboundInfoNotifier(this.ref) : super(const OutboundInfo());
+
+  Future<void> fetch() async {
+    state = state.copyWith(isLoading: true, error: null);
+    final httpPort = ref.read(httpPortProvider);
+
+    String? ipv4;
+    String? country;
+    String? countryCode;
+    String? city;
+    String? isp;
+    String? ipv6;
+
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 4);
+    client.findProxy = (uri) => "PROXY 127.0.0.1:$httpPort;";
+
+    // Fetch IPv4 & Geolocation through local proxy
+    try {
+      final req = await client.getUrl(Uri.parse("http://ip-api.com/json/"));
+      final resp = await req.close().timeout(const Duration(seconds: 5));
+      if (resp.statusCode == 200) {
+        final body = await resp.transform(utf8.decoder).join();
+        final data = jsonDecode(body);
+        if (data["status"] == "success") {
+          ipv4 = data["query"]?.toString();
+          country = data["country"]?.toString();
+          countryCode = data["countryCode"]?.toString();
+          city = data["city"]?.toString();
+          isp = data["isp"]?.toString();
+        }
+      }
+    } catch (_) {
+      try {
+        final req = await client.getUrl(Uri.parse("https://api4.ipify.org?format=json"));
+        final resp = await req.close().timeout(const Duration(seconds: 4));
+        if (resp.statusCode == 200) {
+          final body = await resp.transform(utf8.decoder).join();
+          final data = jsonDecode(body);
+          ipv4 = data["ip"]?.toString();
+        }
+      } catch (_) {}
+    }
+
+    // Fetch IPv6 through local proxy
+    try {
+      final req6 = await client.getUrl(Uri.parse("https://api6.ipify.org?format=json"));
+      final resp6 = await req6.close().timeout(const Duration(seconds: 3));
+      if (resp6.statusCode == 200) {
+        final body = await resp6.transform(utf8.decoder).join();
+        final data = jsonDecode(body);
+        ipv6 = data["ip"]?.toString();
+      }
+    } catch (_) {
+      ipv6 = null;
+    } finally {
+      client.close();
+    }
+
+    state = OutboundInfo(
+      ipv4: ipv4,
+      ipv6: ipv6,
+      country: country,
+      countryCode: countryCode,
+      city: city,
+      isp: isp,
+      isLoading: false,
+    );
+  }
+
+  void reset() {
+    state = const OutboundInfo();
+  }
+}
+
+final outboundInfoProvider = StateNotifierProvider<OutboundInfoNotifier, OutboundInfo>((ref) {
+  return OutboundInfoNotifier(ref);
+});
+
+final connectedAtProvider = StateProvider<DateTime?>((ref) => null);
 

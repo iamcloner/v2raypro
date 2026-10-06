@@ -93,8 +93,8 @@ class _ScannerViewState extends ConsumerState<ScannerView>
             _buildControlsCard(state, activeNode, isCf, locale),
             const SizedBox(height: 16),
 
-            // 4. Progress Indicator (when scanning or finished)
-            if (state.isScanning || state.scanned > 0) ...[
+            // 4. Progress Indicator (only while active scanning)
+            if (state.isScanning) ...[
               _buildProgressCard(state, locale),
               const SizedBox(height: 16),
             ],

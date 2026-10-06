@@ -137,6 +137,15 @@ class AppStrings {
       "filter_warning": "Warning",
       "filter_error": "Error",
       "filter_access": "Access",
+      "outbound_ip": "Exit IP",
+      "ipv4_address": "IPv4 Address",
+      "ipv6_address": "IPv6 Address",
+      "connected_country": "Connected Country",
+      "connection_duration": "Connection Duration",
+      "refresh_ip": "Refresh IP Info",
+      "fetching_ip": "Detecting exit IP...",
+      "not_supported": "Not Available",
+      "retest_ping": "Test Ping",
     },
     "fa": {
       "app_title": "وی‌تو‌ری پرو",
@@ -275,6 +284,15 @@ class AppStrings {
       "filter_warning": "هشدار",
       "filter_error": "خطا",
       "filter_access": "دسترسی",
+      "outbound_ip": "آی‌پی خروجی",
+      "ipv4_address": "آی‌پی ورژن ۴",
+      "ipv6_address": "آی‌پی ورژن ۶",
+      "connected_country": "کشور متصل شده",
+      "connection_duration": "مدت زمان اتصال",
+      "refresh_ip": "بروزرسانی آی‌پی",
+      "fetching_ip": "در حال دریافت اطلاعات آی‌پی...",
+      "not_supported": "پشتیبانی نمی‌شود",
+      "retest_ping": "تست پینگ",
     }
   };
 
