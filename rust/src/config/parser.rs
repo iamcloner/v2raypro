@@ -64,6 +64,8 @@ impl ConfigParser {
 
         let network_str = params.get("type").map(|s| s.as_str()).unwrap_or("tcp");
         let network = match network_str {
+            "xhttp" => NetworkType::Xhttp,
+            "splithttp" => NetworkType::SplitHttp,
             "ws" => NetworkType::Ws,
             "grpc" => NetworkType::Grpc,
             "h2" => NetworkType::H2,
@@ -99,6 +101,8 @@ impl ConfigParser {
             public_key: params.get("pbk").cloned(),
             short_id: params.get("sid").cloned(),
             spider_x: params.get("spx").cloned(),
+            mode: params.get("mode").cloned(),
+            extra: params.get("extra").cloned(),
             subscription_id: None,
             latency_ms: None,
             last_tested_at: None,
@@ -154,6 +158,8 @@ impl ConfigParser {
             public_key: None,
             short_id: None,
             spider_x: None,
+            mode: None,
+            extra: None,
             subscription_id: None,
             latency_ms: None,
             last_tested_at: None,
@@ -208,6 +214,8 @@ impl ConfigParser {
             public_key: None,
             short_id: None,
             spider_x: None,
+            mode: None,
+            extra: None,
             subscription_id: None,
             latency_ms: None,
             last_tested_at: None,
@@ -236,6 +244,8 @@ impl ConfigParser {
 
         let net_str = val["net"].as_str().unwrap_or("tcp");
         let network = match net_str {
+            "xhttp" => NetworkType::Xhttp,
+            "splithttp" => NetworkType::SplitHttp,
             "ws" => NetworkType::Ws,
             "grpc" => NetworkType::Grpc,
             "h2" => NetworkType::H2,
@@ -270,6 +280,8 @@ impl ConfigParser {
             public_key: None,
             short_id: None,
             spider_x: None,
+            mode: None,
+            extra: None,
             subscription_id: None,
             latency_ms: None,
             last_tested_at: None,

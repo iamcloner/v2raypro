@@ -1,5 +1,5 @@
 enum ProtocolType { vless, vmess, trojan, shadowsocks, customJson }
-enum NetworkType { tcp, ws, grpc, h2, httpUpgrade }
+enum NetworkType { tcp, ws, grpc, h2, httpUpgrade, xhttp, splithttp }
 enum SecurityType { none, tls, reality }
 
 class ProxyNode {
@@ -23,6 +23,8 @@ class ProxyNode {
   final String? publicKey;
   final String? shortId;
   final String? spiderX;
+  final String? mode;
+  final String? extra;
   final String? subscriptionId;
   int? latencyMs;
   DateTime? lastTestedAt;
@@ -50,6 +52,8 @@ class ProxyNode {
     this.publicKey,
     this.shortId,
     this.spiderX,
+    this.mode,
+    this.extra,
     this.subscriptionId,
     this.latencyMs,
     this.lastTestedAt,
@@ -78,6 +82,8 @@ class ProxyNode {
     "public_key": publicKey,
     "short_id": shortId,
     "spider_x": spiderX,
+    "mode": mode,
+    "extra": extra,
     "subscription_id": subscriptionId,
     "latency_ms": latencyMs,
     "last_tested_at": lastTestedAt?.toIso8601String(),
@@ -116,6 +122,8 @@ class ProxyNode {
       publicKey: json["public_key"],
       shortId: json["short_id"],
       spiderX: json["spider_x"],
+      mode: json["mode"],
+      extra: json["extra"],
       subscriptionId: json["subscription_id"],
       latencyMs: (json["latency_ms"] as num?)?.toInt(),
       lastTestedAt: json["last_tested_at"] != null ? DateTime.tryParse(json["last_tested_at"]) : null,
@@ -153,6 +161,8 @@ class ProxyNode {
       publicKey: publicKey,
       shortId: shortId,
       spiderX: spiderX,
+      mode: mode,
+      extra: extra,
       subscriptionId: subscriptionId,
       latencyMs: latencyMs ?? this.latencyMs,
       lastTestedAt: lastTestedAt,

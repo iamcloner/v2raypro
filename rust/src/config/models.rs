@@ -18,6 +18,8 @@ pub enum NetworkType {
     Grpc,
     H2,
     HttpUpgrade,
+    Xhttp,
+    SplitHttp,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -72,6 +74,10 @@ pub struct ProxyNode {
     pub short_id: Option<String>,
     #[serde(default)]
     pub spider_x: Option<String>,
+    #[serde(default)]
+    pub mode: Option<String>,
+    #[serde(default)]
+    pub extra: Option<String>,
 
     // Metadata & Benchmarks
     #[serde(default)]

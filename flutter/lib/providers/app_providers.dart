@@ -1,4 +1,4 @@
-﻿import "package:flutter_riverpod/flutter_riverpod.dart";
+import "package:flutter_riverpod/flutter_riverpod.dart";
 import "../models/proxy_node.dart";
 import "../models/scan_result.dart";
 import "../services/cloudflare_scanner_service.dart";
@@ -50,6 +50,26 @@ class NodesNotifier extends StateNotifier<List<ProxyNode>> {
   void addNode(ProxyNode node) {
     final isFirst = state.isEmpty;
     state = [...state, node.copyWith(isActive: isFirst ? true : node.isActive)];
+  }
+
+  void addNodes(List<ProxyNode> newNodes) {
+    if (newNodes.isEmpty) return;
+    final wasEmpty = state.isEmpty;
+    final list = List<ProxyNode>.from(state);
+    for (int i = 0; i < newNodes.length; i++) {
+      final n = newNodes[i];
+      list.add(n.copyWith(isActive: wasEmpty && i == 0 ? true : n.isActive));
+    }
+    state = list;
+  }
+
+  void updateLatency(String id, int? latencyMs) {
+    state = state.map((n) {
+      if (n.id == id) {
+        return n.copyWith(latencyMs: latencyMs);
+      }
+      return n;
+    }).toList();
   }
 
   void removeNode(String id) {

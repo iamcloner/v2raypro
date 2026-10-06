@@ -212,7 +212,7 @@ class DashboardView extends ConsumerWidget {
                   if (activeNode != null) ...[
                     const SizedBox(height: 8),
                     Text(
-                      ' ()',
+                      '${activeNode.name} (${activeNode.address}:${activeNode.port})',
                       style: const TextStyle(fontSize: 14, color: Colors.grey),
                     ),
                   ],
@@ -272,7 +272,7 @@ class DashboardView extends ConsumerWidget {
               Expanded(
                 child: _buildMetricTile(
                   title: AppStrings.get('ping', locale: locale),
-                  value: activeNode?.latencyMs != null ? ' ms' : '--',
+                  value: activeNode?.latencyMs != null ? '${activeNode!.latencyMs} ms' : '--',
                   icon: Icons.speed_rounded,
                   color: AppTheme.primaryAccent,
                 ),

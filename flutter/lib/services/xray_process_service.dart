@@ -1,4 +1,6 @@
-﻿import "dart:convert";
+import "dart:async";
+import "dart:convert";
+import "dart:ffi" as ffi;
 import "dart:io";
 import "../models/proxy_node.dart";
 
@@ -16,6 +18,8 @@ class XrayProcessService {
   int socksPort = 10999;
   int httpPort = 10888;
   bool isSystemProxySet = false;
+  String? lastLog;
+  String? lastErrorLog;
 
   String? _findXrayBinary() {
     final exeDir = File(Platform.resolvedExecutable).parent.path;
@@ -37,26 +41,57 @@ class XrayProcessService {
   }
 
   Map<String, dynamic> generateXrayConfig(ProxyNode node) {
+    final netName = (node.network == NetworkType.splithttp || node.network == NetworkType.xhttp)
+        ? "xhttp"
+        : node.network.name;
+
     final streamSettings = <String, dynamic>{
-      "network": node.network.name,
+      "network": netName,
       "security": node.security.name,
     };
 
     if (node.security == SecurityType.tls) {
-      streamSettings["tlsSettings"] = {
-        "serverName": node.sni ?? node.address,
+      final tls = <String, dynamic>{
+        "serverName": node.sni ?? node.host ?? node.address,
         "allowInsecure": node.allowInsecure,
       };
+      if (node.fingerprint != null && node.fingerprint!.isNotEmpty) {
+        tls["fingerprint"] = node.fingerprint;
+      }
+      if (node.alpn != null && node.alpn!.isNotEmpty) {
+        tls["alpn"] = node.alpn;
+      }
+      streamSettings["tlsSettings"] = tls;
     } else if (node.security == SecurityType.reality) {
-      streamSettings["realitySettings"] = {
-        "serverName": node.sni ?? "",
+      final reality = <String, dynamic>{
+        "serverName": node.sni ?? node.host ?? "",
         "publicKey": node.publicKey ?? "",
         "shortId": node.shortId ?? "",
         "spiderX": node.spiderX ?? "/",
       };
+      if (node.fingerprint != null && node.fingerprint!.isNotEmpty) {
+        reality["fingerprint"] = node.fingerprint;
+      }
+      streamSettings["realitySettings"] = reality;
     }
 
-    if (node.network == NetworkType.ws) {
+    if (node.network == NetworkType.xhttp || node.network == NetworkType.splithttp) {
+      final xhttpMap = <String, dynamic>{
+        "path": node.path ?? "/",
+        "host": node.host ?? node.sni ?? node.address,
+      };
+      if (node.mode != null && node.mode!.isNotEmpty) {
+        xhttpMap["mode"] = node.mode;
+      }
+      if (node.extra != null && node.extra!.isNotEmpty) {
+        try {
+          xhttpMap["extra"] = jsonDecode(node.extra!);
+        } catch (_) {
+          xhttpMap["extra"] = node.extra;
+        }
+      }
+      streamSettings["xhttpSettings"] = xhttpMap;
+    } else if (node.network == NetworkType.ws) {
       streamSettings["wsSettings"] = {
         "path": node.path ?? "/",
         "headers": {"Host": node.host ?? node.sni ?? node.address},
@@ -64,6 +99,11 @@ class XrayProcessService {
     } else if (node.network == NetworkType.grpc) {
       streamSettings["grpcSettings"] = {
         "serviceName": node.serviceName ?? "",
+      };
+    } else if (node.network == NetworkType.httpUpgrade) {
+      streamSettings["httpUpgradeSettings"] = {
+        "path": node.path ?? "/",
+        "host": node.host ?? node.sni ?? node.address,
       };
     }
 
@@ -143,6 +183,14 @@ class XrayProcessService {
 
     return {
       "log": {"loglevel": "warning"},
+      "dns": {
+        "servers": [
+          "https+local://1.1.1.1/dns-query",
+          "8.8.8.8",
+          "1.1.1.1",
+          "localhost"
+        ]
+      },
       "inbounds": [
         {
           "tag": "socks-in",
@@ -156,7 +204,8 @@ class XrayProcessService {
           "tag": "http-in",
           "port": httpPort,
           "listen": "127.0.0.1",
-          "protocol": "http"
+          "protocol": "http",
+          "sniffing": {"enabled": true, "destOverride": ["http", "tls"]}
         }
       ],
       "outbounds": [
@@ -197,11 +246,25 @@ class XrayProcessService {
         mode: ProcessStartMode.normal,
       );
 
+      _process!.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
+        lastLog = line;
+      });
+      _process!.stderr.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
+        lastErrorLog = line;
+      });
+
       _process!.exitCode.then((code) {
         if (_state == EngineState.running) {
           _state = EngineState.stopped;
         }
       });
+
+      // Allow 300ms to verify process did not immediately crash
+      await Future.delayed(const Duration(milliseconds: 300));
+      if (_state == EngineState.stopped) {
+        _state = EngineState.error;
+        return false;
+      }
 
       // Enable system proxy on Windows
       if (Platform.isWindows) {
@@ -229,6 +292,18 @@ class XrayProcessService {
       }
     } catch (_) {}
     _state = EngineState.stopped;
+  }
+
+  void _notifyWindowsProxyChanged() {
+    if (!Platform.isWindows) return;
+    try {
+      final wininet = ffi.DynamicLibrary.open("wininet.dll");
+      final internetSetOption = wininet.lookupFunction<
+          ffi.Int32 Function(ffi.Pointer, ffi.Int32, ffi.Pointer, ffi.Int32),
+          int Function(ffi.Pointer, int, ffi.Pointer, int)>("InternetSetOptionW");
+      internetSetOption(ffi.Pointer.fromAddress(0), 39, ffi.Pointer.fromAddress(0), 0); // INTERNET_OPTION_SETTINGS_CHANGED
+      internetSetOption(ffi.Pointer.fromAddress(0), 37, ffi.Pointer.fromAddress(0), 0); // INTERNET_OPTION_REFRESH
+    } catch (_) {}
   }
 
   void setWindowsSystemProxy(bool enable) {
@@ -272,6 +347,32 @@ class XrayProcessService {
         ]);
         isSystemProxySet = false;
       }
+      _notifyWindowsProxyChanged();
     } catch (_) {}
   }
+
+  /// Direct socket / TLS latency test to measure real ping
+  Future<int?> testNodeLatency(ProxyNode node, {Duration timeout = const Duration(seconds: 4)}) async {
+    final sw = Stopwatch()..start();
+    try {
+      final socket = await Socket.connect(node.address, node.port, timeout: timeout);
+      if (node.security == SecurityType.tls || node.security == SecurityType.reality) {
+        final secureSocket = await SecureSocket.secure(
+          socket,
+          host: node.sni ?? node.host ?? node.address,
+          onBadCertificate: (_) => true,
+        ).timeout(timeout);
+        sw.stop();
+        await secureSocket.close();
+        return sw.elapsedMilliseconds;
+      } else {
+        sw.stop();
+        await socket.close();
+        return sw.elapsedMilliseconds;
+      }
+    } catch (_) {
+      return null;
+    }
+  }
 }
+

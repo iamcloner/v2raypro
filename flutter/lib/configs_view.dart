@@ -4,6 +4,8 @@ import 'core/l10n/translations.dart';
 import 'core/theme/app_theme.dart';
 import 'models/proxy_node.dart';
 import 'providers/app_providers.dart';
+import 'services/xray_process_service.dart';
+import 'utils/config_parser.dart';
 
 class ConfigsView extends ConsumerStatefulWidget {
   const ConfigsView({super.key});
@@ -14,6 +16,8 @@ class ConfigsView extends ConsumerStatefulWidget {
 
 class _ConfigsViewState extends ConsumerState<ConfigsView> {
   final _importController = TextEditingController();
+  final Set<String> _testingNodeIds = {};
+  bool _isTestingAll = false;
 
   void _showImportDialog(String locale) {
     showDialog(
@@ -27,9 +31,9 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
             children: [
               TextField(
                 controller: _importController,
-                maxLines: 4,
+                maxLines: 5,
                 decoration: const InputDecoration(
-                  hintText: 'Paste vless://, vmess://, trojan://, ss://, or subscription URL...',
+                  hintText: 'Paste vless://, vmess://, trojan://, ss://, or multi-line configurations...',
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -46,13 +50,19 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
             onPressed: () {
               final text = _importController.text.trim();
               if (text.isNotEmpty) {
-                final node = _parseConfigUrl(text);
-                ref.read(nodesProvider.notifier).addNode(node);
-                _importController.clear();
-                Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Configuration added successfully')),
-                );
+                final nodes = ConfigParser.parseBatch(text);
+                if (nodes.isNotEmpty) {
+                  ref.read(nodesProvider.notifier).addNodes(nodes);
+                  _importController.clear();
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('${nodes.length} configuration(s) added successfully')),
+                  );
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('No valid proxy configurations found.')),
+                  );
+                }
               }
             },
           ),
@@ -61,51 +71,39 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
     );
   }
 
-  ProxyNode _parseConfigUrl(String url) {
-    try {
-      final uri = Uri.parse(url);
-      final scheme = uri.scheme.toLowerCase();
-      final proto = scheme == 'vmess'
-          ? ProtocolType.vmess
-          : scheme == 'trojan'
-              ? ProtocolType.trojan
-              : scheme == 'ss'
-                  ? ProtocolType.shadowsocks
-                  : ProtocolType.vless;
+  Future<void> _testNodeLatency(ProxyNode node) async {
+    if (_testingNodeIds.contains(node.id)) return;
+    setState(() {
+      _testingNodeIds.add(node.id);
+    });
 
-      final name = uri.fragment.isNotEmpty
-          ? Uri.decodeComponent(uri.fragment)
-          : (uri.host + ':' + uri.port.toString());
+    final latency = await XrayProcessService.instance.testNodeLatency(node);
+    ref.read(nodesProvider.notifier).updateLatency(node.id, latency);
 
-      return ProxyNode(
-        id: 'node-' + DateTime.now().millisecondsSinceEpoch.toString(),
-        name: name,
-        protocol: proto,
-        address: uri.host.isNotEmpty ? uri.host : '127.0.0.1',
-        port: uri.port > 0 ? uri.port : 443,
-        uuidOrPassword: uri.userInfo,
-        network: uri.queryParameters['type'] == 'ws' ? NetworkType.ws : NetworkType.tcp,
-        security: uri.queryParameters['security'] == 'reality'
-            ? SecurityType.reality
-            : uri.queryParameters['security'] == 'tls'
-                ? SecurityType.tls
-                : SecurityType.none,
-        path: uri.queryParameters['path'],
-        host: uri.queryParameters['host'],
-        sni: uri.queryParameters['sni'] ?? uri.queryParameters['host'],
-        publicKey: uri.queryParameters['pbk'],
-        shortId: uri.queryParameters['sid'],
-        spiderX: uri.queryParameters['spx'],
-      );
-    } catch (_) {
-      return ProxyNode(
-        id: 'node-' + DateTime.now().millisecondsSinceEpoch.toString(),
-        name: 'Imported Node',
-        protocol: ProtocolType.vless,
-        address: '127.0.0.1',
-        port: 443,
-        uuidOrPassword: '',
-      );
+    if (mounted) {
+      setState(() {
+        _testingNodeIds.remove(node.id);
+      });
+    }
+  }
+
+  Future<void> _testAllNodes() async {
+    final nodes = ref.read(nodesProvider);
+    if (nodes.isEmpty || _isTestingAll) return;
+
+    setState(() {
+      _isTestingAll = true;
+    });
+
+    for (final node in nodes) {
+      if (!mounted) break;
+      await _testNodeLatency(node);
+    }
+
+    if (mounted) {
+      setState(() {
+        _isTestingAll = false;
+      });
     }
   }
 
@@ -126,11 +124,28 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
                   AppStrings.get('configs', locale: locale),
                   style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                 ),
-                FilledButton.icon(
-                  style: FilledButton.styleFrom(backgroundColor: AppTheme.primaryAccent),
-                  icon: const Icon(Icons.add),
-                  label: Text(AppStrings.get('add_config', locale: locale)),
-                  onPressed: () => _showImportDialog(locale),
+                Row(
+                  children: [
+                    if (nodes.isNotEmpty)
+                      OutlinedButton.icon(
+                        icon: _isTestingAll
+                            ? const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.speed_rounded, size: 18),
+                        label: Text(_isTestingAll ? 'Testing...' : 'Test All Ping'),
+                        onPressed: _isTestingAll ? null : _testAllNodes,
+                      ),
+                    const SizedBox(width: 12),
+                    FilledButton.icon(
+                      style: FilledButton.styleFrom(backgroundColor: AppTheme.primaryAccent),
+                      icon: const Icon(Icons.add),
+                      label: Text(AppStrings.get('add_config', locale: locale)),
+                      onPressed: () => _showImportDialog(locale),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -158,6 +173,8 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
                   separatorBuilder: (c, i) => const SizedBox(height: 12),
                   itemBuilder: (context, index) {
                     final node = nodes[index];
+                    final isTesting = _testingNodeIds.contains(node.id);
+
                     return Card(
                       child: ListTile(
                         leading: Icon(
@@ -165,11 +182,22 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
                           color: node.isActive ? AppTheme.primaryAccent : Colors.grey,
                         ),
                         title: Text(node.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                        subtitle: Text(node.address + ':' + node.port.toString() + '  •  ' + node.protocol.name.toUpperCase()),
+                        subtitle: Text(
+                          '${node.address}:${node.port}  •  ${node.protocol.name.toUpperCase()}  •  ${node.network.name.toUpperCase()}',
+                        ),
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            if (node.latencyMs != null)
+                            if (isTesting)
+                              const Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 12),
+                                child: SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                ),
+                              )
+                            else if (node.latencyMs != null)
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 decoration: BoxDecoration(
@@ -177,11 +205,19 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
                                   borderRadius: BorderRadius.circular(6),
                                 ),
                                 child: Text(
-                                  node.latencyMs.toString() + ' ms',
-                                  style: const TextStyle(color: AppTheme.successColor, fontSize: 12, fontWeight: FontWeight.bold),
+                                  '${node.latencyMs} ms',
+                                  style: const TextStyle(
+                                    color: AppTheme.successColor,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
                               ),
-                            const SizedBox(width: 8),
+                            IconButton(
+                              icon: const Icon(Icons.bolt_rounded, size: 20, color: Colors.cyanAccent),
+                              tooltip: 'Ping test',
+                              onPressed: () => _testNodeLatency(node),
+                            ),
                             IconButton(
                               icon: const Icon(Icons.delete_outline_rounded, color: Colors.grey),
                               onPressed: () {

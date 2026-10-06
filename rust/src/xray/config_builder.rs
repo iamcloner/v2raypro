@@ -162,6 +162,7 @@ impl XrayConfigBuilder {
 
     fn build_stream_settings(node: &ProxyNode) -> Value {
         let network_str = match node.network {
+            NetworkType::Xhttp | NetworkType::SplitHttp => "xhttp",
             NetworkType::Ws => "ws",
             NetworkType::Grpc => "grpc",
             NetworkType::H2 => "h2",
@@ -182,22 +183,48 @@ impl XrayConfigBuilder {
 
         if let Some(sni) = &node.sni {
             if node.security == SecurityType::Tls {
-                settings["tlsSettings"] = json!({
+                let mut tls_val = json!({
                     "serverName": sni,
                     "allowInsecure": node.allow_insecure,
-                    "alpn": node.alpn.clone().unwrap_or_default()
                 });
+                if let Some(alpn) = &node.alpn {
+                    tls_val["alpn"] = json!(alpn);
+                }
+                if let Some(fp) = &node.fingerprint {
+                    tls_val["fingerprint"] = json!(fp);
+                }
+                settings["tlsSettings"] = tls_val;
             } else if node.security == SecurityType::Reality {
-                settings["realitySettings"] = json!({
+                let mut reality_val = json!({
                     "serverName": sni,
                     "publicKey": node.public_key.as_deref().unwrap_or(""),
                     "shortId": node.short_id.as_deref().unwrap_or(""),
                     "spiderX": node.spider_x.as_deref().unwrap_or("/")
                 });
+                if let Some(fp) = &node.fingerprint {
+                    reality_val["fingerprint"] = json!(fp);
+                }
+                settings["realitySettings"] = reality_val;
             }
         }
 
-        if node.network == NetworkType::Ws {
+        if node.network == NetworkType::Xhttp || node.network == NetworkType::SplitHttp {
+            let mut xhttp_settings = json!({
+                "path": node.path.as_deref().unwrap_or("/"),
+                "host": node.host.as_deref().or(node.sni.as_deref()).unwrap_or(&node.address)
+            });
+            if let Some(mode) = &node.mode {
+                xhttp_settings["mode"] = json!(mode);
+            }
+            if let Some(extra) = &node.extra {
+                if let Ok(parsed_extra) = serde_json::from_str::<Value>(extra) {
+                    xhttp_settings["extra"] = parsed_extra;
+                } else {
+                    xhttp_settings["extra"] = json!(extra);
+                }
+            }
+            settings["xhttpSettings"] = xhttp_settings;
+        } else if node.network == NetworkType::Ws {
             let mut ws_settings = json!({});
             if let Some(path) = &node.path {
                 ws_settings["path"] = json!(path);
