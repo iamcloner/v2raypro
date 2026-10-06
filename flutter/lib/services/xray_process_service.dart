@@ -1,4 +1,4 @@
-import "dart:convert";
+﻿import "dart:convert";
 import "dart:io";
 import "../models/proxy_node.dart";
 
@@ -13,8 +13,9 @@ class XrayProcessService {
   EngineState get state => _state;
 
   File? _currentConfigFile;
-  int socksPort = 10808;
-  int httpPort = 10809;
+  int socksPort = 10999;
+  int httpPort = 10888;
+  bool isSystemProxySet = false;
 
   String? _findXrayBinary() {
     final exeDir = File(Platform.resolvedExecutable).parent.path;
@@ -204,7 +205,7 @@ class XrayProcessService {
 
       // Enable system proxy on Windows
       if (Platform.isWindows) {
-        setWindowsSystemProxy(true, "127.0.0.1:$httpPort");
+        setWindowsSystemProxy(true);
       }
 
       _state = EngineState.running;
@@ -218,7 +219,7 @@ class XrayProcessService {
   Future<void> stop() async {
     _state = EngineState.stopping;
     if (Platform.isWindows) {
-      setWindowsSystemProxy(false, "");
+      setWindowsSystemProxy(false);
     }
     _process?.kill();
     _process = null;
@@ -230,7 +231,8 @@ class XrayProcessService {
     _state = EngineState.stopped;
   }
 
-  static void setWindowsSystemProxy(bool enable, String server) {
+  void setWindowsSystemProxy(bool enable) {
+    if (!Platform.isWindows) return;
     try {
       if (enable) {
         Process.runSync("reg", [
@@ -252,9 +254,10 @@ class XrayProcessService {
           "/t",
           "REG_SZ",
           "/d",
-          server,
+          "127.0.0.1:$httpPort",
           "/f"
         ]);
+        isSystemProxySet = true;
       } else {
         Process.runSync("reg", [
           "add",
@@ -267,6 +270,7 @@ class XrayProcessService {
           "0",
           "/f"
         ]);
+        isSystemProxySet = false;
       }
     } catch (_) {}
   }

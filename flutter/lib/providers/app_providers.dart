@@ -1,4 +1,4 @@
-import "package:flutter_riverpod/flutter_riverpod.dart";
+﻿import "package:flutter_riverpod/flutter_riverpod.dart";
 import "../models/proxy_node.dart";
 import "../models/scan_result.dart";
 import "../services/cloudflare_scanner_service.dart";
@@ -12,6 +12,11 @@ class ConnectionStatusNotifier extends StateNotifier<ConnectionStateEnum> {
 
   Future<void> toggleConnect() async {
     final nodes = ref.read(nodesProvider);
+    if (nodes.isEmpty) {
+      state = ConnectionStateEnum.error;
+      return;
+    }
+
     final activeNode = nodes.firstWhere((n) => n.isActive, orElse: () => nodes.first);
 
     if (state == ConnectionStateEnum.disconnected || state == ConnectionStateEnum.error) {
@@ -28,51 +33,31 @@ class ConnectionStatusNotifier extends StateNotifier<ConnectionStateEnum> {
       state = ConnectionStateEnum.disconnected;
     }
   }
+
+  void setSystemProxy(bool enable) {
+    XrayProcessService.instance.setWindowsSystemProxy(enable);
+  }
 }
 
 final connectionStatusProvider = StateNotifierProvider<ConnectionStatusNotifier, ConnectionStateEnum>((ref) {
   return ConnectionStatusNotifier(ref);
 });
 
+// Clean production nodes notifier - No mock/demo nodes
 class NodesNotifier extends StateNotifier<List<ProxyNode>> {
-  NodesNotifier() : super([
-    ProxyNode(
-      id: "node-1",
-      name: "Cloudflare CDN Frankfurt",
-      protocol: ProtocolType.vless,
-      address: "104.16.123.96",
-      port: 443,
-      uuidOrPassword: "b831381d-6324-4d53-ad4f-8cda48b30811",
-      network: NetworkType.ws,
-      security: SecurityType.tls,
-      path: "/chat",
-      host: "fast.cf-edge.com",
-      sni: "fast.cf-edge.com",
-      latencyMs: 42,
-      isActive: true,
-    ),
-    ProxyNode(
-      id: "node-2",
-      name: "Direct Reality US",
-      protocol: ProtocolType.vless,
-      address: "172.64.88.21",
-      port: 443,
-      uuidOrPassword: "c928491d-5524-4d53-ad4f-8cda48b30999",
-      network: NetworkType.tcp,
-      security: SecurityType.reality,
-      sni: "gateway.icloud.com",
-      publicKey: "x8V_kM4s0_Nl792Mlz1mFk70_oX9",
-      shortId: "6ba85a9a",
-      latencyMs: 88,
-    ),
-  ]);
+  NodesNotifier() : super([]);
 
   void addNode(ProxyNode node) {
-    state = [...state, node];
+    final isFirst = state.isEmpty;
+    state = [...state, node.copyWith(isActive: isFirst ? true : node.isActive)];
   }
 
   void removeNode(String id) {
     state = state.where((n) => n.id != id).toList();
+    if (state.isNotEmpty && !state.any((n) => n.isActive)) {
+      state[0].isActive = true;
+      state = [...state];
+    }
   }
 
   void setActive(String id) {
@@ -182,6 +167,7 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
 
   void startScan({required int candidates, required int workers}) {
     final nodes = ref.read(nodesProvider);
+    if (nodes.isEmpty) return;
     final activeNode = nodes.firstWhere((n) => n.isActive, orElse: () => nodes.first);
 
     CloudflareScannerService.instance.scanCandidates(
@@ -202,4 +188,10 @@ final scannerProvider = StateNotifierProvider<ScannerNotifier, ScannerState>((re
   return ScannerNotifier(ref);
 });
 
-final currentLocaleProvider = StateProvider<String>((ref) => "fa");
+// Default to English as requested
+final currentLocaleProvider = StateProvider<String>((ref) => "en");
+
+// Port settings provider
+final httpPortProvider = StateProvider<int>((ref) => 10888);
+final socksPortProvider = StateProvider<int>((ref) => 10999);
+final isSystemProxyEnabledProvider = StateProvider<bool>((ref) => false);

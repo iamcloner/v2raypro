@@ -1,4 +1,4 @@
-import "package:flutter/material.dart";
+﻿import "package:flutter/material.dart";
 
 class AppTheme {
   static const primaryAccent = Color(0xFF6366F1); // Modern Indigo
@@ -11,6 +11,7 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
+      fontFamily: "AppFont",
       colorScheme: const ColorScheme.dark(
         primary: primaryAccent,
         secondary: secondaryAccent,
@@ -32,7 +33,6 @@ class AppTheme {
         elevation: 0,
         centerTitle: false,
       ),
-      fontFamily: "Segoe UI",
     );
   }
 
@@ -40,6 +40,7 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.light,
+      fontFamily: "AppFont",
       colorScheme: const ColorScheme.light(
         primary: primaryAccent,
         secondary: secondaryAccent,
@@ -55,7 +56,6 @@ class AppTheme {
           side: const BorderSide(color: Color(0xFFE2E8F0), width: 1),
         ),
       ),
-      fontFamily: "Segoe UI",
     );
   }
 }
