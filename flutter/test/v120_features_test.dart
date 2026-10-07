@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:v2raypro/models/proxy_node.dart';
 import 'package:v2raypro/providers/app_providers.dart';
 import 'package:v2raypro/services/xray_process_service.dart';
@@ -32,8 +31,8 @@ void main() {
       expect(UpdateService.defaultAppTestUrl, 'https://github.com/iamcloner/v2raypro/releases');
     });
 
-    test('UpdateService currentAppVersion is v1.3.0', () {
-      expect(UpdateService.currentAppVersion, 'v1.3.0');
+    test('UpdateService currentAppVersion is v1.4.0', () {
+      expect(UpdateService.currentAppVersion, 'v1.4.0');
     });
 
     test('UpdateService semver isVersionNewer accurately detects newer releases', () {
