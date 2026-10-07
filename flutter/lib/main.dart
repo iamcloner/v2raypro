@@ -552,9 +552,14 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
   Future<void> _retestPing(ProxyNode node) async {
     if (_isTestingPing) return;
     setState(() => _isTestingPing = true);
-    final lat = await XrayProcessService.instance.testNodeLatency(node);
+    final res = await XrayProcessService.instance.testNodeRealDelay(node);
     if (mounted) {
-      ref.read(nodesProvider.notifier).updateLatency(node.id, lat);
+      ref.read(nodesProvider.notifier).updateLatency(
+        node.id,
+        res.latencyMs,
+        countryCode: res.countryCode,
+        country: res.country,
+      );
       setState(() => _isTestingPing = false);
     }
   }

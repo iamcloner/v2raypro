@@ -7,7 +7,41 @@ import "../models/proxy_node.dart";
 import "../models/log_entry.dart";
 import "../models/traffic_stats.dart";
 import "cdn_scanner_service.dart";
+import "country_service.dart";
 import "log_service.dart";
+
+class NodeTestResult {
+  final int? latencyMs;
+  final String? countryCode;
+  final String? country;
+  final String? exitIp;
+
+  const NodeTestResult({
+    this.latencyMs,
+    this.countryCode,
+    this.country,
+    this.exitIp,
+  });
+
+  bool get isSuccess => latencyMs != null && latencyMs! > 0;
+
+  static ({String? ip, String? loc}) parseCloudflareTrace(String body) {
+    String? ip;
+    String? loc;
+    for (final line in body.split('\n')) {
+      final trimmed = line.trim();
+      if (trimmed.startsWith('ip=')) {
+        ip = trimmed.substring(3).trim();
+      } else if (trimmed.startsWith('loc=')) {
+        final val = trimmed.substring(4).trim().toUpperCase();
+        if (val.isNotEmpty && val != 'XX') {
+          loc = val;
+        }
+      }
+    }
+    return (ip: ip, loc: loc);
+  }
+}
 
 enum EngineState { stopped, starting, running, stopping, error }
 
@@ -673,9 +707,13 @@ class XrayProcessService {
   }
 
   /// Concurrently tests a batch of candidate nodes using an ephemeral multi-inbound Xray process.
-  /// Routes genuine HTTP requests to Cloudflare generate_204 through each node.
-  /// Returns a Map of node ID to actual round-trip latency in milliseconds.
-  Future<Map<String, int>> testNodesBatchRealProxy(
+  /// Routes genuine HTTP requests through each node to Cloudflare cdn-cgi/trace to obtain:
+  /// 1. True round-trip latency (ping).
+  /// 2. Outbound exit IP.
+  /// 3. Outbound exit country (loc).
+  /// Falls back to generate_204 endpoints if cdn-cgi/trace fails.
+  /// Returns a Map of node ID to NodeTestResult.
+  Future<Map<String, NodeTestResult>> testNodesBatchRealProxy(
     List<ProxyNode> nodes, {
     Duration timeout = const Duration(seconds: 4),
   }) async {
@@ -737,7 +775,7 @@ class XrayProcessService {
       final valResult = await Process.run(xrayBin, ['run', '-test', '-c', tempFile.path]);
       if (valResult.exitCode != 0) {
         if (validNodes.length > 1) {
-          final singleResults = <String, int>{};
+          final singleResults = <String, NodeTestResult>{};
           for (final singleNode in validNodes) {
             final res = await testNodesBatchRealProxy([singleNode], timeout: timeout);
             singleResults.addAll(res);
@@ -750,7 +788,7 @@ class XrayProcessService {
       proc = await Process.start(xrayBin, ['run', '-c', tempFile.path]);
       await Future.delayed(const Duration(milliseconds: 250));
 
-      final results = <String, int>{};
+      final results = <String, NodeTestResult>{};
       await Future.wait(List.generate(validNodes.length, (i) async {
         final port = basePort + i;
         final node = validNodes[i];
@@ -758,24 +796,59 @@ class XrayProcessService {
         client.findProxy = (uri) => 'PROXY 127.0.0.1:$port';
         client.connectionTimeout = timeout;
 
-        final testUrls = [
-          'http://cp.cloudflare.com/generate_204',
-          'http://www.google.com/generate_204',
-          'http://connectivitycheck.gstatic.com/generate_204',
-        ];
-
-        for (final targetUrl in testUrls) {
-          if (results.containsKey(node.id)) break;
-          final sw = Stopwatch()..start();
-          try {
-            final r = await client.getUrl(Uri.parse(targetUrl)).timeout(timeout);
-            final resp = await r.close().timeout(timeout);
+        // 1. Primary: Cloudflare cdn-cgi/trace gives real exit IP and exit country code
+        final sw = Stopwatch()..start();
+        try {
+          final r = await client.getUrl(Uri.parse('http://cp.cloudflare.com/cdn-cgi/trace')).timeout(timeout);
+          final resp = await r.close().timeout(timeout);
+          if (resp.statusCode == 200) {
+            final body = await resp.transform(utf8.decoder).join().timeout(timeout);
             sw.stop();
-            if (resp.statusCode == 204 || resp.statusCode == 200) {
-              results[node.id] = sw.elapsedMilliseconds;
-              break;
+            final trace = NodeTestResult.parseCloudflareTrace(body);
+            String? cCode = trace.loc;
+            if (cCode == null && trace.ip != null) {
+              cCode = LocalGeoIp.instance.lookup(trace.ip!);
             }
-          } catch (_) {}
+            if (cCode == null) {
+              cCode = CountryService.resolveSync(node) ?? await CountryService.instance.resolveCountryCode(node);
+            }
+            final cName = cCode != null ? CountryService.getCountryName(cCode) : null;
+            results[node.id] = NodeTestResult(
+              latencyMs: sw.elapsedMilliseconds,
+              countryCode: cCode,
+              country: cName,
+              exitIp: trace.ip,
+            );
+          }
+        } catch (_) {}
+
+        // 2. Fallback if cdn-cgi/trace failed: generate_204 endpoints
+        if (!results.containsKey(node.id)) {
+          final fallbackUrls = [
+            'http://cp.cloudflare.com/generate_204',
+            'http://www.google.com/generate_204',
+            'http://connectivitycheck.gstatic.com/generate_204',
+          ];
+
+          for (final targetUrl in fallbackUrls) {
+            if (results.containsKey(node.id)) break;
+            final swFall = Stopwatch()..start();
+            try {
+              final r = await client.getUrl(Uri.parse(targetUrl)).timeout(timeout);
+              final resp = await r.close().timeout(timeout);
+              swFall.stop();
+              if (resp.statusCode == 204 || resp.statusCode == 200) {
+                final cCode = CountryService.resolveSync(node) ?? await CountryService.instance.resolveCountryCode(node);
+                final cName = cCode != null ? CountryService.getCountryName(cCode) : null;
+                results[node.id] = NodeTestResult(
+                  latencyMs: swFall.elapsedMilliseconds,
+                  countryCode: cCode,
+                  country: cName,
+                );
+                break;
+              }
+            } catch (_) {}
+          }
         }
         client.close(force: true);
       }));
@@ -791,33 +864,97 @@ class XrayProcessService {
     }
   }
 
-  /// Real Latency Test:
-  /// Performs an end-to-end transport and protocol test to measure true round-trip response time.
-  /// 1. For currently connected active node: queries generate_204 endpoints via the running local proxy.
-  /// 2. If Xray core is available and node is supported: tests genuine proxy delay via an ephemeral Xray test process.
+  /// Real Latency & Outbound Country Test:
+  /// Performs an end-to-end transport and protocol test to measure true round-trip response time,
+  /// as well as the authentic outbound exit IP and country.
+  /// 1. For currently connected active node: queries cdn-cgi/trace via the running local proxy.
+  /// 2. If Xray core is available and node is supported: tests genuine proxy delay & exit IP via ephemeral Xray test process.
   /// 3. Fallback: performs direct transport protocol handshake test to the destination server.
-  Future<int?> testNodeLatency(ProxyNode node, {Duration timeout = const Duration(seconds: 4)}) async {
+  Future<NodeTestResult> testNodeRealDelay(
+    ProxyNode node, {
+    Duration timeout = const Duration(seconds: 4),
+  }) async {
     // 1. If this node is currently connected and active in Xray, test real end-to-end internet ping via local proxy
     if (_state == EngineState.running && _activeRunningNode?.id == node.id) {
-      final activePing = await _testHttpViaLocalProxy(timeout);
-      if (activePing != null) return activePing;
+      final activeRes = await _testHttpViaLocalProxy(timeout);
+      if (activeRes != null && activeRes.isSuccess) {
+        if (activeRes.countryCode != null) {
+          return activeRes;
+        }
+        final cCode = CountryService.resolveSync(node) ?? await CountryService.instance.resolveCountryCode(node);
+        return NodeTestResult(
+          latencyMs: activeRes.latencyMs,
+          countryCode: cCode,
+          country: cCode != null ? CountryService.getCountryName(cCode) : null,
+          exitIp: activeRes.exitIp,
+        );
+      }
     }
 
     // 2. Try genuine proxy delay test through an ephemeral Xray test process
     if (isNodeConfigSupported(node) && _findXrayBinary() != null) {
       try {
         final batchResult = await testNodesBatchRealProxy([node], timeout: timeout);
-        if (batchResult.containsKey(node.id) && batchResult[node.id] != null && batchResult[node.id]! > 0) {
-          return batchResult[node.id];
+        if (batchResult.containsKey(node.id) && batchResult[node.id] != null && batchResult[node.id]!.isSuccess) {
+          return batchResult[node.id]!;
         }
       } catch (_) {}
     }
 
     // 3. Fallback to direct real protocol handshake latency test
-    return await _testNodeRealProtocolDelay(node, timeout: timeout);
+    final handshakeLat = await _testNodeRealProtocolDelay(node, timeout: timeout);
+    if (handshakeLat != null && handshakeLat > 0) {
+      final cCode = CountryService.resolveSync(node) ?? await CountryService.instance.resolveCountryCode(node);
+      return NodeTestResult(
+        latencyMs: handshakeLat,
+        countryCode: cCode,
+        country: cCode != null ? CountryService.getCountryName(cCode) : null,
+      );
+    }
+
+    return const NodeTestResult(latencyMs: null);
   }
 
-  Future<int?> _testHttpViaLocalProxy(Duration timeout) async {
+  /// Backward-compatible latency tester returning milliseconds
+  Future<int?> testNodeLatency(ProxyNode node, {Duration timeout = const Duration(seconds: 4)}) async {
+    final res = await testNodeRealDelay(node, timeout: timeout);
+    return res.latencyMs;
+  }
+
+  Future<NodeTestResult?> _testHttpViaLocalProxy(Duration timeout) async {
+    // 1. Primary: Cloudflare cdn-cgi/trace through running local proxy
+    HttpClient? client;
+    try {
+      client = HttpClient();
+      client.findProxy = (uri) => "PROXY 127.0.0.1:$httpPort";
+      client.connectionTimeout = timeout;
+      final sw = Stopwatch()..start();
+      final request = await client.getUrl(Uri.parse("http://cp.cloudflare.com/cdn-cgi/trace")).timeout(timeout);
+      final response = await request.close().timeout(timeout);
+      if (response.statusCode == 200) {
+        final body = await response.transform(utf8.decoder).join().timeout(timeout);
+        sw.stop();
+        client.close(force: true);
+        final trace = NodeTestResult.parseCloudflareTrace(body);
+        String? cCode = trace.loc;
+        if (cCode == null && trace.ip != null) {
+          cCode = LocalGeoIp.instance.lookup(trace.ip!);
+        }
+        final cName = cCode != null ? CountryService.getCountryName(cCode) : null;
+        return NodeTestResult(
+          latencyMs: sw.elapsedMilliseconds,
+          countryCode: cCode,
+          country: cName,
+          exitIp: trace.ip,
+        );
+      }
+    } catch (_) {
+      try {
+        client?.close(force: true);
+      } catch (_) {}
+    }
+
+    // 2. Fallback to generate_204 targets
     final targets = [
       "http://cp.cloudflare.com/generate_204",
       "http://www.google.com/generate_204",
@@ -826,21 +963,21 @@ class XrayProcessService {
 
     for (final target in targets) {
       final sw = Stopwatch()..start();
-      HttpClient? client;
+      HttpClient? fClient;
       try {
-        client = HttpClient();
-        client.findProxy = (uri) => "PROXY 127.0.0.1:$httpPort";
-        client.connectionTimeout = timeout;
-        final request = await client.getUrl(Uri.parse(target)).timeout(timeout);
+        fClient = HttpClient();
+        fClient.findProxy = (uri) => "PROXY 127.0.0.1:$httpPort";
+        fClient.connectionTimeout = timeout;
+        final request = await fClient.getUrl(Uri.parse(target)).timeout(timeout);
         final response = await request.close().timeout(timeout);
         sw.stop();
-        client.close(force: true);
+        fClient.close(force: true);
         if (response.statusCode == 204 || response.statusCode == 200) {
-          return sw.elapsedMilliseconds;
+          return NodeTestResult(latencyMs: sw.elapsedMilliseconds);
         }
       } catch (_) {
         try {
-          client?.close(force: true);
+          fClient?.close(force: true);
         } catch (_) {}
       }
     }

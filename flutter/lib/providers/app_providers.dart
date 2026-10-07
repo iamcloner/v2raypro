@@ -55,13 +55,11 @@ class ConnectionStatusNotifier extends StateNotifier<ConnectionStateEnum> {
     final nodes = ref.read(nodesProvider);
     if (nodes.isEmpty) return;
     final active = nodes.firstWhere((n) => n.isActive, orElse: () => nodes.first);
-    final lat = await XrayProcessService.instance.testNodeLatency(active);
-    final country = (lat != null && lat > 0)
-        ? (CountryService.resolveSync(active) ?? await CountryService.instance.resolveCountryCode(active))
-        : (active.countryCode ?? CountryService.resolveSync(active));
+    final res = await XrayProcessService.instance.testNodeRealDelay(active);
+    final country = res.countryCode ?? active.countryCode ?? CountryService.resolveSync(active);
     ref.read(nodesProvider.notifier).updateLatency(
       active.id,
-      lat ?? active.latencyMs,
+      res.latencyMs ?? active.latencyMs,
       countryCode: country,
       country: CountryService.getCountryName(country),
     );

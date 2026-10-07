@@ -121,12 +121,13 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
       _testingNodeIds.add(node.id);
     });
 
-    final latency = await XrayProcessService.instance.testNodeLatency(node);
-    String? countryCode;
-    if (latency != null && latency > 0) {
-      countryCode = CountryService.resolveSync(node) ?? await CountryService.instance.resolveCountryCode(node);
-    }
-    ref.read(nodesProvider.notifier).updateLatency(node.id, latency, countryCode: countryCode);
+    final res = await XrayProcessService.instance.testNodeRealDelay(node);
+    ref.read(nodesProvider.notifier).updateLatency(
+      node.id,
+      res.latencyMs,
+      countryCode: res.countryCode,
+      country: res.country,
+    );
 
     if (mounted) {
       setState(() {
@@ -161,20 +162,15 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
         if (nodeIndex >= nodes.length) break;
         final n = nodes[nodeIndex];
 
-        final lat = await XrayProcessService.instance.testNodeLatency(n);
+        final res = await XrayProcessService.instance.testNodeRealDelay(n);
         if (_cancelTestingAll || !mounted) break;
-
-        String? countryCode;
-        if (lat != null && lat > 0) {
-          countryCode = CountryService.resolveSync(n) ?? await CountryService.instance.resolveCountryCode(n);
-        }
 
         if (mounted) {
           ref.read(nodesProvider.notifier).updateLatency(
             n.id,
-            lat,
-            countryCode: countryCode,
-            country: countryCode != null ? CountryService.getCountryName(countryCode) : null,
+            res.latencyMs,
+            countryCode: res.countryCode,
+            country: res.country,
           );
           setState(() {
             _testingNodeIds.remove(n.id);

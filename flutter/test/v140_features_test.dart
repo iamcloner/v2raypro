@@ -124,5 +124,54 @@ void main() {
       final active = currentNodes.firstWhere((n) => n.isActive);
       expect(active.id, equals('node-b'));
     });
+
+    test('NodeTestResult.parseCloudflareTrace parses loc and exit ip correctly', () {
+      const sampleTrace = '''
+fl=306f15
+h=cp.cloudflare.com
+ip=185.220.101.5
+ts=1772922119.123
+visit_scheme=http
+uag=Dart/3.6 (dart:io)
+colo=FRA
+sliver=none
+http=http/1.1
+loc=DE
+tls=off
+sni=off
+warp=off
+gateway=off
+rbi=off
+kex=none
+''';
+      final parsed = NodeTestResult.parseCloudflareTrace(sampleTrace);
+      expect(parsed.ip, equals('185.220.101.5'));
+      expect(parsed.loc, equals('DE'));
+    });
+
+    test('NodeTestResult.parseCloudflareTrace handles unknown loc correctly', () {
+      const sampleTrace = '''
+fl=123
+ip=1.2.3.4
+loc=XX
+''';
+      final parsed = NodeTestResult.parseCloudflareTrace(sampleTrace);
+      expect(parsed.ip, equals('1.2.3.4'));
+      expect(parsed.loc, isNull);
+    });
+
+    test('NodeTestResult reflects latency and outbound exit country attribution', () {
+      const res = NodeTestResult(
+        latencyMs: 120,
+        countryCode: 'FI',
+        country: 'Finland',
+        exitIp: '95.216.12.34',
+      );
+      expect(res.isSuccess, isTrue);
+      expect(res.latencyMs, equals(120));
+      expect(res.countryCode, equals('FI'));
+      expect(res.country, equals('Finland'));
+      expect(res.exitIp, equals('95.216.12.34'));
+    });
   });
 }

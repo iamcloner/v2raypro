@@ -174,14 +174,12 @@ class FreeConfigsService {
         if (_isCancelled) return [];
 
         for (final node in batch) {
-          final lat = batchResults[node.id];
-          if (lat != null && lat > 0) {
-            final countryCode = CountryService.resolveSync(node) ?? await CountryService.instance.resolveCountryCode(node);
-            final countryName = countryCode != null ? CountryService.getCountryName(countryCode) : null;
+          final res = batchResults[node.id];
+          if (res != null && res.isSuccess) {
             workingNodes.add(node.copyWith(
-              latencyMs: lat,
-              countryCode: countryCode,
-              country: countryName,
+              latencyMs: res.latencyMs,
+              countryCode: res.countryCode,
+              country: res.country,
               lastTestedAt: DateTime.now(),
             ));
             if (workingNodes.length >= targetWorking) break;
@@ -192,17 +190,15 @@ class FreeConfigsService {
         if (workingNodes.length < targetWorking && !XrayProcessService.instance.isCoreAvailable() && !_isCancelled) {
           final fallbackResults = await Future.wait(batch.map((node) async {
             if (_isCancelled) return null;
-            final lat = await XrayProcessService.instance.testNodeLatency(
+            final res = await XrayProcessService.instance.testNodeRealDelay(
               node,
               timeout: const Duration(seconds: 4),
             );
-            if (lat != null && lat > 0) {
-              final countryCode = CountryService.resolveSync(node) ?? await CountryService.instance.resolveCountryCode(node);
-              final countryName = countryCode != null ? CountryService.getCountryName(countryCode) : null;
+            if (res.isSuccess) {
               return node.copyWith(
-                latencyMs: lat,
-                countryCode: countryCode,
-                country: countryName,
+                latencyMs: res.latencyMs,
+                countryCode: res.countryCode,
+                country: res.country,
                 lastTestedAt: DateTime.now(),
               );
             }

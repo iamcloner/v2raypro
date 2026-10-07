@@ -215,12 +215,13 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
     if (_testingNodeIds.contains(node.id)) return;
     setState(() => _testingNodeIds.add(node.id));
 
-    final latency = await XrayProcessService.instance.testNodeLatency(node);
-    String? countryCode;
-    if (latency != null && latency > 0) {
-      countryCode = CountryService.resolveSync(node) ?? await CountryService.instance.resolveCountryCode(node);
-    }
-    ref.read(nodesProvider.notifier).updateLatency(node.id, latency, countryCode: countryCode);
+    final res = await XrayProcessService.instance.testNodeRealDelay(node);
+    ref.read(nodesProvider.notifier).updateLatency(
+      node.id,
+      res.latencyMs,
+      countryCode: res.countryCode,
+      country: res.country,
+    );
 
     if (mounted) {
       setState(() => _testingNodeIds.remove(node.id));
@@ -255,20 +256,15 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
         if (nodeIndex >= subNodes.length) break;
         final n = subNodes[nodeIndex];
 
-        final lat = await XrayProcessService.instance.testNodeLatency(n);
+        final res = await XrayProcessService.instance.testNodeRealDelay(n);
         if (_cancelSubMap[subId] == true || !mounted) break;
-
-        String? countryCode;
-        if (lat != null && lat > 0) {
-          countryCode = CountryService.resolveSync(n) ?? await CountryService.instance.resolveCountryCode(n);
-        }
 
         if (mounted) {
           ref.read(nodesProvider.notifier).updateLatency(
             n.id,
-            lat,
-            countryCode: countryCode,
-            country: countryCode != null ? CountryService.getCountryName(countryCode) : null,
+            res.latencyMs,
+            countryCode: res.countryCode,
+            country: res.country,
           );
           setState(() {
             _testingNodeIds.remove(n.id);
