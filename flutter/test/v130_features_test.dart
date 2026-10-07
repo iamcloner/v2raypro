@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:v2raypro/models/dns_settings.dart';
@@ -535,6 +537,76 @@ void main() {
       expect(active.id, 'free_2');
       final first = nodesAfterSecond.firstWhere((n) => n.id == 'free_1');
       expect(first.isActive, isFalse);
+    });
+  });
+
+  group('Real Delay Latency & Protocol Probe Verification', () {
+    test('XrayProcessService.isCoreAvailable returns boolean without throwing', () {
+      expect(XrayProcessService.instance.isCoreAvailable(), isA<bool>());
+    });
+
+    test('TCP protocol nodes complete latency measurement without hanging on WebSocket upgrade', () async {
+      // Start a mock TCP server
+      final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      server.listen((client) {
+        // Echo or just accept connection
+        client.write('connected');
+      });
+
+      final tcpNode = ProxyNode(
+        id: 'test_tcp_1',
+        name: 'Test TCP Node',
+        protocol: ProtocolType.vless,
+        address: '127.0.0.1',
+        port: server.port,
+        uuidOrPassword: 'test-uuid-tcp',
+        network: NetworkType.tcp,
+        security: SecurityType.none,
+      );
+
+      final latency = await XrayProcessService.instance.testNodeLatency(
+        tcpNode,
+        timeout: const Duration(seconds: 2),
+      );
+
+      await server.close();
+
+      expect(latency, isNotNull);
+      expect(latency! >= 0, isTrue);
+    });
+
+    test('WebSocket protocol nodes successfully detect responsive HTTP server with 200 or 400 status', () async {
+      final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      server.listen((client) {
+        client.listen((data) {
+          final request = utf8.decode(data);
+          if (request.contains('Upgrade: websocket')) {
+            client.write('HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\n\r\n');
+          }
+        });
+      });
+
+      final wsNode = ProxyNode(
+        id: 'test_ws_1',
+        name: 'Test WS Node',
+        protocol: ProtocolType.vmess,
+        address: '127.0.0.1',
+        port: server.port,
+        uuidOrPassword: 'test-uuid-ws',
+        network: NetworkType.ws,
+        path: '/v2ray-ws',
+        security: SecurityType.none,
+      );
+
+      final latency = await XrayProcessService.instance.testNodeLatency(
+        wsNode,
+        timeout: const Duration(seconds: 2),
+      );
+
+      await server.close();
+
+      expect(latency, isNotNull);
+      expect(latency! >= 0, isTrue);
     });
   });
 }

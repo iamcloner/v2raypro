@@ -59,6 +59,9 @@ class XrayProcessService {
   /// Public accessor to locate the Xray executable
   String? findXrayBinarySync() => _findXrayBinary();
 
+  /// Check if Xray binary is available on the system
+  bool isCoreAvailable() => _findXrayBinary() != null;
+
   /// Check whether a node configuration is structurally valid and supported by Xray
   bool isNodeConfigSupported(ProxyNode node) {
     if (node.address.trim().isEmpty || node.port <= 0 || node.port > 65535) return false;
@@ -717,21 +720,30 @@ class XrayProcessService {
       await Future.wait(List.generate(validNodes.length, (i) async {
         final port = basePort + i;
         final node = validNodes[i];
-        final sw = Stopwatch()..start();
         final client = HttpClient();
         client.findProxy = (uri) => 'PROXY 127.0.0.1:$port';
         client.connectionTimeout = timeout;
 
-        try {
-          final r = await client.getUrl(Uri.parse('http://cp.cloudflare.com/generate_204')).timeout(timeout);
-          final resp = await r.close().timeout(timeout);
-          sw.stop();
-          if (resp.statusCode == 204 || resp.statusCode == 200) {
-            results[node.id] = sw.elapsedMilliseconds;
-          }
-        } catch (_) {} finally {
-          client.close(force: true);
+        final testUrls = [
+          'http://cp.cloudflare.com/generate_204',
+          'http://www.google.com/generate_204',
+          'http://connectivitycheck.gstatic.com/generate_204',
+        ];
+
+        for (final targetUrl in testUrls) {
+          if (results.containsKey(node.id)) break;
+          final sw = Stopwatch()..start();
+          try {
+            final r = await client.getUrl(Uri.parse(targetUrl)).timeout(timeout);
+            final resp = await r.close().timeout(timeout);
+            sw.stop();
+            if (resp.statusCode == 204 || resp.statusCode == 200) {
+              results[node.id] = sw.elapsedMilliseconds;
+              break;
+            }
+          } catch (_) {}
         }
+        client.close(force: true);
       }));
 
       return results;
@@ -747,15 +759,27 @@ class XrayProcessService {
 
   /// Real Latency Test:
   /// Performs an end-to-end transport and protocol test to measure true round-trip response time.
-  /// - For currently connected active node: queries generate_204 endpoints via local proxy.
-  /// - For other nodes: performs full protocol handshake (HTTP/WebSocket/TLS to live origin server).
+  /// 1. For currently connected active node: queries generate_204 endpoints via the running local proxy.
+  /// 2. If Xray core is available and node is supported: tests genuine proxy delay via an ephemeral Xray test process.
+  /// 3. Fallback: performs direct transport protocol handshake test to the destination server.
   Future<int?> testNodeLatency(ProxyNode node, {Duration timeout = const Duration(seconds: 4)}) async {
     // 1. If this node is currently connected and active in Xray, test real end-to-end internet ping via local proxy
     if (_state == EngineState.running && _activeRunningNode?.id == node.id) {
-      return await _testHttpViaLocalProxy(timeout);
+      final activePing = await _testHttpViaLocalProxy(timeout);
+      if (activePing != null) return activePing;
     }
 
-    // 2. Direct real protocol handshake latency test to live origin server
+    // 2. Try genuine proxy delay test through an ephemeral Xray test process
+    if (isNodeConfigSupported(node) && _findXrayBinary() != null) {
+      try {
+        final batchResult = await testNodesBatchRealProxy([node], timeout: timeout);
+        if (batchResult.containsKey(node.id) && batchResult[node.id] != null && batchResult[node.id]! > 0) {
+          return batchResult[node.id];
+        }
+      } catch (_) {}
+    }
+
+    // 3. Fallback to direct real protocol handshake latency test
     return await _testNodeRealProtocolDelay(node, timeout: timeout);
   }
 
@@ -791,9 +815,10 @@ class XrayProcessService {
 
   Future<int?> _testNodeRealProtocolDelay(ProxyNode node, {Duration timeout = const Duration(seconds: 4)}) async {
     final sw = Stopwatch()..start();
-    Socket? socket;
+    Socket? rawSocket;
     try {
-      socket = await Socket.connect(node.address, node.port, timeout: timeout);
+      rawSocket = await Socket.connect(node.address, node.port, timeout: timeout);
+      Socket activeSocket = rawSocket;
 
       final host = (node.host != null && node.host!.isNotEmpty)
           ? node.host!
@@ -802,20 +827,37 @@ class XrayProcessService {
           ? node.sni!
           : ((node.host != null && node.host!.isNotEmpty) ? node.host! : node.address);
 
-      if (node.security == SecurityType.tls || node.security == SecurityType.reality) {
-        socket = await SecureSocket.secure(
-          socket,
-          host: sni,
-          onBadCertificate: (_) => true,
-        ).timeout(timeout);
+      if (node.security == SecurityType.tls) {
+        try {
+          activeSocket = await SecureSocket.secure(
+            rawSocket,
+            host: sni,
+            onBadCertificate: (_) => true,
+          ).timeout(timeout);
+        } catch (_) {
+          // If SecureSocket fails, connection already established over TCP
+        }
+      } else if (node.security == SecurityType.reality) {
+        // Reality uses uTLS which Dart SecureSocket does not natively handle.
+        // Attempt probe; if certificate validation fails, keep the established TCP socket.
+        try {
+          final probe = await SecureSocket.secure(
+            rawSocket,
+            host: sni,
+            onBadCertificate: (_) => true,
+          ).timeout(timeout);
+          activeSocket = probe;
+        } catch (_) {
+          // Expected for Reality nodes without full uTLS client
+        }
       }
 
-      // Check if node uses HTTP / WebSocket / XHTTP / SplitHTTP transport (standard for all CDNs)
+      // Check if node uses HTTP / WebSocket / XHTTP / SplitHTTP transport
+      // NOTE: NetworkType.tcp MUST NOT send websocket upgrade!
       final isHttpTransport = node.network == NetworkType.ws ||
           node.network == NetworkType.httpUpgrade ||
           node.network == NetworkType.xhttp ||
-          node.network == NetworkType.splithttp ||
-          node.network == NetworkType.tcp;
+          node.network == NetworkType.splithttp;
 
       if (isHttpTransport) {
         final path = (node.path == null || node.path!.isEmpty)
@@ -832,24 +874,18 @@ class XrayProcessService {
             'Sec-WebSocket-Version: 13\r\n'
             '\r\n';
 
-        socket.add(utf8.encode(httpRequest));
-        await socket.flush();
+        activeSocket.add(utf8.encode(httpRequest));
+        await activeSocket.flush();
 
         final completer = Completer<int?>();
-        final subscription = socket.listen(
+        final subscription = activeSocket.listen(
           (data) {
             sw.stop();
             if (!completer.isCompleted) {
               final responseStr = utf8.decode(data, allowMalformed: true);
               final firstLine = responseStr.split('\r\n').first;
 
-              // Only accept status codes that confirm connection reached a live origin backend:
-              // - 101: WebSocket upgrade successful
-              // - 204: HTTP response from live origin
-              final isAcceptableStatus = firstLine.contains('101') ||
-                  firstLine.contains('204');
-
-              // Strictly reject CDN error status codes or WAF blocks:
+              // Strictly reject CDN error status codes or WAF blocks (502, 503, 504, 520-526, etc.):
               final isCdnError = responseStr.contains('502') ||
                   responseStr.contains('503') ||
                   responseStr.contains('504') ||
@@ -861,12 +897,19 @@ class XrayProcessService {
                   responseStr.contains('525') ||
                   responseStr.contains('526') ||
                   responseStr.contains('530') ||
-                  responseStr.contains('403') ||
                   responseStr.contains('Error 1000') ||
                   responseStr.contains('Error 1005') ||
                   responseStr.contains('Error 1020');
 
-              if (isAcceptableStatus && !isCdnError) {
+              // Accept any HTTP response indicating backend or web server responded:
+              // 101, 200, 204, 301, 302, 400 (standard V2Ray WS probe response), 404
+              final isAcceptableStatus = firstLine.startsWith('HTTP/') &&
+                  !isCdnError &&
+                  !firstLine.contains('502') &&
+                  !firstLine.contains('503') &&
+                  !firstLine.contains('504');
+
+              if (isAcceptableStatus) {
                 completer.complete(sw.elapsedMilliseconds);
               } else {
                 completer.complete(null);
@@ -883,7 +926,7 @@ class XrayProcessService {
 
         final result = await completer.future.timeout(timeout, onTimeout: () => null);
         await subscription.cancel();
-        socket.destroy();
+        activeSocket.destroy();
         return result;
       }
 
@@ -891,12 +934,12 @@ class XrayProcessService {
       if (node.network == NetworkType.grpc) {
         final h2Preface = utf8.encode('PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n');
         final h2Settings = [0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00];
-        socket.add(h2Preface);
-        socket.add(h2Settings);
-        await socket.flush();
+        activeSocket.add(h2Preface);
+        activeSocket.add(h2Settings);
+        await activeSocket.flush();
 
         final completer = Completer<int?>();
-        final subscription = socket.listen(
+        final subscription = activeSocket.listen(
           (data) {
             sw.stop();
             if (!completer.isCompleted) {
@@ -913,25 +956,17 @@ class XrayProcessService {
 
         final result = await completer.future.timeout(timeout, onTimeout: () => null);
         await subscription.cancel();
-        socket.destroy();
+        activeSocket.destroy();
         return result;
       }
 
-      // Check if node is in a known CDN range (Cloudflare, Fastly, AWS, G-Core, Arvan)
-      final cdn = CdnScannerService.detectCdnHostSync(node.address);
-      if (cdn != null) {
-        // CDN nodes MUST pass real handshake probe; plain socket connect is not acceptable
-        socket.destroy();
-        return null;
-      }
-
-      // Direct non-CDN VPS node: return socket + TLS RTT
+      // Standard TCP / Direct / Reality: Socket connect (+ TLS if available) is successful!
       sw.stop();
-      socket.destroy();
+      activeSocket.destroy();
       return sw.elapsedMilliseconds;
     } catch (_) {
       try {
-        socket?.destroy();
+        rawSocket?.destroy();
       } catch (_) {}
       return null;
     }

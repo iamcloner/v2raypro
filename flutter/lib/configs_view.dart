@@ -154,11 +154,33 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
       });
 
       final chunkResults = <String, int?>{};
-      await Future.wait(chunk.map((n) async {
-        if (_cancelTestingAll) return;
-        final lat = await XrayProcessService.instance.testNodeLatency(n);
-        chunkResults[n.id] = lat;
-      }));
+
+      // 1. Try batch real proxy test via Xray for the chunk first
+      Map<String, int> batchProxyResults = {};
+      if (XrayProcessService.instance.isCoreAvailable()) {
+        try {
+          batchProxyResults = await XrayProcessService.instance.testNodesBatchRealProxy(
+            chunk,
+            timeout: const Duration(seconds: 4),
+          );
+        } catch (_) {}
+      }
+
+      for (final n in chunk) {
+        if (batchProxyResults.containsKey(n.id) && batchProxyResults[n.id]! > 0) {
+          chunkResults[n.id] = batchProxyResults[n.id];
+        }
+      }
+
+      // 2. For any remaining nodes, test via direct protocol fallback
+      final remaining = chunk.where((n) => !chunkResults.containsKey(n.id)).toList();
+      if (remaining.isNotEmpty) {
+        await Future.wait(remaining.map((n) async {
+          if (_cancelTestingAll) return;
+          final lat = await XrayProcessService.instance.testNodeLatency(n);
+          chunkResults[n.id] = lat;
+        }));
+      }
 
       if (mounted && chunkResults.isNotEmpty) {
         ref.read(nodesProvider.notifier).updateLatenciesBatch(chunkResults);
