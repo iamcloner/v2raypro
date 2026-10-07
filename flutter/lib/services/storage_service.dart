@@ -1,12 +1,18 @@
+import "dart:async";
 import "dart:convert";
 import "dart:io";
 import "package:shared_preferences/shared_preferences.dart";
+import "../models/dns_settings.dart";
 import "../models/proxy_node.dart";
 import "../models/subscription_item.dart";
+import "cdn_scanner_service.dart";
 
 class StorageService {
   static final StorageService instance = StorageService._internal();
   StorageService._internal();
+
+  Timer? _nodesDebounceTimer;
+  Timer? _subsDebounceTimer;
 
   static const _nodesKey = "v2raypro_saved_nodes";
   static const _subsKey = "v2raypro_saved_subs";
@@ -14,6 +20,7 @@ class StorageService {
   static const _tunKey = "v2raypro_tun_mode";
   static const _httpPortKey = "v2raypro_http_port";
   static const _socksPortKey = "v2raypro_socks_port";
+  static const _freeConfigsKey = "v2raypro_saved_free_configs";
 
   File _getBackupFile(String filename) {
     final exeDir = File(Platform.resolvedExecutable).parent.path;
@@ -42,29 +49,44 @@ class StorageService {
     }
   }
 
-  Future<void> saveNodes(List<ProxyNode> nodes) async {
+  Future<void> saveNodes(List<ProxyNode> nodes, {bool immediate = false}) async {
+    _nodesDebounceTimer?.cancel();
+    if (immediate) {
+      await _writeNodesToDisk(nodes);
+    } else {
+      _nodesDebounceTimer = Timer(const Duration(milliseconds: 400), () {
+        _writeNodesToDisk(nodes);
+      });
+    }
+  }
+
+  Future<void> _writeNodesToDisk(List<ProxyNode> nodes) async {
     try {
       final jsonList = nodes.map((n) => n.toJson()).toList();
       final str = jsonEncode(jsonList);
-      final sp = await SharedPreferences.getInstance();
-      await sp.setString(_nodesKey, str);
 
       final file = _getBackupFile("v2raypro_nodes.json");
       await file.writeAsString(str);
+
+      // Only sync to SharedPreferences if payload is small (<64KB) to avoid Windows Registry size limits/crashes
+      if (str.length < 65536) {
+        final sp = await SharedPreferences.getInstance();
+        await sp.setString(_nodesKey, str);
+      }
     } catch (_) {}
   }
 
   Future<List<ProxyNode>> loadNodes() async {
     try {
       String? content;
-      final sp = await SharedPreferences.getInstance();
-      content = sp.getString(_nodesKey);
+      final file = _getBackupFile("v2raypro_nodes.json");
+      if (await file.exists()) {
+        content = await file.readAsString();
+      }
 
       if (content == null || content.isEmpty) {
-        final file = _getBackupFile("v2raypro_nodes.json");
-        if (await file.exists()) {
-          content = await file.readAsString();
-        }
+        final sp = await SharedPreferences.getInstance();
+        content = sp.getString(_nodesKey);
       }
 
       if (content != null && content.isNotEmpty) {
@@ -75,34 +97,84 @@ class StorageService {
     return [];
   }
 
-  Future<void> saveSubscriptions(List<SubscriptionItem> subs) async {
+  Future<void> saveSubscriptions(List<SubscriptionItem> subs, {bool immediate = false}) async {
+    _subsDebounceTimer?.cancel();
+    if (immediate) {
+      await _writeSubscriptionsToDisk(subs);
+    } else {
+      _subsDebounceTimer = Timer(const Duration(milliseconds: 400), () {
+        _writeSubscriptionsToDisk(subs);
+      });
+    }
+  }
+
+  Future<void> _writeSubscriptionsToDisk(List<SubscriptionItem> subs) async {
     try {
       final jsonList = subs.map((s) => s.toJson()).toList();
       final str = jsonEncode(jsonList);
-      final sp = await SharedPreferences.getInstance();
-      await sp.setString(_subsKey, str);
 
       final file = _getBackupFile("v2raypro_subs.json");
       await file.writeAsString(str);
+
+      if (str.length < 65536) {
+        final sp = await SharedPreferences.getInstance();
+        await sp.setString(_subsKey, str);
+      }
     } catch (_) {}
   }
 
   Future<List<SubscriptionItem>> loadSubscriptions() async {
     try {
       String? content;
-      final sp = await SharedPreferences.getInstance();
-      content = sp.getString(_subsKey);
+      final file = _getBackupFile("v2raypro_subs.json");
+      if (await file.exists()) {
+        content = await file.readAsString();
+      }
 
       if (content == null || content.isEmpty) {
-        final file = _getBackupFile("v2raypro_subs.json");
-        if (await file.exists()) {
-          content = await file.readAsString();
-        }
+        final sp = await SharedPreferences.getInstance();
+        content = sp.getString(_subsKey);
       }
 
       if (content != null && content.isNotEmpty) {
         final decoded = jsonDecode(content) as List;
         return decoded.map((e) => SubscriptionItem.fromJson(e as Map<String, dynamic>)).toList();
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  Future<void> saveFreeConfigs(List<ProxyNode> nodes) async {
+    try {
+      final jsonList = nodes.map((n) => n.toJson()).toList();
+      final str = jsonEncode(jsonList);
+
+      final file = _getBackupFile("v2raypro_free_configs.json");
+      await file.writeAsString(str);
+
+      if (str.length < 65536) {
+        final sp = await SharedPreferences.getInstance();
+        await sp.setString(_freeConfigsKey, str);
+      }
+    } catch (_) {}
+  }
+
+  Future<List<ProxyNode>> loadFreeConfigs() async {
+    try {
+      String? content;
+      final file = _getBackupFile("v2raypro_free_configs.json");
+      if (await file.exists()) {
+        content = await file.readAsString();
+      }
+
+      if (content == null || content.isEmpty) {
+        final sp = await SharedPreferences.getInstance();
+        content = sp.getString(_freeConfigsKey);
+      }
+
+      if (content != null && content.isNotEmpty) {
+        final decoded = jsonDecode(content) as List;
+        return decoded.map((e) => ProxyNode.fromJson(e as Map<String, dynamic>)).toList();
       }
     } catch (_) {}
     return [];
@@ -130,25 +202,27 @@ class StorageService {
   Future<void> saveTunEnabled(bool val) => saveBool(_tunKey, val);
   Future<bool> loadTunEnabled() => loadBool(_tunKey, defaultValue: false);
 
-  Future<void> saveCloudflareRanges(List<String> ranges) async {
+  Future<void> saveCdnRanges(CdnProvider provider, List<String> ranges) async {
     try {
+      final key = "v2raypro_${provider.id}_ranges";
       final str = jsonEncode(ranges);
       final sp = await SharedPreferences.getInstance();
-      await sp.setString("v2raypro_cf_ranges", str);
+      await sp.setString(key, str);
 
-      final file = _getBackupFile("v2raypro_cf_ranges.json");
+      final file = _getBackupFile("$key.json");
       await file.writeAsString(str);
     } catch (_) {}
   }
 
-  Future<List<String>> loadCloudflareRanges() async {
+  Future<List<String>> loadCdnRanges(CdnProvider provider) async {
     try {
+      final key = "v2raypro_${provider.id}_ranges";
       String? content;
       final sp = await SharedPreferences.getInstance();
-      content = sp.getString("v2raypro_cf_ranges");
+      content = sp.getString(key);
 
       if (content == null || content.isEmpty) {
-        final file = _getBackupFile("v2raypro_cf_ranges.json");
+        final file = _getBackupFile("$key.json");
         if (await file.exists()) {
           content = await file.readAsString();
         }
@@ -159,7 +233,45 @@ class StorageService {
         return decoded.map((e) => e.toString().trim()).where((e) => e.isNotEmpty).toList();
       }
     } catch (_) {}
-    return [];
+    return provider.defaultCidrs;
+  }
+
+  Future<void> saveCloudflareRanges(List<String> ranges) =>
+      saveCdnRanges(CdnProvider.cloudflare, ranges);
+
+  Future<List<String>> loadCloudflareRanges() =>
+      loadCdnRanges(CdnProvider.cloudflare);
+
+  Future<void> saveDnsSettings(DnsSettings settings) async {
+    try {
+      final str = jsonEncode(settings.toJson());
+      final sp = await SharedPreferences.getInstance();
+      await sp.setString("v2raypro_dns_settings", str);
+
+      final file = _getBackupFile("v2raypro_dns_settings.json");
+      await file.writeAsString(str);
+    } catch (_) {}
+  }
+
+  Future<DnsSettings> loadDnsSettings() async {
+    try {
+      String? content;
+      final sp = await SharedPreferences.getInstance();
+      content = sp.getString("v2raypro_dns_settings");
+
+      if (content == null || content.isEmpty) {
+        final file = _getBackupFile("v2raypro_dns_settings.json");
+        if (await file.exists()) {
+          content = await file.readAsString();
+        }
+      }
+
+      if (content != null && content.isNotEmpty) {
+        final decoded = jsonDecode(content) as Map<String, dynamic>;
+        return DnsSettings.fromJson(decoded);
+      }
+    } catch (_) {}
+    return const DnsSettings();
   }
 
   Future<void> saveInt(String key, int val) async {

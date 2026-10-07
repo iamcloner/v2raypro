@@ -31,6 +31,15 @@ class ProxyNode {
   bool isActive;
   String? originalAddress;
 
+  /// Whether this node has been tested and failed (timed out / no ping response)
+  bool get hasTimedOut => lastTestedAt != null && (latencyMs == null || latencyMs! <= 0);
+
+  /// Whether this node has a verified working latency
+  bool get hasValidPing => latencyMs != null && latencyMs! > 0;
+
+  /// Whether this node has never been tested
+  bool get isUntested => lastTestedAt == null && latencyMs == null;
+
   ProxyNode({
     required this.id,
     required this.name,
@@ -132,6 +141,8 @@ class ProxyNode {
     );
   }
 
+  static const Object _sentinel = Object();
+
   ProxyNode copyWith({
     String? id,
     String? name,
@@ -156,11 +167,17 @@ class ProxyNode {
     String? mode,
     String? extra,
     String? subscriptionId,
-    int? latencyMs,
+    Object? latencyMs = _sentinel,
+    bool clearLatency = false,
     DateTime? lastTestedAt,
     bool? isActive,
     String? originalAddress,
+    bool clearOriginalAddress = false,
   }) {
+    final int? resolvedLatency = clearLatency
+        ? null
+        : (identical(latencyMs, _sentinel) ? this.latencyMs : latencyMs as int?);
+
     return ProxyNode(
       id: id ?? this.id,
       name: name ?? this.name,
@@ -185,10 +202,10 @@ class ProxyNode {
       mode: mode ?? this.mode,
       extra: extra ?? this.extra,
       subscriptionId: subscriptionId ?? this.subscriptionId,
-      latencyMs: latencyMs ?? this.latencyMs,
+      latencyMs: resolvedLatency,
       lastTestedAt: lastTestedAt ?? this.lastTestedAt,
       isActive: isActive ?? this.isActive,
-      originalAddress: originalAddress ?? this.originalAddress,
+      originalAddress: clearOriginalAddress ? null : (originalAddress ?? this.originalAddress),
     );
   }
 

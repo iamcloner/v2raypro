@@ -1,4 +1,5 @@
 import "dart:async";
+import "dart:convert";
 import "dart:io";
 import "dart:math";
 import "../models/scan_result.dart";
@@ -198,44 +199,107 @@ class CloudflareScannerService {
     _isCancelled = true;
   }
 
-  /// Perform a real network probe (TCP Socket connect + TLS handshake + Latency probe)
+  /// Perform a real network probe (TCP Socket connect + TLS handshake + live origin response)
   Future<ScanResult> testRealIp({
     required String ip,
     required int port,
     String? sni,
+    String? host,
     Duration timeout = const Duration(milliseconds: 2500),
   }) async {
     final sw = Stopwatch()..start();
     Socket? socket;
     try {
-      // 1. Real TCP Connect stage
       socket = await Socket.connect(ip, port, timeout: timeout);
       final tcpMs = sw.elapsedMilliseconds;
 
-      // 2. Real Secure TLS Handshake stage
-      SecureSocket? secureSocket;
       int? tlsMs;
       bool tlsSuccess = false;
+      Socket activeSocket = socket;
 
       if (port == 443 || sni != null) {
         final tlsSw = Stopwatch()..start();
-        try {
-          secureSocket = await SecureSocket.secure(
-            socket,
-            host: sni ?? "cloudflare.com",
-            onBadCertificate: (cert) => true, // Accept server certificates
-          ).timeout(timeout);
-          tlsMs = tlsSw.elapsedMilliseconds;
-          tlsSuccess = true;
-        } catch (_) {
-          tlsSuccess = false;
-        }
+        final secureSocket = await SecureSocket.secure(
+          socket,
+          host: sni ?? "cloudflare.com",
+          onBadCertificate: (cert) => true,
+        ).timeout(timeout);
+        tlsMs = tlsSw.elapsedMilliseconds;
+        tlsSuccess = true;
+        activeSocket = secureSocket;
+      }
+
+      // Perform real HTTP / WebSocket upgrade probe to verify live origin reachability
+      final targetHost = host ?? sni ?? "cloudflare.com";
+      final httpRequest =
+          'GET / HTTP/1.1\r\n'
+          'Host: $targetHost\r\n'
+          'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\n'
+          'Upgrade: websocket\r\n'
+          'Connection: Upgrade\r\n'
+          'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n'
+          'Sec-WebSocket-Version: 13\r\n'
+          '\r\n';
+
+      activeSocket.add(utf8.encode(httpRequest));
+      await activeSocket.flush();
+
+      final completer = Completer<bool>();
+      final sub = activeSocket.listen(
+        (data) {
+          if (!completer.isCompleted) {
+            final res = utf8.decode(data, allowMalformed: true);
+            final firstLine = res.split('\r\n').first;
+            final isGood = firstLine.contains('101') ||
+                firstLine.contains('400') ||
+                firstLine.contains('200') ||
+                firstLine.contains('204');
+            final isBad = res.contains('502') ||
+                res.contains('503') ||
+                res.contains('504') ||
+                res.contains('520') ||
+                res.contains('521') ||
+                res.contains('522') ||
+                res.contains('523') ||
+                res.contains('524') ||
+                res.contains('525') ||
+                res.contains('526') ||
+                res.contains('530') ||
+                res.contains('403') ||
+                res.contains('Error 1000') ||
+                res.contains('Error 1005');
+
+            completer.complete(isGood && !isBad);
+          }
+        },
+        onError: (_) {
+          if (!completer.isCompleted) completer.complete(false);
+        },
+        onDone: () {
+          if (!completer.isCompleted) completer.complete(false);
+        },
+      );
+
+      final protocolOk = await completer.future.timeout(timeout, onTimeout: () => false);
+      await sub.cancel();
+      sw.stop();
+      activeSocket.destroy();
+
+      if (!protocolOk) {
+        return ScanResult(
+          ip: ip,
+          port: port,
+          tcpSuccess: true,
+          tcpLatencyMs: tcpMs,
+          tlsSuccess: tlsSuccess,
+          tlsLatencyMs: tlsMs,
+          protocolSuccess: false,
+          error: "Origin unreachable (CDN 5xx / 403)",
+          rankScore: 99999.0,
+        );
       }
 
       final totalMs = sw.elapsedMilliseconds;
-      await secureSocket?.close();
-      await socket.close();
-
       return ScanResult(
         ip: ip,
         port: port,
@@ -243,12 +307,15 @@ class CloudflareScannerService {
         tcpLatencyMs: tcpMs,
         tlsSuccess: tlsSuccess,
         tlsLatencyMs: tlsMs,
-        protocolSuccess: tlsSuccess,
+        protocolSuccess: true,
         totalLatencyMs: totalMs,
-        rankScore: (tlsSuccess ? totalMs : (tcpMs + 500)).toDouble(),
+        rankScore: totalMs.toDouble(),
       );
     } catch (e) {
       sw.stop();
+      try {
+        socket?.destroy();
+      } catch (_) {}
       return ScanResult(
         ip: ip,
         port: port,

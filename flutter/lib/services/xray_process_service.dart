@@ -2,8 +2,11 @@ import "dart:async";
 import "dart:convert";
 import "dart:ffi" as ffi;
 import "dart:io";
+import "dart:math";
 import "../models/proxy_node.dart";
 import "../models/log_entry.dart";
+import "../models/traffic_stats.dart";
+import "cdn_scanner_service.dart";
 import "log_service.dart";
 
 enum EngineState { stopped, starting, running, stopping, error }
@@ -17,11 +20,20 @@ class XrayProcessService {
   EngineState get state => _state;
 
   File? _currentConfigFile;
+  ProxyNode? _activeRunningNode;
   int socksPort = 10999;
   int httpPort = 10888;
+  int apiPort = 10085;
+  List<String> dnsServers = const ["1.1.1.1", "1.0.0.1", "https://1.1.1.1/dns-query"];
   bool isSystemProxySet = false;
   String? lastLog;
   String? lastErrorLog;
+
+  Timer? _trafficTimer;
+  final _trafficStreamController = StreamController<TrafficStats>.broadcast();
+  Stream<TrafficStats> get trafficStream => _trafficStreamController.stream;
+  TrafficStats _currentTrafficStats = const TrafficStats();
+  TrafficStats get currentTrafficStats => _currentTrafficStats;
 
   String? _findXrayBinary() {
     final exeDir = File(Platform.resolvedExecutable).parent.path;
@@ -44,6 +56,21 @@ class XrayProcessService {
     return null;
   }
 
+  /// Public accessor to locate the Xray executable
+  String? findXrayBinarySync() => _findXrayBinary();
+
+  /// Check whether a node configuration is structurally valid and supported by Xray
+  bool isNodeConfigSupported(ProxyNode node) {
+    if (node.address.trim().isEmpty || node.port <= 0 || node.port > 65535) return false;
+    if (node.protocol == ProtocolType.vless || node.protocol == ProtocolType.vmess) {
+      if (node.uuidOrPassword.trim().isEmpty) return false;
+    }
+    if (node.security == SecurityType.reality) {
+      if (node.publicKey == null || node.publicKey!.trim().isEmpty) return false;
+    }
+    return true;
+  }
+
   Map<String, dynamic> generateXrayConfig(ProxyNode node, {bool enableTun = false, bool enableUdp = true}) {
     final netName = (node.network == NetworkType.splithttp || node.network == NetworkType.xhttp)
         ? "xhttp"
@@ -57,7 +84,6 @@ class XrayProcessService {
     if (node.security == SecurityType.tls) {
       final tls = <String, dynamic>{
         "serverName": node.sni ?? node.host ?? node.address,
-        "allowInsecure": node.allowInsecure,
       };
       if (node.fingerprint != null && node.fingerprint!.isNotEmpty) {
         tls["fingerprint"] = node.fingerprint;
@@ -67,16 +93,20 @@ class XrayProcessService {
       }
       streamSettings["tlsSettings"] = tls;
     } else if (node.security == SecurityType.reality) {
-      final reality = <String, dynamic>{
-        "serverName": node.sni ?? node.host ?? "",
-        "publicKey": node.publicKey ?? "",
-        "shortId": node.shortId ?? "",
-        "spiderX": node.spiderX ?? "/",
-      };
-      if (node.fingerprint != null && node.fingerprint!.isNotEmpty) {
-        reality["fingerprint"] = node.fingerprint;
+      if (node.publicKey != null && node.publicKey!.trim().isNotEmpty) {
+        final reality = <String, dynamic>{
+          "serverName": node.sni ?? node.host ?? "",
+          "publicKey": node.publicKey!.trim(),
+          "shortId": node.shortId ?? "",
+          "spiderX": node.spiderX ?? "/",
+        };
+        if (node.fingerprint != null && node.fingerprint!.isNotEmpty) {
+          reality["fingerprint"] = node.fingerprint;
+        }
+        streamSettings["realitySettings"] = reality;
+      } else {
+        streamSettings["security"] = "none";
       }
-      streamSettings["realitySettings"] = reality;
     }
 
     if (node.network == NetworkType.xhttp || node.network == NetworkType.splithttp) {
@@ -168,6 +198,21 @@ class XrayProcessService {
         "streamSettings": streamSettings,
       };
     } else {
+      const supportedSsMethods = {
+        'aes-128-gcm',
+        'aes-256-gcm',
+        'chacha20-poly1305',
+        'chacha20-ietf-poly1305',
+        'xchacha20-ietf-poly1305',
+        '2022-blake3-aes-128-gcm',
+        '2022-blake3-aes-256-gcm',
+        '2022-blake3-chacha20-poly1305',
+        'none',
+        'plain',
+      };
+      final rawMethod = (node.cipher ?? '').toLowerCase().trim();
+      final method = supportedSsMethods.contains(rawMethod) ? rawMethod : 'aes-256-gcm';
+
       outbound = {
         "tag": "proxy",
         "protocol": "shadowsocks",
@@ -176,7 +221,7 @@ class XrayProcessService {
             {
               "address": node.address,
               "port": node.port,
-              "method": node.cipher ?? "aes-256-gcm",
+              "method": method,
               "password": node.uuidOrPassword,
               "level": 0
             }
@@ -213,10 +258,12 @@ class XrayProcessService {
           "gateway": [
             "172.19.0.1/30"
           ],
-          "dns": [
-            "1.1.1.1",
-            "8.8.8.8"
-          ],
+          "dns": (() {
+            final tunIps = dnsServers
+                .where((s) => !s.startsWith("https://") && s.toLowerCase() != "localhost" && s.trim().isNotEmpty)
+                .toList();
+            return tunIps.isNotEmpty ? tunIps : ["1.1.1.1", "8.8.8.8"];
+          })(),
           "autoSystemRoutingTable": [
             "0.0.0.0/0",
             "0.0.0.0/1",
@@ -232,17 +279,47 @@ class XrayProcessService {
       });
     }
 
+    final effectiveDns = dnsServers.isNotEmpty
+        ? [
+            ...dnsServers,
+            if (!dnsServers.contains("localhost")) "localhost"
+          ]
+        : ["8.8.8.8", "1.1.1.1", "https://1.1.1.1/dns-query", "localhost"];
+
     return {
       "log": {"loglevel": "warning"},
-      "dns": {
-        "servers": [
-          "8.8.8.8",
-          "1.1.1.1",
-          "https://1.1.1.1/dns-query",
-          "localhost"
-        ]
+      "api": {
+        "tag": "api",
+        "services": ["StatsService"]
       },
-      "inbounds": inbounds,
+      "stats": {},
+      "policy": {
+        "levels": {
+          "0": {
+            "statsUserUplink": true,
+            "statsUserDownlink": true
+          }
+        },
+        "system": {
+          "statsInboundUplink": true,
+          "statsInboundDownlink": true,
+          "statsOutboundUplink": true,
+          "statsOutboundDownlink": true
+        }
+      },
+      "dns": {
+        "servers": effectiveDns
+      },
+      "inbounds": [
+        ...inbounds,
+        {
+          "tag": "api",
+          "port": apiPort,
+          "listen": "127.0.0.1",
+          "protocol": "dokodemo-door",
+          "settings": {"address": "127.0.0.1"}
+        }
+      ],
       "outbounds": [
         outbound,
         {"tag": "dns-out", "protocol": "dns"},
@@ -252,6 +329,7 @@ class XrayProcessService {
       "routing": {
         "domainStrategy": "IPIfNonMatch",
         "rules": [
+          {"type": "field", "inboundTag": ["api"], "outboundTag": "api"},
           if (enableTun)
             {"type": "field", "inboundTag": ["tun-in"], "port": 53, "outboundTag": "dns-out"},
           {"type": "field", "outboundTag": "direct", "ip": ["geoip:private"]}
@@ -319,6 +397,11 @@ class XrayProcessService {
       return false;
     }
 
+    final apiOk = await _ensurePortAvailable(apiPort);
+    if (!apiOk) {
+      LogService.instance.add("API port $apiPort is occupied by another application. Traffic stats may be unavailable.", level: LogLevel.warning, source: "system");
+    }
+
     try {
       final configJson = generateXrayConfig(node, enableTun: enableTun, enableUdp: enableUdp);
       final tmpDir = Directory.systemTemp;
@@ -376,10 +459,13 @@ class XrayProcessService {
       }
 
       _state = EngineState.running;
+      _activeRunningNode = node;
+      _startTrafficPolling();
       LogService.instance.add("Xray core started successfully.", level: LogLevel.info, source: "system");
       return true;
     } catch (e) {
       _state = EngineState.error;
+      _activeRunningNode = null;
       LogService.instance.add("Failed to start Xray process: $e", level: LogLevel.error, source: "system");
       return false;
     }
@@ -387,6 +473,8 @@ class XrayProcessService {
 
   Future<void> stop() async {
     _state = EngineState.stopping;
+    _activeRunningNode = null;
+    _stopTrafficPolling();
     LogService.instance.add("Stopping Xray core...", level: LogLevel.info, source: "system");
     if (Platform.isWindows) {
       setWindowsSystemProxy(false);
@@ -496,26 +584,355 @@ class XrayProcessService {
     } catch (_) {}
   }
 
-  /// Direct socket / TLS latency test to measure real ping
-  Future<int?> testNodeLatency(ProxyNode node, {Duration timeout = const Duration(seconds: 4)}) async {
-    final sw = Stopwatch()..start();
+  void _startTrafficPolling() {
+    _trafficTimer?.cancel();
+    final binary = _findXrayBinary();
+    if (binary == null) return;
+
+    _trafficTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
+      if (_state != EngineState.running) return;
+      try {
+        final res = await Process.run(binary, [
+          'api',
+          'statsquery',
+          '--server=127.0.0.1:$apiPort',
+        ]);
+        if (res.exitCode == 0 && res.stdout != null) {
+          final json = jsonDecode(res.stdout.toString()) as Map<String, dynamic>;
+          final statList = json['stat'] as List<dynamic>?;
+          if (statList != null) {
+            int downlink = 0;
+            int uplink = 0;
+            for (final item in statList) {
+              if (item is Map<String, dynamic>) {
+                final name = item['name'] as String? ?? '';
+                final val = item['value'] as int? ?? 0;
+                if (name == 'outbound>>>proxy>>>traffic>>>downlink') {
+                  downlink += val;
+                } else if (name == 'outbound>>>proxy>>>traffic>>>uplink') {
+                  uplink += val;
+                }
+              }
+            }
+            // Fallback: If proxy outbound didn't capture (e.g. direct/tun), check inbounds
+            if (downlink == 0 && uplink == 0) {
+              for (final item in statList) {
+                if (item is Map<String, dynamic>) {
+                  final name = item['name'] as String? ?? '';
+                  final val = item['value'] as int? ?? 0;
+                  if (name.contains('traffic>>>downlink') && !name.contains('api')) {
+                    downlink += val;
+                  } else if (name.contains('traffic>>>uplink') && !name.contains('api')) {
+                    uplink += val;
+                  }
+                }
+              }
+            }
+            _currentTrafficStats = TrafficStats(downlinkBytes: downlink, uplinkBytes: uplink);
+            _trafficStreamController.add(_currentTrafficStats);
+          }
+        }
+      } catch (_) {}
+    });
+  }
+
+  void _stopTrafficPolling() {
+    _trafficTimer?.cancel();
+    _trafficTimer = null;
+    _currentTrafficStats = const TrafficStats(downlinkBytes: 0, uplinkBytes: 0);
+    _trafficStreamController.add(_currentTrafficStats);
+  }
+
+  /// Concurrently tests a batch of candidate nodes using an ephemeral multi-inbound Xray process.
+  /// Routes genuine HTTP requests to Cloudflare generate_204 through each node.
+  /// Returns a Map of node ID to actual round-trip latency in milliseconds.
+  Future<Map<String, int>> testNodesBatchRealProxy(
+    List<ProxyNode> nodes, {
+    Duration timeout = const Duration(seconds: 4),
+  }) async {
+    final validNodes = nodes.where(isNodeConfigSupported).toList();
+    if (validNodes.isEmpty) return {};
+
+    final xrayBin = _findXrayBinary();
+    if (xrayBin == null) return {};
+
+    final basePort = 29200 + (Random().nextInt(400) * 10);
+    final inbounds = <Map<String, dynamic>>[];
+    final outbounds = <Map<String, dynamic>>[];
+    final rules = <Map<String, dynamic>>[];
+
+    for (int i = 0; i < validNodes.length; i++) {
+      final port = basePort + i;
+      final inTag = 'in_$i';
+      final outTag = 'out_$i';
+
+      inbounds.add({
+        'tag': inTag,
+        'port': port,
+        'listen': '127.0.0.1',
+        'protocol': 'http',
+      });
+
+      final fullConfig = generateXrayConfig(validNodes[i]);
+      final ob = Map<String, dynamic>.from(fullConfig['outbounds'][0] as Map<String, dynamic>);
+      ob['tag'] = outTag;
+      outbounds.add(ob);
+
+      rules.add({
+        'type': 'field',
+        'inboundTag': [inTag],
+        'outboundTag': outTag,
+      });
+    }
+
+    outbounds.add({'tag': 'dns-out', 'protocol': 'dns'});
+    outbounds.add({'tag': 'direct', 'protocol': 'freedom'});
+    rules.add({'type': 'field', 'port': 53, 'outboundTag': 'dns-out'});
+
+    final testConfig = {
+      'log': {'loglevel': 'none'},
+      'dns': {'servers': ['1.1.1.1', '8.8.8.8', 'localhost']},
+      'inbounds': inbounds,
+      'outbounds': outbounds,
+      'routing': {
+        'domainStrategy': 'IPIfNonMatch',
+        'rules': rules,
+      }
+    };
+
+    final tempFile = File('${Directory.systemTemp.path}/xray_batch_test_${DateTime.now().millisecondsSinceEpoch}.json');
+    Process? proc;
     try {
-      final socket = await Socket.connect(node.address, node.port, timeout: timeout);
+      await tempFile.writeAsString(jsonEncode(testConfig));
+
+      final valResult = await Process.run(xrayBin, ['run', '-test', '-c', tempFile.path]);
+      if (valResult.exitCode != 0) {
+        return {};
+      }
+
+      proc = await Process.start(xrayBin, ['run', '-c', tempFile.path]);
+      await Future.delayed(const Duration(milliseconds: 250));
+
+      final results = <String, int>{};
+      await Future.wait(List.generate(validNodes.length, (i) async {
+        final port = basePort + i;
+        final node = validNodes[i];
+        final sw = Stopwatch()..start();
+        final client = HttpClient();
+        client.findProxy = (uri) => 'PROXY 127.0.0.1:$port';
+        client.connectionTimeout = timeout;
+
+        try {
+          final r = await client.getUrl(Uri.parse('http://cp.cloudflare.com/generate_204')).timeout(timeout);
+          final resp = await r.close().timeout(timeout);
+          sw.stop();
+          if (resp.statusCode == 204 || resp.statusCode == 200) {
+            results[node.id] = sw.elapsedMilliseconds;
+          }
+        } catch (_) {} finally {
+          client.close(force: true);
+        }
+      }));
+
+      return results;
+    } catch (_) {
+      return {};
+    } finally {
+      proc?.kill();
+      try {
+        if (tempFile.existsSync()) await tempFile.delete();
+      } catch (_) {}
+    }
+  }
+
+  /// Real Latency Test:
+  /// Performs an end-to-end transport and protocol test to measure true round-trip response time.
+  /// - For currently connected active node: queries generate_204 endpoints via local proxy.
+  /// - For other nodes: performs full protocol handshake (HTTP/WebSocket/TLS to live origin server).
+  Future<int?> testNodeLatency(ProxyNode node, {Duration timeout = const Duration(seconds: 4)}) async {
+    // 1. If this node is currently connected and active in Xray, test real end-to-end internet ping via local proxy
+    if (_state == EngineState.running && _activeRunningNode?.id == node.id) {
+      return await _testHttpViaLocalProxy(timeout);
+    }
+
+    // 2. Direct real protocol handshake latency test to live origin server
+    return await _testNodeRealProtocolDelay(node, timeout: timeout);
+  }
+
+  Future<int?> _testHttpViaLocalProxy(Duration timeout) async {
+    final targets = [
+      "http://cp.cloudflare.com/generate_204",
+      "http://www.google.com/generate_204",
+      "http://connectivitycheck.gstatic.com/generate_204",
+    ];
+
+    for (final target in targets) {
+      final sw = Stopwatch()..start();
+      HttpClient? client;
+      try {
+        client = HttpClient();
+        client.findProxy = (uri) => "PROXY 127.0.0.1:$httpPort";
+        client.connectionTimeout = timeout;
+        final request = await client.getUrl(Uri.parse(target)).timeout(timeout);
+        final response = await request.close().timeout(timeout);
+        sw.stop();
+        client.close(force: true);
+        if (response.statusCode == 204 || response.statusCode == 200) {
+          return sw.elapsedMilliseconds;
+        }
+      } catch (_) {
+        try {
+          client?.close(force: true);
+        } catch (_) {}
+      }
+    }
+    return null;
+  }
+
+  Future<int?> _testNodeRealProtocolDelay(ProxyNode node, {Duration timeout = const Duration(seconds: 4)}) async {
+    final sw = Stopwatch()..start();
+    Socket? socket;
+    try {
+      socket = await Socket.connect(node.address, node.port, timeout: timeout);
+
+      final host = (node.host != null && node.host!.isNotEmpty)
+          ? node.host!
+          : ((node.sni != null && node.sni!.isNotEmpty) ? node.sni! : node.address);
+      final sni = (node.sni != null && node.sni!.isNotEmpty)
+          ? node.sni!
+          : ((node.host != null && node.host!.isNotEmpty) ? node.host! : node.address);
+
       if (node.security == SecurityType.tls || node.security == SecurityType.reality) {
-        final secureSocket = await SecureSocket.secure(
+        socket = await SecureSocket.secure(
           socket,
-          host: node.sni ?? node.host ?? node.address,
+          host: sni,
           onBadCertificate: (_) => true,
         ).timeout(timeout);
-        sw.stop();
-        await secureSocket.close();
-        return sw.elapsedMilliseconds;
-      } else {
-        sw.stop();
-        await socket.close();
-        return sw.elapsedMilliseconds;
       }
+
+      // Check if node uses HTTP / WebSocket / XHTTP / SplitHTTP transport (standard for all CDNs)
+      final isHttpTransport = node.network == NetworkType.ws ||
+          node.network == NetworkType.httpUpgrade ||
+          node.network == NetworkType.xhttp ||
+          node.network == NetworkType.splithttp ||
+          node.network == NetworkType.tcp;
+
+      if (isHttpTransport) {
+        final path = (node.path == null || node.path!.isEmpty)
+            ? '/'
+            : (node.path!.startsWith('/') ? node.path! : '/${node.path}');
+
+        final httpRequest =
+            'GET $path HTTP/1.1\r\n'
+            'Host: $host\r\n'
+            'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\n'
+            'Upgrade: websocket\r\n'
+            'Connection: Upgrade\r\n'
+            'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n'
+            'Sec-WebSocket-Version: 13\r\n'
+            '\r\n';
+
+        socket.add(utf8.encode(httpRequest));
+        await socket.flush();
+
+        final completer = Completer<int?>();
+        final subscription = socket.listen(
+          (data) {
+            sw.stop();
+            if (!completer.isCompleted) {
+              final responseStr = utf8.decode(data, allowMalformed: true);
+              final firstLine = responseStr.split('\r\n').first;
+
+              // Only accept status codes that confirm connection reached a live origin backend:
+              // - 101: WebSocket upgrade successful
+              // - 204: HTTP response from live origin
+              final isAcceptableStatus = firstLine.contains('101') ||
+                  firstLine.contains('204');
+
+              // Strictly reject CDN error status codes or WAF blocks:
+              final isCdnError = responseStr.contains('502') ||
+                  responseStr.contains('503') ||
+                  responseStr.contains('504') ||
+                  responseStr.contains('520') ||
+                  responseStr.contains('521') ||
+                  responseStr.contains('522') ||
+                  responseStr.contains('523') ||
+                  responseStr.contains('524') ||
+                  responseStr.contains('525') ||
+                  responseStr.contains('526') ||
+                  responseStr.contains('530') ||
+                  responseStr.contains('403') ||
+                  responseStr.contains('Error 1000') ||
+                  responseStr.contains('Error 1005') ||
+                  responseStr.contains('Error 1020');
+
+              if (isAcceptableStatus && !isCdnError) {
+                completer.complete(sw.elapsedMilliseconds);
+              } else {
+                completer.complete(null);
+              }
+            }
+          },
+          onError: (_) {
+            if (!completer.isCompleted) completer.complete(null);
+          },
+          onDone: () {
+            if (!completer.isCompleted) completer.complete(null);
+          },
+        );
+
+        final result = await completer.future.timeout(timeout, onTimeout: () => null);
+        await subscription.cancel();
+        socket.destroy();
+        return result;
+      }
+
+      // gRPC transport: Send HTTP/2 client preface
+      if (node.network == NetworkType.grpc) {
+        final h2Preface = utf8.encode('PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n');
+        final h2Settings = [0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00];
+        socket.add(h2Preface);
+        socket.add(h2Settings);
+        await socket.flush();
+
+        final completer = Completer<int?>();
+        final subscription = socket.listen(
+          (data) {
+            sw.stop();
+            if (!completer.isCompleted) {
+              completer.complete(sw.elapsedMilliseconds);
+            }
+          },
+          onError: (_) {
+            if (!completer.isCompleted) completer.complete(null);
+          },
+          onDone: () {
+            if (!completer.isCompleted) completer.complete(null);
+          },
+        );
+
+        final result = await completer.future.timeout(timeout, onTimeout: () => null);
+        await subscription.cancel();
+        socket.destroy();
+        return result;
+      }
+
+      // Check if node is in a known CDN range (Cloudflare, Fastly, AWS, G-Core, Arvan)
+      final cdn = CdnScannerService.detectCdnHostSync(node.address);
+      if (cdn != null) {
+        // CDN nodes MUST pass real handshake probe; plain socket connect is not acceptable
+        socket.destroy();
+        return null;
+      }
+
+      // Direct non-CDN VPS node: return socket + TLS RTT
+      sw.stop();
+      socket.destroy();
+      return sw.elapsedMilliseconds;
     } catch (_) {
+      try {
+        socket?.destroy();
+      } catch (_) {}
       return null;
     }
   }

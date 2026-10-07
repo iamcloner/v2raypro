@@ -25,7 +25,50 @@ class UpdateService {
   static final UpdateService instance = UpdateService._internal();
   UpdateService._internal();
 
-  static const String currentAppVersion = "v1.3.0";
+  static const String _defaultFallbackVersion = "v1.4.0";
+  static String? _cachedCurrentVersion;
+
+  /// Read current app version dynamically from version.ini
+  static String getCurrentAppVersion() {
+    if (_cachedCurrentVersion != null) return _cachedCurrentVersion!;
+
+    try {
+      final exeDir = File(Platform.resolvedExecutable).parent.path;
+      final candidates = [
+        "$exeDir/version.ini",
+        "version.ini",
+        "$exeDir/build/windows/version.ini",
+        "build/windows/version.ini",
+        "../version.ini",
+      ];
+      for (final p in candidates) {
+        final f = File(p);
+        if (f.existsSync()) {
+          final lines = f.readAsLinesSync();
+          for (final line in lines) {
+            final trimmed = line.trim();
+            if (trimmed.startsWith('version=')) {
+              final v = trimmed.substring('version='.length).trim().replaceAll('"', '').replaceAll("'", "");
+              if (v.isNotEmpty) {
+                _cachedCurrentVersion = v.startsWith('v') ? v : 'v$v';
+                return _cachedCurrentVersion!;
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    _cachedCurrentVersion = _defaultFallbackVersion;
+    return _cachedCurrentVersion!;
+  }
+
+  static String get currentAppVersion => getCurrentAppVersion();
+
+  static void invalidateVersionCache() {
+    _cachedCurrentVersion = null;
+  }
+
   static const String defaultAppRepoUrl = "https://github.com/iamcloner/v2raypro/releases";
   static const String defaultAppTestUrl = defaultAppRepoUrl;
 
@@ -543,11 +586,11 @@ class UpdateService {
       }
     }
 
-    return const UpdateInfo(
+    return UpdateInfo(
       currentVersion: currentAppVersion,
       latestVersion: currentAppVersion,
       hasUpdate: false,
-      downloadUrl: "https://github.com/iamcloner/v2raypro/releases/download/v1.3.0/v2raypro-v1.3.0-windows.zip",
+      downloadUrl: "https://github.com/iamcloner/v2raypro/releases/download/v1.4.0/v2raypro-windows-v1.4.0.zip",
     );
   }
 
@@ -624,12 +667,17 @@ class UpdateService {
 
       onProgress?.call("applying", 0.85);
 
-      // Identify root folder containing v2raypro.exe or files
+      // Identify root folder containing v2raypro release files
       Directory payloadDir = extractDir;
-      for (final entity in extractDir.listSync(recursive: true)) {
-        if (entity is File && entity.path.toLowerCase().endsWith('v2raypro.exe')) {
-          payloadDir = entity.parent;
-          break;
+      final nestedV2raypro = Directory("${extractDir.path}\\v2raypro");
+      if (nestedV2raypro.existsSync() && File("${nestedV2raypro.path}\\v2raypro.exe").existsSync()) {
+        payloadDir = nestedV2raypro;
+      } else {
+        for (final entity in extractDir.listSync(recursive: true)) {
+          if (entity is File && entity.path.toLowerCase().endsWith('v2raypro.exe')) {
+            payloadDir = entity.parent;
+            break;
+          }
         }
       }
 
@@ -644,7 +692,26 @@ taskkill /F /PID $currentPid > nul 2>&1
 taskkill /F /IM v2raypro.exe > nul 2>&1
 timeout /t 1 /nobreak > nul
 
+:: Safety backup for user nodes and subscriptions
+if exist "$currentExeDir\\config\\v2raypro_nodes.json" (
+    copy /Y "$currentExeDir\\config\\v2raypro_nodes.json" "%temp%\\v2raypro_nodes_backup.json" > nul 2>&1
+)
+if exist "$currentExeDir\\config\\v2raypro_subs.json" (
+    copy /Y "$currentExeDir\\config\\v2raypro_subs.json" "%temp%\\v2raypro_subs_backup.json" > nul 2>&1
+)
+
+:: Replace updated release files
 xcopy /E /Y /I /H /R "${payloadDir.path}\\*" "$currentExeDir\\" > nul 2>&1
+
+:: Restore backup if somehow overwritten
+if exist "%temp%\\v2raypro_nodes_backup.json" (
+    copy /Y "%temp%\\v2raypro_nodes_backup.json" "$currentExeDir\\config\\v2raypro_nodes.json" > nul 2>&1
+    del /F "%temp%\\v2raypro_nodes_backup.json" > nul 2>&1
+)
+if exist "%temp%\\v2raypro_subs_backup.json" (
+    copy /Y "%temp%\\v2raypro_subs_backup.json" "$currentExeDir\\config\\v2raypro_subs.json" > nul 2>&1
+    del /F "%temp%\\v2raypro_subs_backup.json" > nul 2>&1
+)
 
 start "" "${Platform.resolvedExecutable}"
 del "%~f0" > nul 2>&1
