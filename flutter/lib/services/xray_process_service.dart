@@ -102,10 +102,10 @@ class XrayProcessService {
           "publicKey": node.publicKey!.trim(),
           "shortId": node.shortId ?? "",
           "spiderX": node.spiderX ?? "/",
+          "fingerprint": (node.fingerprint != null && node.fingerprint!.trim().isNotEmpty)
+              ? node.fingerprint!.trim()
+              : "chrome",
         };
-        if (node.fingerprint != null && node.fingerprint!.isNotEmpty) {
-          reality["fingerprint"] = node.fingerprint;
-        }
         streamSettings["realitySettings"] = reality;
       } else {
         streamSettings["security"] = "none";
@@ -136,6 +136,12 @@ class XrayProcessService {
     } else if (node.network == NetworkType.grpc) {
       streamSettings["grpcSettings"] = {
         "serviceName": node.serviceName ?? "",
+        "multiMode": true,
+      };
+    } else if (node.network == NetworkType.h2) {
+      streamSettings["httpSettings"] = {
+        "path": node.path ?? "/",
+        "host": [node.host ?? node.sni ?? node.address],
       };
     } else if (node.network == NetworkType.httpUpgrade) {
       streamSettings["httpUpgradeSettings"] = {
@@ -144,8 +150,30 @@ class XrayProcessService {
       };
     }
 
+    if (node.network == NetworkType.tcp && (node.headerType?.toLowerCase() == 'http')) {
+      streamSettings["tcpSettings"] = {
+        "header": {
+          "type": "http",
+          "request": {
+            "path": [node.path ?? "/"],
+            "headers": {
+              "Host": [node.host ?? node.sni ?? node.address],
+            }
+          }
+        }
+      };
+    }
+
     Map<String, dynamic> outbound;
     if (node.protocol == ProtocolType.vless) {
+      final user = <String, dynamic>{
+        "id": node.uuidOrPassword,
+        "encryption": "none",
+        "level": 0,
+      };
+      if (node.flow != null && node.flow!.trim().isNotEmpty) {
+        user["flow"] = node.flow!.trim();
+      }
       outbound = {
         "tag": "proxy",
         "protocol": "vless",
@@ -154,9 +182,7 @@ class XrayProcessService {
             {
               "address": node.address,
               "port": node.port,
-              "users": [
-                {"id": node.uuidOrPassword, "encryption": "none", "level": 0}
-              ]
+              "users": [user]
             }
           ]
         },
@@ -710,6 +736,14 @@ class XrayProcessService {
 
       final valResult = await Process.run(xrayBin, ['run', '-test', '-c', tempFile.path]);
       if (valResult.exitCode != 0) {
+        if (validNodes.length > 1) {
+          final singleResults = <String, int>{};
+          for (final singleNode in validNodes) {
+            final res = await testNodesBatchRealProxy([singleNode], timeout: timeout);
+            singleResults.addAll(res);
+          }
+          return singleResults;
+        }
         return {};
       }
 

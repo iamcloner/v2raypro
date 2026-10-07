@@ -241,67 +241,46 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
     setState(() {
       _testingSubMap[subId] = true;
       _cancelSubMap[subId] = false;
+      _testingNodeIds.addAll(subNodes.map((n) => n.id));
       _subTotalCount[subId] = subNodes.length;
       _subTestedCount[subId] = 0;
     });
 
-    for (int i = 0; i < subNodes.length; i += 10) {
-      if (_cancelSubMap[subId] == true || !mounted) break;
-      final chunk = subNodes.sublist(i, math.min(i + 10, subNodes.length));
-      setState(() {
-        _testingNodeIds.addAll(chunk.map((n) => n.id));
-      });
+    int currentIndex = 0;
+    const concurrency = 10;
 
-      final chunkResults = <String, int?>{};
+    Future<void> runWorker() async {
+      while (currentIndex < subNodes.length && _cancelSubMap[subId] != true && mounted) {
+        final nodeIndex = currentIndex++;
+        if (nodeIndex >= subNodes.length) break;
+        final n = subNodes[nodeIndex];
 
-      // 1. Try batch real proxy test via Xray for the chunk first
-      Map<String, int> batchProxyResults = {};
-      if (XrayProcessService.instance.isCoreAvailable()) {
-        try {
-          batchProxyResults = await XrayProcessService.instance.testNodesBatchRealProxy(
-            chunk,
-            timeout: const Duration(seconds: 4),
+        final lat = await XrayProcessService.instance.testNodeLatency(n);
+        if (_cancelSubMap[subId] == true || !mounted) break;
+
+        String? countryCode;
+        if (lat != null && lat > 0) {
+          countryCode = CountryService.resolveSync(n) ?? await CountryService.instance.resolveCountryCode(n);
+        }
+
+        if (mounted) {
+          ref.read(nodesProvider.notifier).updateLatency(
+            n.id,
+            lat,
+            countryCode: countryCode,
+            country: countryCode != null ? CountryService.getCountryName(countryCode) : null,
           );
-        } catch (_) {}
-      }
-
-      for (final n in chunk) {
-        if (batchProxyResults.containsKey(n.id) && batchProxyResults[n.id]! > 0) {
-          chunkResults[n.id] = batchProxyResults[n.id];
+          setState(() {
+            _testingNodeIds.remove(n.id);
+            _subTestedCount[subId] = (_subTestedCount[subId] ?? 0) + 1;
+          });
         }
-      }
-
-      // 2. Fallback for remaining nodes
-      final remaining = chunk.where((n) => !chunkResults.containsKey(n.id)).toList();
-      if (remaining.isNotEmpty) {
-        await Future.wait(remaining.map((n) async {
-          if (_cancelSubMap[subId] == true) return;
-          final lat = await XrayProcessService.instance.testNodeLatency(n);
-          chunkResults[n.id] = lat;
-        }));
-      }
-
-      if (mounted && chunkResults.isNotEmpty) {
-        final chunkCountries = <String, String>{};
-        for (final n in chunk) {
-          final lat = chunkResults[n.id];
-          if (lat != null && lat > 0) {
-            final c = CountryService.resolveSync(n) ?? await CountryService.instance.resolveCountryCode(n);
-            if (c != null) {
-              chunkCountries[n.id] = c;
-            }
-          }
-        }
-        ref.read(nodesProvider.notifier).updateLatenciesBatch(chunkResults, countryCodes: chunkCountries);
-      }
-
-      if (mounted) {
-        setState(() {
-          _testingNodeIds.removeAll(chunk.map((n) => n.id));
-          _subTestedCount[subId] = (_subTestedCount[subId] ?? 0) + chunk.length;
-        });
       }
     }
+
+    final workerCount = math.min(concurrency, subNodes.length);
+    final workers = List.generate(workerCount, (_) => runWorker());
+    await Future.wait(workers);
 
     if (mounted) {
       setState(() {
@@ -814,7 +793,7 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                                     ],
                                   ),
                                   onTap: () {
-                                    ref.read(nodesProvider.notifier).setActive(node.id);
+                                    ref.read(connectionStatusProvider.notifier).switchNode(node.id);
                                   },
                                 );
                               },

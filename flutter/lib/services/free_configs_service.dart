@@ -177,17 +177,19 @@ class FreeConfigsService {
           final lat = batchResults[node.id];
           if (lat != null && lat > 0) {
             final countryCode = CountryService.resolveSync(node) ?? await CountryService.instance.resolveCountryCode(node);
+            final countryName = countryCode != null ? CountryService.getCountryName(countryCode) : null;
             workingNodes.add(node.copyWith(
               latencyMs: lat,
               countryCode: countryCode,
+              country: countryName,
               lastTestedAt: DateTime.now(),
             ));
             if (workingNodes.length >= targetWorking) break;
           }
         }
 
-        // Fallback for standalone platforms if batch tester did not yield
-        if (workingNodes.length < targetWorking && batchResults.isEmpty && !_isCancelled) {
+        // Fallback ONLY for platforms where local Xray binary is not directly available
+        if (workingNodes.length < targetWorking && !XrayProcessService.instance.isCoreAvailable() && !_isCancelled) {
           final fallbackResults = await Future.wait(batch.map((node) async {
             if (_isCancelled) return null;
             final lat = await XrayProcessService.instance.testNodeLatency(
@@ -196,9 +198,11 @@ class FreeConfigsService {
             );
             if (lat != null && lat > 0) {
               final countryCode = CountryService.resolveSync(node) ?? await CountryService.instance.resolveCountryCode(node);
+              final countryName = countryCode != null ? CountryService.getCountryName(countryCode) : null;
               return node.copyWith(
                 latencyMs: lat,
                 countryCode: countryCode,
+                country: countryName,
                 lastTestedAt: DateTime.now(),
               );
             }

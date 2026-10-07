@@ -432,4 +432,49 @@ class CountryService {
     'LATVIA': 'LV',
     'ESTONIA': 'EE',
   };
+
+  static String? getCountryName(String? code) {
+    if (code == null || code.trim().isEmpty) return null;
+    final upper = code.trim().toUpperCase();
+    return _codeToCountryName[upper] ?? upper;
+  }
+
+  static const Map<String, String> _codeToCountryName = {
+    'US': 'United States',
+    'DE': 'Germany',
+    'FR': 'France',
+    'NL': 'Netherlands',
+    'GB': 'United Kingdom',
+    'CA': 'Canada',
+    'TR': 'Turkey',
+    'FI': 'Finland',
+    'SG': 'Singapore',
+    'JP': 'Japan',
+    'SE': 'Sweden',
+    'CH': 'Switzerland',
+    'IT': 'Italy',
+    'ES': 'Spain',
+    'PL': 'Poland',
+    'RU': 'Russia',
+    'IR': 'Iran',
+    'AE': 'United Arab Emirates',
+    'AT': 'Austria',
+    'AU': 'Australia',
+    'UA': 'Ukraine',
+    'NO': 'Norway',
+    'DK': 'Denmark',
+    'BE': 'Belgium',
+    'IE': 'Ireland',
+    'HK': 'Hong Kong',
+    'KR': 'South Korea',
+    'BR': 'Brazil',
+    'IN': 'India',
+    'RO': 'Romania',
+    'BG': 'Bulgaria',
+    'CZ': 'Czech Republic',
+    'HU': 'Hungary',
+    'LT': 'Lithuania',
+    'LV': 'Latvia',
+    'EE': 'Estonia',
+  };
 }

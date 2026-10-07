@@ -27,6 +27,7 @@ import 'package:local_notifier/local_notifier.dart';
 import 'services/xray_process_service.dart';
 import 'utils/ip_mask_util.dart';
 import 'widgets/country_flag_badge.dart';
+import 'services/country_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -1072,6 +1073,11 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  CountryPillBadge(
+                    countryCode: activeNode.countryCode ?? CountryService.resolveSync(activeNode),
+                    country: activeNode.country,
+                  ),
+                  const SizedBox(width: 8),
                   Flexible(
                     child: Text(
                       '${activeNode.name} (${IpMaskUtil.mask(activeNode.address, showFull: showFullIp)}:${activeNode.port})',
@@ -1146,15 +1152,21 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                       if (isConnected)
                         Row(
                           children: [
-                            CountryFlagBadge(countryCode: outbound.countryCode),
+                            CountryFlagBadge(
+                              countryCode: outbound.countryCode ?? activeNode?.countryCode ?? (activeNode != null ? CountryService.resolveSync(activeNode) : null),
+                            ),
                             const SizedBox(width: 8),
                             Flexible(
                               child: Text(
                                 outbound.country != null
                                     ? '${outbound.country}${outbound.city != null ? ' (${outbound.city})' : ''}'
-                                    : (outbound.isLoading
-                                        ? AppStrings.get('fetching_ip', locale: locale)
-                                        : AppStrings.get('unknown_location', locale: locale)),
+                                    : (activeNode?.country != null
+                                        ? activeNode!.country!
+                                        : ((activeNode?.countryCode != null && CountryService.getCountryName(activeNode!.countryCode) != null)
+                                            ? CountryService.getCountryName(activeNode!.countryCode)!
+                                            : (outbound.isLoading
+                                                ? AppStrings.get('fetching_ip', locale: locale)
+                                                : AppStrings.get('unknown_location', locale: locale)))),
                                 style: const TextStyle(
                                   fontSize: 14,
                                   fontWeight: FontWeight.bold,

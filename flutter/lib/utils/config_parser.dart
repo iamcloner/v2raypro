@@ -146,6 +146,8 @@ class ConfigParser {
         spiderX: params['spx'],
         mode: params['mode'],
         extra: params['extra'],
+        flow: params['flow'],
+        headerType: params['headerType'],
       );
     } catch (_) {
       return null;
@@ -214,6 +216,7 @@ class ConfigParser {
         sni: map['sni']?.toString() ?? map['host']?.toString(),
         alpn: alpnList,
         fingerprint: map['fp']?.toString(),
+        headerType: map['type']?.toString(),
       );
     } catch (_) {
       return null;
@@ -276,6 +279,8 @@ class ConfigParser {
         alpn: alpnList,
         allowInsecure: params['allowInsecure'] == '1' || params['allowInsecure'] == 'true',
         fingerprint: params['fp'] ?? params['fingerprint'],
+        flow: params['flow'],
+        headerType: params['headerType'],
       );
     } catch (_) {
       return null;

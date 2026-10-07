@@ -40,6 +40,7 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
   @override
   void dispose() {
     _searchController.dispose();
+    ref.read(freeConfigsProvider.notifier).cancelScan();
     super.dispose();
   }
 

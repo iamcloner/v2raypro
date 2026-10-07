@@ -147,67 +147,46 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
     setState(() {
       _isTestingAll = true;
       _cancelTestingAll = false;
+      _testingNodeIds.addAll(nodes.map((n) => n.id));
       _totalToTest = nodes.length;
       _testedCount = 0;
     });
 
-    for (int i = 0; i < nodes.length; i += 10) {
-      if (_cancelTestingAll || !mounted) break;
-      final chunk = nodes.sublist(i, math.min(i + 10, nodes.length));
-      setState(() {
-        _testingNodeIds.addAll(chunk.map((n) => n.id));
-      });
+    int currentIndex = 0;
+    const concurrency = 10;
 
-      final chunkResults = <String, int?>{};
+    Future<void> runWorker() async {
+      while (currentIndex < nodes.length && !_cancelTestingAll && mounted) {
+        final nodeIndex = currentIndex++;
+        if (nodeIndex >= nodes.length) break;
+        final n = nodes[nodeIndex];
 
-      // 1. Try batch real proxy test via Xray for the chunk first
-      Map<String, int> batchProxyResults = {};
-      if (XrayProcessService.instance.isCoreAvailable()) {
-        try {
-          batchProxyResults = await XrayProcessService.instance.testNodesBatchRealProxy(
-            chunk,
-            timeout: const Duration(seconds: 4),
+        final lat = await XrayProcessService.instance.testNodeLatency(n);
+        if (_cancelTestingAll || !mounted) break;
+
+        String? countryCode;
+        if (lat != null && lat > 0) {
+          countryCode = CountryService.resolveSync(n) ?? await CountryService.instance.resolveCountryCode(n);
+        }
+
+        if (mounted) {
+          ref.read(nodesProvider.notifier).updateLatency(
+            n.id,
+            lat,
+            countryCode: countryCode,
+            country: countryCode != null ? CountryService.getCountryName(countryCode) : null,
           );
-        } catch (_) {}
-      }
-
-      for (final n in chunk) {
-        if (batchProxyResults.containsKey(n.id) && batchProxyResults[n.id]! > 0) {
-          chunkResults[n.id] = batchProxyResults[n.id];
+          setState(() {
+            _testingNodeIds.remove(n.id);
+            _testedCount++;
+          });
         }
-      }
-
-      // 2. For any remaining nodes, test via direct protocol fallback
-      final remaining = chunk.where((n) => !chunkResults.containsKey(n.id)).toList();
-      if (remaining.isNotEmpty) {
-        await Future.wait(remaining.map((n) async {
-          if (_cancelTestingAll) return;
-          final lat = await XrayProcessService.instance.testNodeLatency(n);
-          chunkResults[n.id] = lat;
-        }));
-      }
-
-      if (mounted && chunkResults.isNotEmpty) {
-        final chunkCountries = <String, String>{};
-        for (final n in chunk) {
-          final lat = chunkResults[n.id];
-          if (lat != null && lat > 0) {
-            final c = CountryService.resolveSync(n) ?? await CountryService.instance.resolveCountryCode(n);
-            if (c != null) {
-              chunkCountries[n.id] = c;
-            }
-          }
-        }
-        ref.read(nodesProvider.notifier).updateLatenciesBatch(chunkResults, countryCodes: chunkCountries);
-      }
-
-      if (mounted) {
-        setState(() {
-          _testingNodeIds.removeAll(chunk.map((n) => n.id));
-          _testedCount += chunk.length;
-        });
       }
     }
+
+    final workerCount = math.min(concurrency, nodes.length);
+    final workers = List.generate(workerCount, (_) => runWorker());
+    await Future.wait(workers);
 
     if (mounted) {
       setState(() {
@@ -522,7 +501,7 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
                               ],
                             ),
                             onTap: () {
-                              ref.read(nodesProvider.notifier).setActive(node.id);
+                              ref.read(connectionStatusProvider.notifier).switchNode(node.id);
                             },
                           ),
                         );

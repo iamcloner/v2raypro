@@ -18,6 +18,7 @@ import "../services/storage_service.dart";
 import "../services/tray_service.dart";
 import "../services/xray_process_service.dart";
 import "../services/free_configs_service.dart";
+import "../services/country_service.dart";
 import "../utils/config_parser.dart";
 import "package:uuid/uuid.dart";
 
@@ -55,7 +56,26 @@ class ConnectionStatusNotifier extends StateNotifier<ConnectionStateEnum> {
     if (nodes.isEmpty) return;
     final active = nodes.firstWhere((n) => n.isActive, orElse: () => nodes.first);
     final lat = await XrayProcessService.instance.testNodeLatency(active);
-    ref.read(nodesProvider.notifier).updateLatency(active.id, lat);
+    final country = (lat != null && lat > 0)
+        ? (CountryService.resolveSync(active) ?? await CountryService.instance.resolveCountryCode(active))
+        : (active.countryCode ?? CountryService.resolveSync(active));
+    ref.read(nodesProvider.notifier).updateLatency(
+      active.id,
+      lat ?? active.latencyMs,
+      countryCode: country,
+      country: CountryService.getCountryName(country),
+    );
+  }
+
+  Future<void> switchNode(String id) async {
+    ref.read(nodesProvider.notifier).setActive(id);
+    if (state == ConnectionStateEnum.connected || state == ConnectionStateEnum.connecting) {
+      final nodes = ref.read(nodesProvider);
+      final target = nodes.firstWhere((n) => n.id == id, orElse: () => nodes.first);
+      state = ConnectionStateEnum.connecting;
+      await XrayProcessService.instance.stop();
+      await connect(target);
+    }
   }
 
   Future<void> connect([ProxyNode? targetNode]) async {
@@ -249,12 +269,21 @@ class NodesNotifier extends StateNotifier<List<ProxyNode>> {
   }
 
   void selectAndConnectFreeNode(ProxyNode freeNode) {
+    final countryCode = freeNode.countryCode ?? CountryService.resolveSync(freeNode);
+    final countryName = freeNode.country ?? (countryCode != null ? CountryService.getCountryName(countryCode) : null);
+    final nodeWithMeta = freeNode.copyWith(
+      countryCode: countryCode,
+      country: countryName,
+    );
     final existingIdx = state.indexWhere((n) => n.id == freeNode.id);
     if (existingIdx != -1) {
-      setActive(freeNode.id);
+      state = state.map((n) => n.id == freeNode.id
+          ? nodeWithMeta.copyWith(isActive: true)
+          : n.copyWith(isActive: false)).toList();
+      _save();
     } else {
       final updated = state.map((n) => n.copyWith(isActive: false)).toList();
-      state = [freeNode.copyWith(isActive: true), ...updated];
+      state = [nodeWithMeta.copyWith(isActive: true), ...updated];
       _save();
     }
   }

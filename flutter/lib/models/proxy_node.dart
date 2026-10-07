@@ -25,6 +25,8 @@ class ProxyNode {
   final String? spiderX;
   final String? mode;
   final String? extra;
+  final String? flow;
+  final String? headerType;
   final String? subscriptionId;
   int? latencyMs;
   DateTime? lastTestedAt;
@@ -65,6 +67,8 @@ class ProxyNode {
     this.spiderX,
     this.mode,
     this.extra,
+    this.flow,
+    this.headerType,
     this.subscriptionId,
     this.latencyMs,
     this.lastTestedAt,
@@ -97,6 +101,8 @@ class ProxyNode {
     "spider_x": spiderX,
     "mode": mode,
     "extra": extra,
+    "flow": flow,
+    "header_type": headerType,
     "subscription_id": subscriptionId,
     "latency_ms": latencyMs,
     "last_tested_at": lastTestedAt?.toIso8601String(),
@@ -139,6 +145,8 @@ class ProxyNode {
       spiderX: json["spider_x"],
       mode: json["mode"],
       extra: json["extra"],
+      flow: json["flow"],
+      headerType: json["header_type"] ?? json["headerType"],
       subscriptionId: json["subscription_id"],
       latencyMs: (json["latency_ms"] as num?)?.toInt(),
       lastTestedAt: json["last_tested_at"] != null ? DateTime.tryParse(json["last_tested_at"]) : null,
@@ -174,6 +182,8 @@ class ProxyNode {
     String? spiderX,
     String? mode,
     String? extra,
+    String? flow,
+    String? headerType,
     String? subscriptionId,
     Object? latencyMs = _sentinel,
     bool clearLatency = false,
@@ -211,6 +221,8 @@ class ProxyNode {
       spiderX: spiderX ?? this.spiderX,
       mode: mode ?? this.mode,
       extra: extra ?? this.extra,
+      flow: flow ?? this.flow,
+      headerType: headerType ?? this.headerType,
       subscriptionId: subscriptionId ?? this.subscriptionId,
       latencyMs: resolvedLatency,
       lastTestedAt: lastTestedAt ?? this.lastTestedAt,
@@ -232,6 +244,8 @@ class ProxyNode {
         if (publicKey != null && publicKey!.isNotEmpty) params['pbk'] = publicKey!;
         if (shortId != null && shortId!.isNotEmpty) params['sid'] = shortId!;
         if (spiderX != null && spiderX!.isNotEmpty) params['spx'] = spiderX!;
+        if (flow != null && flow!.isNotEmpty) params['flow'] = flow!;
+        if (headerType != null && headerType!.isNotEmpty) params['headerType'] = headerType!;
         params['type'] = network.name;
         if (host != null && host!.isNotEmpty) params['host'] = host!;
         if (path != null && path!.isNotEmpty) params['path'] = path!;
@@ -248,6 +262,8 @@ class ProxyNode {
         final params = <String, String>{};
         if (security == SecurityType.tls) params['security'] = 'tls';
         if (sni != null && sni!.isNotEmpty) params['sni'] = sni!;
+        if (flow != null && flow!.isNotEmpty) params['flow'] = flow!;
+        if (headerType != null && headerType!.isNotEmpty) params['headerType'] = headerType!;
         params['type'] = network.name;
         if (host != null && host!.isNotEmpty) params['host'] = host!;
         if (path != null && path!.isNotEmpty) params['path'] = path!;
