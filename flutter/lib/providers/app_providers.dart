@@ -56,12 +56,13 @@ class ConnectionStatusNotifier extends StateNotifier<ConnectionStateEnum> {
     if (nodes.isEmpty) return;
     final active = nodes.firstWhere((n) => n.isActive, orElse: () => nodes.first);
     final res = await XrayProcessService.instance.testNodeRealDelay(active);
-    final country = res.countryCode ?? active.countryCode ?? CountryService.resolveSync(active);
+    final outbound = ref.read(outboundInfoProvider);
+    final country = res.countryCode ?? outbound.countryCode ?? active.countryCode;
     ref.read(nodesProvider.notifier).updateLatency(
       active.id,
       res.latencyMs ?? active.latencyMs,
       countryCode: country,
-      country: CountryService.getCountryName(country),
+      country: CountryService.getCountryName(country) ?? outbound.country ?? active.country,
     );
   }
 
@@ -1461,6 +1462,18 @@ class OutboundInfoNotifier extends StateNotifier<OutboundInfo> {
       isp: isp,
       isLoading: false,
     );
+
+    if (countryCode != null && countryCode.isNotEmpty) {
+      final active = ref.read(nodesProvider).where((n) => n.isActive).firstOrNull;
+      if (active != null) {
+        ref.read(nodesProvider.notifier).updateLatency(
+          active.id,
+          active.latencyMs,
+          countryCode: countryCode,
+          country: country ?? CountryService.getCountryName(countryCode),
+        );
+      }
+    }
   }
 
   void reset() {

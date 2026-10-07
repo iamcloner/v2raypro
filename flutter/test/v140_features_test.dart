@@ -173,5 +173,35 @@ loc=XX
       expect(res.country, equals('Finland'));
       expect(res.exitIp, equals('95.216.12.34'));
     });
+
+    test('nodesProvider updates active node country to outbound exit country', () {
+      final container = ProviderContainer();
+      final node = ProxyNode(
+        id: 'node-exit-test',
+        name: 'US Bridge Server',
+        protocol: ProtocolType.vless,
+        address: '1.1.1.1',
+        port: 443,
+        uuidOrPassword: 'test-uuid',
+        countryCode: 'US',
+        country: 'United States',
+        isActive: true,
+      );
+
+      container.read(nodesProvider.notifier).addNodes([node]);
+
+      // Simulate exit country detected via proxy (e.g., DE for 5.5.5.5)
+      container.read(nodesProvider.notifier).updateLatency(
+        'node-exit-test',
+        135,
+        countryCode: 'DE',
+        country: 'Germany',
+      );
+
+      final updated = container.read(nodesProvider).firstWhere((n) => n.id == 'node-exit-test');
+      expect(updated.countryCode, equals('DE'));
+      expect(updated.country, equals('Germany'));
+      expect(updated.latencyMs, equals(135));
+    });
   });
 }

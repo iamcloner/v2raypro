@@ -1079,8 +1079,12 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   CountryPillBadge(
-                    countryCode: activeNode.countryCode ?? CountryService.resolveSync(activeNode),
-                    country: activeNode.country,
+                    countryCode: isConnected
+                        ? (ref.watch(outboundInfoProvider).countryCode ?? activeNode.countryCode ?? CountryService.resolveSync(activeNode))
+                        : (activeNode.countryCode ?? CountryService.resolveSync(activeNode)),
+                    country: isConnected
+                        ? (ref.watch(outboundInfoProvider).country ?? activeNode.country ?? (ref.watch(outboundInfoProvider).countryCode != null ? CountryService.getCountryName(ref.watch(outboundInfoProvider).countryCode) : null))
+                        : activeNode.country,
                   ),
                   const SizedBox(width: 8),
                   Flexible(

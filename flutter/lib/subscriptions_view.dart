@@ -354,6 +354,9 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
     final allNodes = ref.watch(nodesProvider);
     final locale = ref.watch(currentLocaleProvider);
     final showFullIp = ref.watch(showFullIpProvider);
+    final outbound = ref.watch(outboundInfoProvider);
+    final connState = ref.watch(connectionStatusProvider);
+    final isConnected = connState == ConnectionStateEnum.connected;
 
     return CallbackShortcuts(
       bindings: {
@@ -676,6 +679,14 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                                 final cdnMap = ref.watch(nodeCdnMapProvider);
                                 final cdn = cdnMap[node.address.trim().toLowerCase()] ?? ref.read(nodeCdnMapProvider.notifier).detectCdn(node.address);
 
+                                final isThisNodeConnected = isConnected && node.isActive;
+                                final displayCountryCode = isThisNodeConnected
+                                    ? (outbound.countryCode ?? node.countryCode)
+                                    : node.countryCode;
+                                final displayCountry = isThisNodeConnected
+                                    ? (outbound.country ?? node.country ?? (displayCountryCode != null ? CountryService.getCountryName(displayCountryCode) : null))
+                                    : node.country;
+
                                 return ListTile(
                                   dense: true,
                                   leading: Icon(
@@ -705,6 +716,13 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                                   trailing: Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
+                                      if (displayCountryCode != null && displayCountryCode.isNotEmpty) ...[
+                                        CountryPillBadge(
+                                          countryCode: displayCountryCode,
+                                          country: displayCountry,
+                                        ),
+                                        const SizedBox(width: 5),
+                                      ],
                                       if (isTesting)
                                         const Padding(
                                           padding: EdgeInsets.symmetric(horizontal: 8),
@@ -715,13 +733,6 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                                           ),
                                         )
                                       else if (node.hasValidPing) ...[
-                                        if (node.countryCode != null && node.countryCode!.isNotEmpty) ...[
-                                          CountryPillBadge(
-                                            countryCode: node.countryCode,
-                                            country: node.country,
-                                          ),
-                                          const SizedBox(width: 5),
-                                        ],
                                         Container(
                                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                           decoration: BoxDecoration(

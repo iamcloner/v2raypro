@@ -271,6 +271,9 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
     });
     final locale = ref.watch(currentLocaleProvider);
     final showFullIp = ref.watch(showFullIpProvider);
+    final outbound = ref.watch(outboundInfoProvider);
+    final connState = ref.watch(connectionStatusProvider);
+    final isConnected = connState == ConnectionStateEnum.connected;
 
     final progress = _totalToTest > 0 ? (_testedCount / _totalToTest).clamp(0.0, 1.0) : 0.0;
     final progressPercent = (progress * 100).toInt();
@@ -379,6 +382,14 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
                         final cdnMap = ref.watch(nodeCdnMapProvider);
                         final cdn = cdnMap[node.address.trim().toLowerCase()] ?? ref.read(nodeCdnMapProvider.notifier).detectCdn(node.address);
 
+                        final isThisNodeConnected = isConnected && node.isActive;
+                        final displayCountryCode = isThisNodeConnected
+                            ? (outbound.countryCode ?? node.countryCode)
+                            : node.countryCode;
+                        final displayCountry = isThisNodeConnected
+                            ? (outbound.country ?? node.country ?? (displayCountryCode != null ? CountryService.getCountryName(displayCountryCode) : null))
+                            : node.country;
+
                         return Card(
                           child: ListTile(
                             leading: Icon(
@@ -415,55 +426,56 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
                                       child: CircularProgressIndicator(strokeWidth: 2),
                                     ),
                                   )
-                                else if (node.hasValidPing) ...[
-                                  if (node.countryCode != null && node.countryCode!.isNotEmpty) ...[
+                                else ...[
+                                  if (displayCountryCode != null && displayCountryCode.isNotEmpty) ...[
                                     CountryPillBadge(
-                                      countryCode: node.countryCode,
-                                      country: node.country,
+                                      countryCode: displayCountryCode,
+                                      country: displayCountry,
                                     ),
                                     const SizedBox(width: 6),
                                   ],
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: AppTheme.successColor.withValues(alpha: 0.15),
-                                      borderRadius: BorderRadius.circular(6),
-                                      border: Border.all(color: AppTheme.successColor.withValues(alpha: 0.3), width: 0.8),
-                                    ),
-                                    child: Text(
-                                      '${node.latencyMs} ms',
-                                      style: const TextStyle(
-                                        color: AppTheme.successColor,
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.bold,
+                                  if (node.hasValidPing)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: AppTheme.successColor.withValues(alpha: 0.15),
+                                        borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(color: AppTheme.successColor.withValues(alpha: 0.3), width: 0.8),
+                                      ),
+                                      child: Text(
+                                        '${node.latencyMs} ms',
+                                        style: const TextStyle(
+                                          color: AppTheme.successColor,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    )
+                                  else if (node.hasTimedOut)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: AppTheme.errorColor.withValues(alpha: 0.15),
+                                        borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(color: AppTheme.errorColor.withValues(alpha: 0.4), width: 0.8),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(Icons.cloud_off_rounded, size: 12, color: AppTheme.errorColor),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            AppStrings.get('timeout', locale: locale),
+                                            style: const TextStyle(
+                                              color: AppTheme.errorColor,
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
-                                  ),
-                                ]
-                                else if (node.hasTimedOut)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: AppTheme.errorColor.withValues(alpha: 0.15),
-                                      borderRadius: BorderRadius.circular(6),
-                                      border: Border.all(color: AppTheme.errorColor.withValues(alpha: 0.4), width: 0.8),
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        const Icon(Icons.cloud_off_rounded, size: 12, color: AppTheme.errorColor),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          AppStrings.get('timeout', locale: locale),
-                                          style: const TextStyle(
-                                            color: AppTheme.errorColor,
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
+                                ],
                                 IconButton(
                                   visualDensity: VisualDensity.compact,
                                   icon: const Icon(Icons.bolt_rounded, size: 20, color: Colors.cyanAccent),

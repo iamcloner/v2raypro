@@ -6,6 +6,7 @@ import 'core/theme/app_theme.dart';
 import 'models/proxy_node.dart';
 import 'providers/app_providers.dart';
 import 'services/cdn_scanner_service.dart';
+import 'services/country_service.dart';
 import 'utils/ip_mask_util.dart';
 import 'widgets/country_flag_badge.dart';
 
@@ -66,6 +67,7 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
     final showFullIp = ref.watch(showFullIpProvider);
     final cdnMap = ref.watch(nodeCdnMapProvider);
     final connectionState = ref.watch(connectionStatusProvider);
+    final outbound = ref.watch(outboundInfoProvider);
     final nodes = ref.watch(nodesProvider);
     final activeNode = nodes.where((n) => n.isActive).firstOrNull;
 
@@ -290,6 +292,13 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
                         final isThisNodeConnected = isConnected && isThisNodeActive;
                         final isThisNodeConnecting = isConnecting && isThisNodeActive;
 
+                        final displayCountryCode = isThisNodeConnected
+                            ? (outbound.countryCode ?? node.countryCode)
+                            : node.countryCode;
+                        final displayCountry = isThisNodeConnected
+                            ? (outbound.country ?? node.country ?? (displayCountryCode != null ? CountryService.getCountryName(displayCountryCode) : null))
+                            : node.country;
+
                         final cdn = cdnMap[node.address.trim().toLowerCase()] ??
                             ref.read(nodeCdnMapProvider.notifier).detectCdn(node.address);
 
@@ -356,14 +365,14 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
                                   const SizedBox(width: 12),
 
                                   // Latency & Country Badge
+                                  if (displayCountryCode != null && displayCountryCode.isNotEmpty) ...[
+                                    CountryPillBadge(
+                                      countryCode: displayCountryCode,
+                                      country: displayCountry,
+                                    ),
+                                    const SizedBox(width: 6),
+                                  ],
                                   if (node.hasValidPing) ...[
-                                    if (node.countryCode != null && node.countryCode!.isNotEmpty) ...[
-                                      CountryPillBadge(
-                                        countryCode: node.countryCode,
-                                        country: node.country,
-                                      ),
-                                      const SizedBox(width: 6),
-                                    ],
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                       decoration: BoxDecoration(

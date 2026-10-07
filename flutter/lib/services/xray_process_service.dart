@@ -797,6 +797,7 @@ class XrayProcessService {
         client.connectionTimeout = timeout;
 
         // 1. Primary: Cloudflare cdn-cgi/trace gives real exit IP and exit country code
+        // 1. Primary: Cloudflare cdn-cgi/trace gives real exit IP and exit country code
         final sw = Stopwatch()..start();
         try {
           final r = await client.getUrl(Uri.parse('http://cp.cloudflare.com/cdn-cgi/trace')).timeout(timeout);
@@ -809,20 +810,44 @@ class XrayProcessService {
             if (cCode == null && trace.ip != null) {
               cCode = LocalGeoIp.instance.lookup(trace.ip!);
             }
-            if (cCode == null) {
-              cCode = CountryService.resolveSync(node) ?? await CountryService.instance.resolveCountryCode(node);
+            if (cCode != null) {
+              final cName = CountryService.getCountryName(cCode);
+              results[node.id] = NodeTestResult(
+                latencyMs: sw.elapsedMilliseconds,
+                countryCode: cCode,
+                country: cName,
+                exitIp: trace.ip,
+              );
             }
-            final cName = cCode != null ? CountryService.getCountryName(cCode) : null;
-            results[node.id] = NodeTestResult(
-              latencyMs: sw.elapsedMilliseconds,
-              countryCode: cCode,
-              country: cName,
-              exitIp: trace.ip,
-            );
           }
         } catch (_) {}
 
-        // 2. Fallback if cdn-cgi/trace failed: generate_204 endpoints
+        // 2. Secondary: ip-api.com gives authentic exit IP and exit country
+        if (!results.containsKey(node.id)) {
+          final swApi = Stopwatch()..start();
+          try {
+            final r = await client.getUrl(Uri.parse('http://ip-api.com/json/')).timeout(timeout);
+            final resp = await r.close().timeout(timeout);
+            if (resp.statusCode == 200) {
+              final body = await resp.transform(utf8.decoder).join().timeout(timeout);
+              swApi.stop();
+              final data = jsonDecode(body);
+              if (data is Map && data['status'] == 'success') {
+                final cCode = (data['countryCode'] as String?)?.toUpperCase();
+                final cName = data['country'] as String? ?? (cCode != null ? CountryService.getCountryName(cCode) : null);
+                final exitIp = data['query']?.toString();
+                results[node.id] = NodeTestResult(
+                  latencyMs: swApi.elapsedMilliseconds,
+                  countryCode: cCode,
+                  country: cName,
+                  exitIp: exitIp,
+                );
+              }
+            }
+          } catch (_) {}
+        }
+
+        // 3. Fallback if both exit IP endpoints failed: generate_204 endpoints
         if (!results.containsKey(node.id)) {
           final fallbackUrls = [
             'http://cp.cloudflare.com/generate_204',
@@ -838,8 +863,8 @@ class XrayProcessService {
               final resp = await r.close().timeout(timeout);
               swFall.stop();
               if (resp.statusCode == 204 || resp.statusCode == 200) {
-                final cCode = CountryService.resolveSync(node) ?? await CountryService.instance.resolveCountryCode(node);
-                final cName = cCode != null ? CountryService.getCountryName(cCode) : null;
+                final cCode = node.countryCode ?? CountryService.resolveSync(node) ?? await CountryService.instance.resolveCountryCode(node);
+                final cName = node.country ?? (cCode != null ? CountryService.getCountryName(cCode) : null);
                 results[node.id] = NodeTestResult(
                   latencyMs: swFall.elapsedMilliseconds,
                   countryCode: cCode,
@@ -867,7 +892,7 @@ class XrayProcessService {
   /// Real Latency & Outbound Country Test:
   /// Performs an end-to-end transport and protocol test to measure true round-trip response time,
   /// as well as the authentic outbound exit IP and country.
-  /// 1. For currently connected active node: queries cdn-cgi/trace via the running local proxy.
+  /// 1. For currently connected active node: queries cdn-cgi/trace or ip-api via the running local proxy.
   /// 2. If Xray core is available and node is supported: tests genuine proxy delay & exit IP via ephemeral Xray test process.
   /// 3. Fallback: performs direct transport protocol handshake test to the destination server.
   Future<NodeTestResult> testNodeRealDelay(
@@ -881,11 +906,11 @@ class XrayProcessService {
         if (activeRes.countryCode != null) {
           return activeRes;
         }
-        final cCode = CountryService.resolveSync(node) ?? await CountryService.instance.resolveCountryCode(node);
+        final cCode = node.countryCode ?? CountryService.resolveSync(node) ?? await CountryService.instance.resolveCountryCode(node);
         return NodeTestResult(
           latencyMs: activeRes.latencyMs,
           countryCode: cCode,
-          country: cCode != null ? CountryService.getCountryName(cCode) : null,
+          country: node.country ?? (cCode != null ? CountryService.getCountryName(cCode) : null),
           exitIp: activeRes.exitIp,
         );
       }
@@ -904,11 +929,11 @@ class XrayProcessService {
     // 3. Fallback to direct real protocol handshake latency test
     final handshakeLat = await _testNodeRealProtocolDelay(node, timeout: timeout);
     if (handshakeLat != null && handshakeLat > 0) {
-      final cCode = CountryService.resolveSync(node) ?? await CountryService.instance.resolveCountryCode(node);
+      final cCode = node.countryCode ?? CountryService.resolveSync(node) ?? await CountryService.instance.resolveCountryCode(node);
       return NodeTestResult(
         latencyMs: handshakeLat,
         countryCode: cCode,
-        country: cCode != null ? CountryService.getCountryName(cCode) : null,
+        country: node.country ?? (cCode != null ? CountryService.getCountryName(cCode) : null),
       );
     }
 
@@ -940,13 +965,15 @@ class XrayProcessService {
         if (cCode == null && trace.ip != null) {
           cCode = LocalGeoIp.instance.lookup(trace.ip!);
         }
-        final cName = cCode != null ? CountryService.getCountryName(cCode) : null;
-        return NodeTestResult(
-          latencyMs: sw.elapsedMilliseconds,
-          countryCode: cCode,
-          country: cName,
-          exitIp: trace.ip,
-        );
+        if (cCode != null) {
+          final cName = CountryService.getCountryName(cCode);
+          return NodeTestResult(
+            latencyMs: sw.elapsedMilliseconds,
+            countryCode: cCode,
+            country: cName,
+            exitIp: trace.ip,
+          );
+        }
       }
     } catch (_) {
       try {
@@ -954,7 +981,39 @@ class XrayProcessService {
       } catch (_) {}
     }
 
-    // 2. Fallback to generate_204 targets
+    // 2. Secondary: ip-api.com through running local proxy
+    HttpClient? clientApi;
+    try {
+      clientApi = HttpClient();
+      clientApi.findProxy = (uri) => "PROXY 127.0.0.1:$httpPort";
+      clientApi.connectionTimeout = timeout;
+      final swApi = Stopwatch()..start();
+      final request = await clientApi.getUrl(Uri.parse("http://ip-api.com/json/")).timeout(timeout);
+      final response = await request.close().timeout(timeout);
+      if (response.statusCode == 200) {
+        final body = await response.transform(utf8.decoder).join().timeout(timeout);
+        swApi.stop();
+        clientApi.close(force: true);
+        final data = jsonDecode(body);
+        if (data is Map && data['status'] == 'success') {
+          final cCode = (data['countryCode'] as String?)?.toUpperCase();
+          final cName = data['country'] as String? ?? (cCode != null ? CountryService.getCountryName(cCode) : null);
+          final exitIp = data['query']?.toString();
+          return NodeTestResult(
+            latencyMs: swApi.elapsedMilliseconds,
+            countryCode: cCode,
+            country: cName,
+            exitIp: exitIp,
+          );
+        }
+      }
+    } catch (_) {
+      try {
+        clientApi?.close(force: true);
+      } catch (_) {}
+    }
+
+    // 3. Fallback to generate_204 targets
     final targets = [
       "http://cp.cloudflare.com/generate_204",
       "http://www.google.com/generate_204",
