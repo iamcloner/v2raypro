@@ -15,6 +15,7 @@ import 'utils/ip_mask_util.dart';
 import 'widgets/add_config_dialog.dart';
 import 'widgets/edit_config_dialog.dart';
 import 'widgets/country_flag_badge.dart';
+import 'services/country_service.dart';
 
 class ConfigsView extends ConsumerStatefulWidget {
   const ConfigsView({super.key});
@@ -121,7 +122,11 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
     });
 
     final latency = await XrayProcessService.instance.testNodeLatency(node);
-    ref.read(nodesProvider.notifier).updateLatency(node.id, latency);
+    String? countryCode;
+    if (latency != null && latency > 0) {
+      countryCode = CountryService.resolveSync(node) ?? await CountryService.instance.resolveCountryCode(node);
+    }
+    ref.read(nodesProvider.notifier).updateLatency(node.id, latency, countryCode: countryCode);
 
     if (mounted) {
       setState(() {
@@ -183,7 +188,28 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
       }
 
       if (mounted && chunkResults.isNotEmpty) {
-        ref.read(nodesProvider.notifier).updateLatenciesBatch(chunkResults);
+        final chunkCountries = <String, String>{};
+        for (final n in chunk) {
+          final lat = chunkResults[n.id];
+          if (lat != null && lat > 0) {
+            final c = CountryService.resolveSync(n);
+            if (c != null) {
+              chunkCountries[n.id] = c;
+            }
+          }
+        }
+        ref.read(nodesProvider.notifier).updateLatenciesBatch(chunkResults, countryCodes: chunkCountries);
+
+        for (final n in chunk) {
+          final lat = chunkResults[n.id];
+          if (lat != null && lat > 0 && !chunkCountries.containsKey(n.id)) {
+            CountryService.instance.resolveCountryCode(n).then((code) {
+              if (code != null && mounted) {
+                ref.read(nodesProvider.notifier).updateLatency(n.id, lat, countryCode: code);
+              }
+            });
+          }
+        }
       }
 
       if (mounted) {
@@ -425,7 +451,14 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
                                       child: CircularProgressIndicator(strokeWidth: 2),
                                     ),
                                   )
-                                else if (node.hasValidPing)
+                                else if (node.hasValidPing) ...[
+                                  if (node.countryCode != null && node.countryCode!.isNotEmpty) ...[
+                                    CountryPillBadge(
+                                      countryCode: node.countryCode,
+                                      country: node.country,
+                                    ),
+                                    const SizedBox(width: 6),
+                                  ],
                                   Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                     decoration: BoxDecoration(
@@ -441,7 +474,8 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
                                         fontWeight: FontWeight.bold,
                                       ),
                                     ),
-                                  )
+                                  ),
+                                ]
                                 else if (node.hasTimedOut)
                                   Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),

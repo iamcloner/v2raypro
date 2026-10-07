@@ -6,6 +6,7 @@ import '../models/proxy_node.dart';
 import '../utils/config_parser.dart';
 import 'storage_service.dart';
 import 'xray_process_service.dart';
+import 'country_service.dart';
 
 class FreeConfigsScanProgress {
   final int totalScraped;
@@ -175,8 +176,10 @@ class FreeConfigsService {
         for (final node in batch) {
           final lat = batchResults[node.id];
           if (lat != null && lat > 0) {
+            final countryCode = CountryService.resolveSync(node);
             workingNodes.add(node.copyWith(
               latencyMs: lat,
+              countryCode: countryCode,
               lastTestedAt: DateTime.now(),
             ));
             if (workingNodes.length >= targetWorking) break;
@@ -192,8 +195,10 @@ class FreeConfigsService {
               timeout: const Duration(seconds: 4),
             );
             if (lat != null && lat > 0) {
+              final countryCode = CountryService.resolveSync(node);
               return node.copyWith(
                 latencyMs: lat,
+                countryCode: countryCode,
                 lastTestedAt: DateTime.now(),
               );
             }
@@ -222,8 +227,17 @@ class FreeConfigsService {
         ));
       }
 
-      // Persist the found working nodes
+      // Persist the found working nodes with country code resolved
       if (workingNodes.isNotEmpty) {
+        for (int i = 0; i < workingNodes.length; i++) {
+          final node = workingNodes[i];
+          if (node.countryCode == null || node.countryCode!.isEmpty) {
+            final code = await CountryService.instance.resolveCountryCode(node);
+            if (code != null) {
+              workingNodes[i] = node.copyWith(countryCode: code);
+            }
+          }
+        }
         await StorageService.instance.saveFreeConfigs(workingNodes);
       }
 

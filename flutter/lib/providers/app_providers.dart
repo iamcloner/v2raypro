@@ -150,9 +150,10 @@ class SystemProxyNotifier extends StateNotifier<bool> {
   }
 
   Future<void> _init() async {
-    state = await StorageService.instance.loadSystemProxyEnabled();
+    final enabled = await StorageService.instance.loadSystemProxyEnabled();
+    if (mounted) state = enabled;
   }
-
+ 
   void toggle(bool enable) {
     state = enable;
     StorageService.instance.saveSystemProxyEnabled(enable);
@@ -170,7 +171,8 @@ class TunNotifier extends StateNotifier<bool> {
   }
 
   Future<void> _init() async {
-    state = await StorageService.instance.loadTunEnabled();
+    final enabled = await StorageService.instance.loadTunEnabled();
+    if (mounted) state = enabled;
   }
 
   void toggle(bool enable) {
@@ -191,6 +193,7 @@ class NodesNotifier extends StateNotifier<List<ProxyNode>> {
 
   Future<void> _init() async {
     final saved = await StorageService.instance.loadNodes();
+    if (!mounted) return;
     if (saved.isNotEmpty) {
       final seenIds = <String>{};
       bool hasActive = false;
@@ -217,6 +220,7 @@ class NodesNotifier extends StateNotifier<List<ProxyNode>> {
         fixed[0] = fixed[0].copyWith(isActive: true);
       }
 
+      if (!mounted) return;
       state = fixed;
       _save();
     }
@@ -255,22 +259,32 @@ class NodesNotifier extends StateNotifier<List<ProxyNode>> {
     }
   }
 
-  void updateLatency(String id, int? latencyMs) {
+  void updateLatency(String id, int? latencyMs, {String? countryCode, String? country}) {
     state = state.map((n) {
       if (n.id == id) {
-        return n.copyWith(latencyMs: latencyMs, lastTestedAt: DateTime.now());
+        return n.copyWith(
+          latencyMs: latencyMs,
+          countryCode: countryCode ?? n.countryCode,
+          country: country ?? n.country,
+          lastTestedAt: DateTime.now(),
+        );
       }
       return n;
     }).toList();
     _save();
   }
 
-  void updateLatenciesBatch(Map<String, int?> latencies) {
+  void updateLatenciesBatch(Map<String, int?> latencies, {Map<String, String>? countryCodes}) {
     if (latencies.isEmpty) return;
     final now = DateTime.now();
     state = state.map((n) {
       if (latencies.containsKey(n.id)) {
-        return n.copyWith(latencyMs: latencies[n.id], lastTestedAt: now);
+        final cCode = countryCodes?[n.id] ?? n.countryCode;
+        return n.copyWith(
+          latencyMs: latencies[n.id],
+          countryCode: cCode,
+          lastTestedAt: now,
+        );
       }
       return n;
     }).toList();
@@ -464,6 +478,7 @@ class SubscriptionsNotifier extends StateNotifier<List<SubscriptionItem>> {
 
   Future<void> _init() async {
     final saved = await StorageService.instance.loadSubscriptions();
+    if (!mounted) return;
     state = saved;
     // Also perform initial check
     _checkHourlyAutoUpdate();
@@ -1143,7 +1158,7 @@ class CdnRangesNotifier extends StateNotifier<Map<CdnProvider, List<String>>> {
       final saved = await StorageService.instance.loadCdnRanges(p);
       map[p] = saved.isNotEmpty ? saved : p.defaultCidrs;
     }
-    state = map;
+    if (mounted) state = map;
   }
 
   void updateRanges(CdnProvider provider, List<String> ranges) {
@@ -1169,7 +1184,7 @@ class CloudflareRangesNotifier extends StateNotifier<List<String>> {
 
   Future<void> _init() async {
     final saved = await StorageService.instance.loadCloudflareRanges();
-    if (saved.isNotEmpty) {
+    if (mounted && saved.isNotEmpty) {
       state = saved;
     }
   }
@@ -1196,6 +1211,7 @@ class DnsNotifier extends StateNotifier<DnsSettings> {
 
   Future<void> _load() async {
     final saved = await StorageService.instance.loadDnsSettings();
+    if (!mounted) return;
     state = saved;
     XrayProcessService.instance.dnsServers = saved.servers;
   }
@@ -1240,6 +1256,7 @@ class HttpPortNotifier extends StateNotifier<int> {
 
   Future<void> _init() async {
     final p = await StorageService.instance.loadHttpPort();
+    if (!mounted) return;
     state = p;
     XrayProcessService.instance.httpPort = p;
   }
@@ -1262,6 +1279,7 @@ class SocksPortNotifier extends StateNotifier<int> {
 
   Future<void> _init() async {
     final p = await StorageService.instance.loadSocksPort();
+    if (!mounted) return;
     state = p;
     XrayProcessService.instance.socksPort = p;
   }

@@ -30,6 +30,8 @@ class ProxyNode {
   DateTime? lastTestedAt;
   bool isActive;
   String? originalAddress;
+  String? countryCode;
+  String? country;
 
   /// Whether this node has been tested and failed (timed out / no ping response)
   bool get hasTimedOut => lastTestedAt != null && (latencyMs == null || latencyMs! <= 0);
@@ -68,6 +70,8 @@ class ProxyNode {
     this.lastTestedAt,
     this.isActive = false,
     this.originalAddress,
+    this.countryCode,
+    this.country,
   });
 
   Map<String, dynamic> toJson() => {
@@ -98,6 +102,8 @@ class ProxyNode {
     "last_tested_at": lastTestedAt?.toIso8601String(),
     "is_active": isActive,
     "original_address": originalAddress,
+    "country_code": countryCode,
+    "country": country,
   };
 
   factory ProxyNode.fromJson(Map<String, dynamic> json) {
@@ -138,6 +144,8 @@ class ProxyNode {
       lastTestedAt: json["last_tested_at"] != null ? DateTime.tryParse(json["last_tested_at"]) : null,
       isActive: json["is_active"] == true,
       originalAddress: json["original_address"],
+      countryCode: json["country_code"],
+      country: json["country"],
     );
   }
 
@@ -173,6 +181,8 @@ class ProxyNode {
     bool? isActive,
     String? originalAddress,
     bool clearOriginalAddress = false,
+    String? countryCode,
+    String? country,
   }) {
     final int? resolvedLatency = clearLatency
         ? null
@@ -206,6 +216,8 @@ class ProxyNode {
       lastTestedAt: lastTestedAt ?? this.lastTestedAt,
       isActive: isActive ?? this.isActive,
       originalAddress: clearOriginalAddress ? null : (originalAddress ?? this.originalAddress),
+      countryCode: countryCode ?? this.countryCode,
+      country: country ?? this.country,
     );
   }
 

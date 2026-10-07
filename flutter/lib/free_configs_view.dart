@@ -354,8 +354,15 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
                                   ),
                                   const SizedBox(width: 12),
 
-                                  // Latency Badge
-                                  if (node.hasValidPing)
+                                  // Latency & Country Badge
+                                  if (node.hasValidPing) ...[
+                                    if (node.countryCode != null && node.countryCode!.isNotEmpty) ...[
+                                      CountryPillBadge(
+                                        countryCode: node.countryCode,
+                                        country: node.country,
+                                      ),
+                                      const SizedBox(width: 6),
+                                    ],
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                       decoration: BoxDecoration(
@@ -375,6 +382,7 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
                                         ),
                                       ),
                                     ),
+                                  ],
                                   const SizedBox(width: 12),
 
                                   // Connect Action Button (NO Edit, NO Share)

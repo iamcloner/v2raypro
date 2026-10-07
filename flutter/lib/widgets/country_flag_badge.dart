@@ -144,3 +144,52 @@ class CdnBadge extends StatelessWidget {
     );
   }
 }
+
+class CountryPillBadge extends StatelessWidget {
+  final String? countryCode;
+  final String? country;
+
+  const CountryPillBadge({
+    super.key,
+    required this.countryCode,
+    this.country,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (countryCode == null || countryCode!.trim().length != 2) {
+      return const SizedBox.shrink();
+    }
+
+    final code = countryCode!.trim().toUpperCase();
+    final tooltipText = (country != null && country!.isNotEmpty) ? '$country ($code)' : 'Country: $code';
+
+    return Tooltip(
+      message: tooltipText,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2.5),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(5),
+          border: Border.all(color: Colors.white24, width: 0.8),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CountryFlagBadge(countryCode: code, width: 18, height: 13),
+            const SizedBox(width: 4),
+            Text(
+              code,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+                letterSpacing: 0.5,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
