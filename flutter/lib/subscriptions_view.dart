@@ -286,24 +286,13 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
         for (final n in chunk) {
           final lat = chunkResults[n.id];
           if (lat != null && lat > 0) {
-            final c = CountryService.resolveSync(n);
+            final c = CountryService.resolveSync(n) ?? await CountryService.instance.resolveCountryCode(n);
             if (c != null) {
               chunkCountries[n.id] = c;
             }
           }
         }
         ref.read(nodesProvider.notifier).updateLatenciesBatch(chunkResults, countryCodes: chunkCountries);
-
-        for (final n in chunk) {
-          final lat = chunkResults[n.id];
-          if (lat != null && lat > 0 && !chunkCountries.containsKey(n.id)) {
-            CountryService.instance.resolveCountryCode(n).then((code) {
-              if (code != null && mounted) {
-                ref.read(nodesProvider.notifier).updateLatency(n.id, lat, countryCode: code);
-              }
-            });
-          }
-        }
       }
 
       if (mounted) {

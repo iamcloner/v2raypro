@@ -176,7 +176,7 @@ class FreeConfigsService {
         for (final node in batch) {
           final lat = batchResults[node.id];
           if (lat != null && lat > 0) {
-            final countryCode = CountryService.resolveSync(node);
+            final countryCode = CountryService.resolveSync(node) ?? await CountryService.instance.resolveCountryCode(node);
             workingNodes.add(node.copyWith(
               latencyMs: lat,
               countryCode: countryCode,
@@ -195,7 +195,7 @@ class FreeConfigsService {
               timeout: const Duration(seconds: 4),
             );
             if (lat != null && lat > 0) {
-              final countryCode = CountryService.resolveSync(node);
+              final countryCode = CountryService.resolveSync(node) ?? await CountryService.instance.resolveCountryCode(node);
               return node.copyWith(
                 latencyMs: lat,
                 countryCode: countryCode,

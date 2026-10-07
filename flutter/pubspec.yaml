@@ -36,6 +36,7 @@ flutter:
     - assets/fonts/tahoma.ttf
     - assets/app_icon.ico
     - assets/app_icon.png
+    - assets/flags/
 
   fonts:
     - family: AppFont

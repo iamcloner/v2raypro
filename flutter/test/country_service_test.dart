@@ -1,4 +1,4 @@
-﻿import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:v2raypro/models/proxy_node.dart';
 import 'package:v2raypro/services/country_service.dart';
 
@@ -69,6 +69,31 @@ void main() {
       final parsed = ProxyNode.fromJson(json);
       expect(parsed.countryCode, equals('TR'));
       expect(parsed.country, equals('Turkey'));
+    });
+
+    test('LocalGeoIp offline database resolves IP addresses without internet', () async {
+      await LocalGeoIp.instance.ensureLoaded();
+      final deCode = LocalGeoIp.instance.lookup('89.163.143.1');
+      expect(deCode, equals('DE'));
+
+      final usCode = LocalGeoIp.instance.lookup('104.18.22.33');
+      expect(usCode, equals('US'));
+
+      final irCode = LocalGeoIp.instance.lookup('185.143.234.1');
+      expect(irCode, equals('IR'));
+    });
+
+    test('resolveCountryCode resolves IP node with generic name via LocalGeoIp', () async {
+      final node = ProxyNode(
+        id: 'test-ip-node',
+        name: 'generic-server-1234',
+        protocol: ProtocolType.vless,
+        address: '89.163.143.1',
+        port: 443,
+        uuidOrPassword: 'test',
+      );
+      final code = await CountryService.instance.resolveCountryCode(node);
+      expect(code, equals('DE'));
     });
   });
 }

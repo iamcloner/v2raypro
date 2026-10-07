@@ -20,7 +20,7 @@ class CountryFlagBadge extends StatelessWidget {
     }
 
     final code = countryCode!.trim().toUpperCase();
-    final flagUrl = 'https://flagcdn.com/w40/${code.toLowerCase()}.png';
+    final assetPath = 'assets/flags/${code.toLowerCase()}.png';
 
     return Container(
       width: width,
@@ -38,8 +38,8 @@ class CountryFlagBadge extends StatelessWidget {
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(2.5),
-        child: Image.network(
-          flagUrl,
+        child: Image.asset(
+          assetPath,
           width: width,
           height: height,
           fit: BoxFit.cover,
@@ -53,21 +53,6 @@ class CountryFlagBadge extends StatelessWidget {
                   fontSize: 9,
                   fontWeight: FontWeight.bold,
                   color: Colors.white70,
-                ),
-              ),
-            );
-          },
-          loadingBuilder: (context, child, loadingProgress) {
-            if (loadingProgress == null) return child;
-            return Container(
-              color: const Color(0xFF1E2638),
-              alignment: Alignment.center,
-              child: Text(
-                code,
-                style: const TextStyle(
-                  fontSize: 9,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white54,
                 ),
               ),
             );
