@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
@@ -109,7 +109,7 @@ class _AddConfigDialogState extends ConsumerState<AddConfigDialog> with SingleTi
     );
   }
 
-  void _saveUrl() {
+  Future<void> _saveUrl() async {
     final text = _urlController.text.trim();
     if (text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -118,7 +118,8 @@ class _AddConfigDialogState extends ConsumerState<AddConfigDialog> with SingleTi
       return;
     }
 
-    final nodes = ConfigParser.parseBatch(text);
+    final nodes = await ConfigParser.parseBatchAsync(text);
+    if (!mounted) return;
     if (nodes.isNotEmpty) {
       ref.read(nodesProvider.notifier).addNodes(nodes);
       Navigator.of(context).pop();

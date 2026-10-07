@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../services/cdn_scanner_service.dart';
 
 class CountryFlagBadge extends StatelessWidget {
   final String? countryCode;
@@ -71,6 +72,73 @@ class CountryFlagBadge extends StatelessWidget {
               ),
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+class CdnBadge extends StatelessWidget {
+  final CdnProvider cdn;
+  const CdnBadge({super.key, required this.cdn});
+
+  @override
+  Widget build(BuildContext context) {
+    Color color;
+    String label;
+    IconData icon;
+
+    switch (cdn) {
+      case CdnProvider.cloudflare:
+        color = Colors.amber;
+        label = "CF";
+        icon = Icons.bolt_rounded;
+        break;
+      case CdnProvider.fastly:
+        color = const Color(0xFFFF4D4F); // Vibrant Red/Crimson
+        label = "Fastly";
+        icon = Icons.flash_on_rounded;
+        break;
+      case CdnProvider.awsCloudFront:
+        color = const Color(0xFFFF9900); // AWS Orange
+        label = "AWS";
+        icon = Icons.cloud_done_rounded;
+        break;
+      case CdnProvider.gcore:
+        color = const Color(0xFFA855F7); // Purple/Violet
+        label = "G-Core";
+        icon = Icons.dns_rounded;
+        break;
+      case CdnProvider.arvancloud:
+        color = const Color(0xFF00E5FF); // Electric Cyan/Teal
+        label = "Arvan";
+        icon = Icons.cloud_circle_rounded;
+        break;
+    }
+
+    return Tooltip(
+      message: "${cdn.displayName} CDN",
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.18),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: color, width: 0.8),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 13, color: color),
+            const SizedBox(width: 3),
+            Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
         ),
       ),
     );

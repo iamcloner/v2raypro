@@ -7,13 +7,17 @@ import "package:flutter_riverpod/flutter_riverpod.dart";
 import "../models/proxy_node.dart";
 import "../models/scan_result.dart";
 import "../models/subscription_item.dart";
+import "../models/dns_settings.dart";
 import "../models/log_entry.dart";
 import "../models/outbound_info.dart";
+import "../models/traffic_stats.dart";
+import "../services/cdn_scanner_service.dart";
 import "../services/cloudflare_scanner_service.dart";
 import "../services/log_service.dart";
 import "../services/storage_service.dart";
 import "../services/tray_service.dart";
 import "../services/xray_process_service.dart";
+import "../services/free_configs_service.dart";
 import "../utils/config_parser.dart";
 import "package:uuid/uuid.dart";
 
@@ -41,6 +45,7 @@ class ConnectionStatusNotifier extends StateNotifier<ConnectionStateEnum> {
   void setDisconnected() {
     ref.read(connectedAtProvider.notifier).state = null;
     ref.read(outboundInfoProvider.notifier).reset();
+    ref.read(trafficStatsProvider.notifier).reset();
     state = ConnectionStateEnum.disconnected;
     AppTrayService.instance.updateTrayMenu();
   }
@@ -50,9 +55,7 @@ class ConnectionStatusNotifier extends StateNotifier<ConnectionStateEnum> {
     if (nodes.isEmpty) return;
     final active = nodes.firstWhere((n) => n.isActive, orElse: () => nodes.first);
     final lat = await XrayProcessService.instance.testNodeLatency(active);
-    if (lat != null) {
-      ref.read(nodesProvider.notifier).updateLatency(active.id, lat);
-    }
+    ref.read(nodesProvider.notifier).updateLatency(active.id, lat);
   }
 
   Future<void> connect([ProxyNode? targetNode]) async {
@@ -111,6 +114,34 @@ class ConnectionStatusNotifier extends StateNotifier<ConnectionStateEnum> {
 
 final connectionStatusProvider = StateNotifierProvider<ConnectionStatusNotifier, ConnectionStateEnum>((ref) {
   return ConnectionStatusNotifier(ref);
+});
+
+class TrafficStatsNotifier extends StateNotifier<TrafficStats> {
+  StreamSubscription<TrafficStats>? _sub;
+
+  TrafficStatsNotifier() : super(const TrafficStats()) {
+    _sub = XrayProcessService.instance.trafficStream.listen((stats) {
+      state = stats;
+    });
+  }
+
+  void update(TrafficStats stats) {
+    state = stats;
+  }
+
+  void reset() {
+    state = const TrafficStats();
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+}
+
+final trafficStatsProvider = StateNotifierProvider<TrafficStatsNotifier, TrafficStats>((ref) {
+  return TrafficStatsNotifier();
 });
 
 class SystemProxyNotifier extends StateNotifier<bool> {
@@ -213,10 +244,33 @@ class NodesNotifier extends StateNotifier<List<ProxyNode>> {
     _save();
   }
 
+  void selectAndConnectFreeNode(ProxyNode freeNode) {
+    final existingIdx = state.indexWhere((n) => n.id == freeNode.id);
+    if (existingIdx != -1) {
+      setActive(freeNode.id);
+    } else {
+      final updated = state.map((n) => n.copyWith(isActive: false)).toList();
+      state = [freeNode.copyWith(isActive: true), ...updated];
+      _save();
+    }
+  }
+
   void updateLatency(String id, int? latencyMs) {
     state = state.map((n) {
       if (n.id == id) {
         return n.copyWith(latencyMs: latencyMs, lastTestedAt: DateTime.now());
+      }
+      return n;
+    }).toList();
+    _save();
+  }
+
+  void updateLatenciesBatch(Map<String, int?> latencies) {
+    if (latencies.isEmpty) return;
+    final now = DateTime.now();
+    state = state.map((n) {
+      if (latencies.containsKey(n.id)) {
+        return n.copyWith(latencyMs: latencies[n.id], lastTestedAt: now);
       }
       return n;
     }).toList();
@@ -241,30 +295,54 @@ class NodesNotifier extends StateNotifier<List<ProxyNode>> {
     _save();
   }
 
+  int removeDeadNodes({
+    String? subscriptionId,
+    bool onlyCustom = false,
+    bool includeUntested = false,
+  }) {
+    final toRemove = <String>{};
+    for (final n in state) {
+      if (onlyCustom && n.subscriptionId != null) continue;
+      if (subscriptionId != null && n.subscriptionId != subscriptionId) continue;
+      final isDead = includeUntested ? !n.hasValidPing : n.hasTimedOut;
+      if (isDead) {
+        toRemove.add(n.id);
+      }
+    }
+    if (toRemove.isEmpty) return 0;
+
+    state = state.where((n) => !toRemove.contains(n.id)).toList();
+    if (state.isNotEmpty && !state.any((n) => n.isActive)) {
+      state[0].isActive = true;
+      state = [...state];
+    }
+    _save();
+    return toRemove.length;
+  }
+
   void replaceSubscriptionNodes(String subId, List<ProxyNode> newNodes) {
     final oldSubNodes = state.where((n) => n.subscriptionId == subId).toList();
     final nonSubNodes = state.where((n) => n.subscriptionId != subId).toList();
 
-    bool isSameConfig(ProxyNode a, ProxyNode b) {
-      return a.protocol == b.protocol &&
-          a.address.trim().toLowerCase() == b.address.trim().toLowerCase() &&
-          a.port == b.port &&
-          a.uuidOrPassword.trim() == b.uuidOrPassword.trim() &&
-          a.network == b.network &&
-          (a.path ?? '').trim() == (b.path ?? '').trim();
+    String makeConfigKey(ProxyNode n) {
+      return "${n.protocol.name}|${n.address.trim().toLowerCase()}|${n.port}|${n.uuidOrPassword.trim()}|${n.network.name}|${(n.path ?? '').trim()}";
+    }
+
+    // Build O(1) hash map of existing nodes for instant match
+    final oldMap = <String, List<ProxyNode>>{};
+    for (final old in oldSubNodes) {
+      final k = makeConfigKey(old);
+      (oldMap[k] ??= []).add(old);
     }
 
     final updatedSubNodes = <ProxyNode>[];
-    final usedOldNodes = <ProxyNode>{};
 
     for (final newNode in newNodes) {
+      final k = makeConfigKey(newNode);
+      final candidateList = oldMap[k];
       ProxyNode? match;
-      for (final old in oldSubNodes) {
-        if (!usedOldNodes.contains(old) && isSameConfig(old, newNode)) {
-          match = old;
-          usedOldNodes.add(old);
-          break;
-        }
+      if (candidateList != null && candidateList.isNotEmpty) {
+        match = candidateList.removeAt(0);
       }
 
       if (match != null) {
@@ -319,9 +397,13 @@ class NodesNotifier extends StateNotifier<List<ProxyNode>> {
   void applyIp(String nodeId, String newIp) {
     state = state.map((n) {
       if (n.id == nodeId) {
+        final orig = n.originalAddress ?? n.address;
+        final isDomain = !orig.contains(RegExp(r'^\d+\.\d+\.\d+\.\d+$'));
         return n.copyWith(
-          originalAddress: n.originalAddress ?? n.address,
+          originalAddress: orig,
           address: newIp,
+          host: (n.host != null && n.host!.isNotEmpty) ? n.host : (isDomain ? orig : null),
+          sni: (n.sni != null && n.sni!.isNotEmpty) ? n.sni : (isDomain ? orig : null),
         );
       }
       return n;
@@ -334,7 +416,7 @@ class NodesNotifier extends StateNotifier<List<ProxyNode>> {
       if (n.id == nodeId && n.originalAddress != null) {
         return n.copyWith(
           address: n.originalAddress!,
-          originalAddress: null,
+          clearOriginalAddress: true,
         );
       }
       return n;
@@ -480,7 +562,7 @@ class SubscriptionsNotifier extends StateNotifier<List<SubscriptionItem>> {
       final body = await response.transform(utf8.decoder).join();
       client.close();
 
-      final parsed = ConfigParser.parseBatch(body);
+      final parsed = await ConfigParser.parseBatchAsync(body);
 
       // Fallback: parse traffic/expire info from config name strings if headers not present
       if (totalBytes == null || expireDate == null) {
@@ -544,6 +626,15 @@ class SubscriptionsNotifier extends StateNotifier<List<SubscriptionItem>> {
       await updateSubscription(s.id);
     }
   }
+
+  void updateNodeCount(String subId, int newCount) {
+    final idx = state.indexWhere((s) => s.id == subId);
+    if (idx != -1) {
+      state[idx] = state[idx].copyWith(nodeCount: newCount);
+      state = [...state];
+      _save();
+    }
+  }
 }
 
 final subscriptionsProvider = StateNotifierProvider<SubscriptionsNotifier, List<SubscriptionItem>>((ref) {
@@ -569,6 +660,7 @@ class RadarLogEntry {
 class ScannerState {
   final bool isScanning;
   final ScannerStrategy strategy;
+  final CdnProvider selectedCdn;
   final int workers; // Concurrency from slider (5 to 100)
   final int targetTotalCandidates; // Target total from slider (200 to 10,000)
   final int total;
@@ -588,6 +680,7 @@ class ScannerState {
   ScannerState({
     this.isScanning = false,
     this.strategy = ScannerStrategy.radar,
+    this.selectedCdn = CdnProvider.cloudflare,
     int? workers,
     int? threshold,
     this.targetTotalCandidates = 500,
@@ -607,6 +700,7 @@ class ScannerState {
   ScannerState copyWith({
     bool? isScanning,
     ScannerStrategy? strategy,
+    CdnProvider? selectedCdn,
     int? workers,
     int? threshold,
     int? targetTotalCandidates,
@@ -625,6 +719,7 @@ class ScannerState {
     return ScannerState(
       isScanning: isScanning ?? this.isScanning,
       strategy: strategy ?? this.strategy,
+      selectedCdn: selectedCdn ?? this.selectedCdn,
       workers: workers ?? threshold ?? this.workers,
       targetTotalCandidates: targetTotalCandidates ?? this.targetTotalCandidates,
       total: total ?? this.total,
@@ -648,6 +743,11 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
   bool _hasWarnedRadarTraffic = false;
 
   ScannerNotifier(this.ref) : super(ScannerState());
+
+  void setSelectedCdn(CdnProvider cdn) {
+    if (state.isScanning) return;
+    state = state.copyWith(selectedCdn: cdn);
+  }
 
   void setStrategy(ScannerStrategy strategy) {
     if (state.isScanning) return;
@@ -683,6 +783,7 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
     }
     state = ScannerState(
       strategy: state.strategy,
+      selectedCdn: state.selectedCdn,
       workers: state.workers,
       targetTotalCandidates: state.targetTotalCandidates,
       isScanning: false,
@@ -705,7 +806,13 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
     final nodes = ref.read(nodesProvider);
     if (nodes.isEmpty) return;
     final activeNode = nodes.firstWhere((n) => n.isActive, orElse: () => nodes.first);
-    final customCidrs = ref.read(cfRangesProvider);
+    
+    final cdn = state.selectedCdn;
+    final allRanges = ref.read(cdnRangesProvider);
+    final customCidrs = allRanges[cdn] ?? cdn.defaultCidrs;
+
+    final origAddress = activeNode.originalAddress ?? activeNode.address;
+    final isDomain = !origAddress.contains(RegExp(r'^\d+\.\d+\.\d+\.\d+$'));
 
     _isCancelled = false;
     _hasWarnedRadarTraffic = false;
@@ -713,7 +820,7 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
     final workers = state.workers;
 
     if (strategy == ScannerStrategy.radar) {
-      // RADAR MODE: Infinite & continuous scan across all Cloudflare ranges
+      // RADAR MODE: Infinite & continuous scan across CDN ranges
       state = state.copyWith(
         isScanning: true,
         total: 0, // 0 indicates infinite continuous stream
@@ -732,14 +839,23 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
       final rng = Random();
 
       while (!_isCancelled) {
-        final chunk = CloudflareScannerService.generateCandidateIps(
+        final chunk = CdnScannerService.generateCandidateIps(
+          cdn: cdn,
           count: workers,
-          cidrs: customCidrs,
+          customCidrs: customCidrs,
           rng: rng,
         );
 
         final futures = chunk.map((ip) async {
-          final candidateNode = activeNode.copyWith(address: ip);
+          final candidateNode = activeNode.copyWith(
+            address: ip,
+            host: (activeNode.host != null && activeNode.host!.isNotEmpty)
+                ? activeNode.host
+                : (isDomain ? origAddress : null),
+            sni: (activeNode.sni != null && activeNode.sni!.isNotEmpty)
+                ? activeNode.sni
+                : (isDomain ? origAddress : null),
+          );
           final lat = await XrayProcessService.instance.testNodeLatency(
             candidateNode,
             timeout: const Duration(seconds: 3),
@@ -819,24 +935,35 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
 
               // Apply the new best IP to active node
               LogService.instance.add(
-                "[Radar] Discovered new best Cloudflare IP: $ip (${lat}ms)${improvement != null ? ' - improved by ${improvement}ms' : ''}",
+                "[Radar] Discovered new best ${cdn.displayName} IP: $ip (${lat}ms)${improvement != null ? ' - improved by ${improvement}ms' : ''}",
                 level: LogLevel.access,
                 source: "scanner",
               );
               ref.read(nodesProvider.notifier).applyIp(activeNode.id, ip);
 
               // Connect or hot-switch Xray connection
+              final nodeToConnect = activeNode.copyWith(
+                address: ip,
+                originalAddress: origAddress,
+                host: (activeNode.host != null && activeNode.host!.isNotEmpty)
+                    ? activeNode.host
+                    : (isDomain ? origAddress : null),
+                sni: (activeNode.sni != null && activeNode.sni!.isNotEmpty)
+                    ? activeNode.sni
+                    : (isDomain ? origAddress : null),
+              );
+
               final connState = ref.read(connectionStatusProvider);
               if (connState == ConnectionStateEnum.connected) {
                 await XrayProcessService.instance.stop();
                 await XrayProcessService.instance.start(
-                  activeNode.copyWith(address: ip),
+                  nodeToConnect,
                   enableTun: ref.read(isTunEnabledProvider),
                   setSysProxy: ref.read(isSystemProxyEnabledProvider),
                 );
               } else {
                 final ok = await XrayProcessService.instance.start(
-                  activeNode.copyWith(address: ip),
+                  nodeToConnect,
                   enableTun: ref.read(isTunEnabledProvider),
                   setSysProxy: ref.read(isSystemProxyEnabledProvider),
                 );
@@ -851,7 +978,7 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
                 showRadarTrafficWarning: shouldWarn ? true : state.showRadarTrafficWarning,
               );
               LogService.instance.add(
-                "[Radar] Discovered responsive Cloudflare IP: $ip (${lat}ms)",
+                "[Radar] Discovered responsive ${cdn.displayName} IP: $ip (${lat}ms)",
                 level: LogLevel.info,
                 source: "scanner",
               );
@@ -864,9 +991,10 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
     } else {
       // TARGET MODE: User-selected pool size (200 to 10,000)
       final totalCount = state.targetTotalCandidates;
-      final candidates = CloudflareScannerService.generateCandidateIps(
+      final candidates = CdnScannerService.generateCandidateIps(
+        cdn: cdn,
         count: totalCount,
-        cidrs: customCidrs,
+        customCidrs: customCidrs,
       );
 
       state = state.copyWith(
@@ -887,7 +1015,15 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
         final chunk = candidates.sublist(i, min(i + workers, candidates.length));
 
         final futures = chunk.map((ip) async {
-          final candidateNode = activeNode.copyWith(address: ip);
+          final candidateNode = activeNode.copyWith(
+            address: ip,
+            host: (activeNode.host != null && activeNode.host!.isNotEmpty)
+                ? activeNode.host
+                : (isDomain ? origAddress : null),
+            sni: (activeNode.sni != null && activeNode.sni!.isNotEmpty)
+                ? activeNode.sni
+                : (isDomain ? origAddress : null),
+          );
           final lat = await XrayProcessService.instance.testNodeLatency(
             candidateNode,
             timeout: const Duration(seconds: 3),
@@ -953,17 +1089,30 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
     ref.read(nodesProvider.notifier).applyIp(activeNode.id, ip);
     state = state.copyWith(connectedIp: ip);
 
+    final origAddress = activeNode.originalAddress ?? activeNode.address;
+    final isDomain = !origAddress.contains(RegExp(r'^\d+\.\d+\.\d+\.\d+$'));
+    final nodeToConnect = activeNode.copyWith(
+      address: ip,
+      originalAddress: origAddress,
+      host: (activeNode.host != null && activeNode.host!.isNotEmpty)
+          ? activeNode.host
+          : (isDomain ? origAddress : null),
+      sni: (activeNode.sni != null && activeNode.sni!.isNotEmpty)
+          ? activeNode.sni
+          : (isDomain ? origAddress : null),
+    );
+
     final connState = ref.read(connectionStatusProvider);
     if (connState == ConnectionStateEnum.connected) {
       await XrayProcessService.instance.stop();
       await XrayProcessService.instance.start(
-        activeNode.copyWith(address: ip),
+        nodeToConnect,
         enableTun: ref.read(isTunEnabledProvider),
         setSysProxy: ref.read(isSystemProxyEnabledProvider),
       );
     } else {
       final ok = await XrayProcessService.instance.start(
-        activeNode.copyWith(address: ip),
+        nodeToConnect,
         enableTun: ref.read(isTunEnabledProvider),
         setSysProxy: ref.read(isSystemProxyEnabledProvider),
       );
@@ -981,8 +1130,40 @@ final scannerProvider = StateNotifierProvider<ScannerNotifier, ScannerState>((re
   return ScannerNotifier(ref);
 });
 
+class CdnRangesNotifier extends StateNotifier<Map<CdnProvider, List<String>>> {
+  CdnRangesNotifier() : super({
+    for (final p in CdnProvider.values) p: p.defaultCidrs,
+  }) {
+    _init();
+  }
+
+  Future<void> _init() async {
+    final map = <CdnProvider, List<String>>{};
+    for (final p in CdnProvider.values) {
+      final saved = await StorageService.instance.loadCdnRanges(p);
+      map[p] = saved.isNotEmpty ? saved : p.defaultCidrs;
+    }
+    state = map;
+  }
+
+  void updateRanges(CdnProvider provider, List<String> ranges) {
+    state = {...state, provider: ranges};
+    StorageService.instance.saveCdnRanges(provider, ranges);
+  }
+
+  void resetToDefault(CdnProvider provider) {
+    state = {...state, provider: provider.defaultCidrs};
+    StorageService.instance.saveCdnRanges(provider, provider.defaultCidrs);
+  }
+}
+
+final cdnRangesProvider = StateNotifierProvider<CdnRangesNotifier, Map<CdnProvider, List<String>>>((ref) {
+  return CdnRangesNotifier();
+});
+
 class CloudflareRangesNotifier extends StateNotifier<List<String>> {
-  CloudflareRangesNotifier() : super(CloudflareScannerService.defaultCidrs) {
+  final Ref ref;
+  CloudflareRangesNotifier(this.ref) : super(CdnProvider.cloudflare.defaultCidrs) {
     _init();
   }
 
@@ -995,17 +1176,57 @@ class CloudflareRangesNotifier extends StateNotifier<List<String>> {
 
   void updateRanges(List<String> ranges) {
     state = ranges;
-    StorageService.instance.saveCloudflareRanges(ranges);
+    ref.read(cdnRangesProvider.notifier).updateRanges(CdnProvider.cloudflare, ranges);
   }
 
   void resetToDefault() {
-    state = CloudflareScannerService.defaultCidrs;
-    StorageService.instance.saveCloudflareRanges(CloudflareScannerService.defaultCidrs);
+    state = CdnProvider.cloudflare.defaultCidrs;
+    ref.read(cdnRangesProvider.notifier).resetToDefault(CdnProvider.cloudflare);
   }
 }
 
 final cfRangesProvider = StateNotifierProvider<CloudflareRangesNotifier, List<String>>((ref) {
-  return CloudflareRangesNotifier();
+  return CloudflareRangesNotifier(ref);
+});
+
+class DnsNotifier extends StateNotifier<DnsSettings> {
+  DnsNotifier() : super(const DnsSettings()) {
+    _load();
+  }
+
+  Future<void> _load() async {
+    final saved = await StorageService.instance.loadDnsSettings();
+    state = saved;
+    XrayProcessService.instance.dnsServers = saved.servers;
+  }
+
+  Future<void> setPreset(String presetId) async {
+    final preset = DnsSettings.presets.firstWhere(
+      (p) => p.id == presetId,
+      orElse: () => DnsSettings.presets.first,
+    );
+    final updated = state.copyWith(
+      presetId: presetId,
+      servers: preset.id == "custom" ? state.servers : preset.servers,
+    );
+    state = updated;
+    XrayProcessService.instance.dnsServers = updated.servers;
+    await StorageService.instance.saveDnsSettings(updated);
+  }
+
+  Future<void> updateCustomServers(List<String> servers) async {
+    final updated = state.copyWith(
+      presetId: "custom",
+      servers: servers,
+    );
+    state = updated;
+    XrayProcessService.instance.dnsServers = updated.servers;
+    await StorageService.instance.saveDnsSettings(updated);
+  }
+}
+
+final dnsSettingsProvider = StateNotifierProvider<DnsNotifier, DnsSettings>((ref) {
+  return DnsNotifier();
 });
 
 // Default to English as requested
@@ -1211,24 +1432,82 @@ final connectedAtProvider = StateProvider<DateTime?>((ref) => null);
 // False by default: masks half of IP addresses with ***
 final showFullIpProvider = StateProvider<bool>((ref) => false);
 
+class NodeCdnDetectionNotifier extends StateNotifier<Map<String, CdnProvider?>> {
+  final Ref ref;
+  final Map<String, CdnProvider?> _syncCache = {};
+
+  NodeCdnDetectionNotifier(this.ref) : super({});
+
+  CdnProvider? detectCdn(String rawAddress) {
+    final addr = rawAddress.trim().toLowerCase();
+    if (addr.isEmpty) return null;
+    if (state.containsKey(addr)) return state[addr];
+    if (_syncCache.containsKey(addr)) return _syncCache[addr];
+
+    final cdnRanges = ref.read(cdnRangesProvider);
+    final syncMatch = CdnScannerService.detectCdnHostSync(addr, cdnRanges);
+    _syncCache[addr] = syncMatch;
+
+    // Safely update state outside the build phase to prevent widget rebuild errors
+    Future.microtask(() {
+      if (mounted && !state.containsKey(addr)) {
+        state = {...state, addr: syncMatch};
+      }
+    });
+
+    return syncMatch;
+  }
+
+  /// Explicit async DNS check for active node or on-demand inspection
+  Future<CdnProvider?> checkDomainCdn(String domain) async {
+    final addr = domain.trim().toLowerCase();
+    if (addr.isEmpty) return null;
+    final cdnRanges = ref.read(cdnRangesProvider);
+    final resolved = await CdnScannerService.detectCdnFromHost(addr, cdnRanges);
+    if (resolved != null && mounted) {
+      _syncCache[addr] = resolved;
+      state = {...state, addr: resolved};
+      ref.read(cfCheckedHostsProvider.notifier).markCdn(addr, true);
+    }
+    return resolved;
+  }
+}
+
+final nodeCdnMapProvider = StateNotifierProvider<NodeCdnDetectionNotifier, Map<String, CdnProvider?>>((ref) {
+  return NodeCdnDetectionNotifier(ref);
+});
+
 class CfCheckedHostsNotifier extends StateNotifier<Map<String, bool>> {
   final Ref ref;
+  final Map<String, bool> _syncCache = {};
+
   CfCheckedHostsNotifier(this.ref) : super({});
+
+  void markCdn(String addr, bool isCdn) {
+    final key = addr.trim().toLowerCase();
+    _syncCache[key] = isCdn;
+    if (mounted) {
+      state = {...state, key: isCdn};
+    }
+  }
 
   bool isCloudflare(String address) {
     final addr = address.trim().toLowerCase();
     if (state.containsKey(addr)) return state[addr]!;
-    final cfRanges = ref.read(cfRangesProvider);
-    final isCf = CloudflareScannerService.isCloudflareHostSync(addr, cfRanges);
-    state = {...state, addr: isCf};
-    if (!isCf && !addr.contains(RegExp(r'^\d+\.\d+\.\d+\.\d+$'))) {
-      CloudflareScannerService.resolveAndCheckCloudflare(addr, cfRanges).then((resolvedIsCf) {
-        if (resolvedIsCf) {
-          state = {...state, addr: true};
-        }
-      });
-    }
-    return isCf;
+    if (_syncCache.containsKey(addr)) return _syncCache[addr]!;
+
+    final cdn = ref.read(nodeCdnMapProvider.notifier).detectCdn(addr);
+    final isSupported = cdn != null;
+    _syncCache[addr] = isSupported;
+
+    // Safely update state outside the build phase
+    Future.microtask(() {
+      if (mounted && !state.containsKey(addr)) {
+        state = {...state, addr: isSupported};
+      }
+    });
+
+    return isSupported;
   }
 }
 
@@ -1329,5 +1608,108 @@ class EnableUdpNotifier extends StateNotifier<bool> {
   }
 }
 final enableUdpProvider = StateNotifierProvider<EnableUdpNotifier, bool>((ref) => EnableUdpNotifier());
+
+class FreeConfigsState {
+  final List<ProxyNode> workingNodes;
+  final bool isScanning;
+  final int totalScraped;
+  final int totalUnique;
+  final int testedCandidates;
+  final int targetCount;
+  final String status;
+  final double progress;
+
+  const FreeConfigsState({
+    this.workingNodes = const [],
+    this.isScanning = false,
+    this.totalScraped = 0,
+    this.totalUnique = 0,
+    this.testedCandidates = 0,
+    this.targetCount = 30,
+    this.status = 'idle',
+    this.progress = 0.0,
+  });
+
+  FreeConfigsState copyWith({
+    List<ProxyNode>? workingNodes,
+    bool? isScanning,
+    int? totalScraped,
+    int? totalUnique,
+    int? testedCandidates,
+    int? targetCount,
+    String? status,
+    double? progress,
+  }) {
+    return FreeConfigsState(
+      workingNodes: workingNodes ?? this.workingNodes,
+      isScanning: isScanning ?? this.isScanning,
+      totalScraped: totalScraped ?? this.totalScraped,
+      totalUnique: totalUnique ?? this.totalUnique,
+      testedCandidates: testedCandidates ?? this.testedCandidates,
+      targetCount: targetCount ?? this.targetCount,
+      status: status ?? this.status,
+      progress: progress ?? this.progress,
+    );
+  }
+}
+
+class FreeConfigsNotifier extends StateNotifier<FreeConfigsState> {
+  final Ref ref;
+
+  FreeConfigsNotifier(this.ref) : super(const FreeConfigsState()) {
+    _loadSaved();
+  }
+
+  Future<void> _loadSaved() async {
+    final saved = await StorageService.instance.loadFreeConfigs();
+    if (saved.isNotEmpty) {
+      state = state.copyWith(workingNodes: saved);
+    }
+  }
+
+  Future<void> startScan() async {
+    if (state.isScanning) return;
+    state = state.copyWith(
+      isScanning: true,
+      status: 'fetching',
+      progress: 0.0,
+      testedCandidates: 0,
+      totalScraped: 0,
+      totalUnique: 0,
+      workingNodes: [],
+    );
+
+    await FreeConfigsService.instance.fetchAndScan(
+      targetWorking: 30,
+      batchSize: 30,
+      onProgress: (prog) {
+        final progressRatio = prog.targetWorking > 0
+            ? (prog.workingFound / prog.targetWorking).clamp(0.0, 1.0)
+            : 0.0;
+        state = state.copyWith(
+          workingNodes: prog.workingNodes,
+          totalScraped: prog.totalScraped,
+          totalUnique: prog.totalUnique,
+          testedCandidates: prog.testedCandidates,
+          status: prog.status,
+          progress: progressRatio,
+          isScanning: !prog.isCompleted,
+        );
+      },
+    );
+
+    state = state.copyWith(isScanning: false, status: 'completed');
+  }
+
+  void cancelScan() {
+    FreeConfigsService.instance.cancel();
+    state = state.copyWith(isScanning: false, status: 'cancelled');
+  }
+}
+
+final freeConfigsProvider = StateNotifierProvider<FreeConfigsNotifier, FreeConfigsState>((ref) {
+  return FreeConfigsNotifier(ref);
+});
+
 
 

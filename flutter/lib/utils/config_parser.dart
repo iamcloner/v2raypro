@@ -1,8 +1,23 @@
 import 'dart:convert';
+import 'dart:isolate';
 import 'package:uuid/uuid.dart';
 import '../models/proxy_node.dart';
 
 class ConfigParser {
+  /// Asynchronously parse batch of configs in a background isolate to avoid freezing the UI
+  static Future<List<ProxyNode>> parseBatchAsync(String content) async {
+    final trimmed = content.trim();
+    if (trimmed.isEmpty) return [];
+    if (trimmed.length < 5000 && !trimmed.contains('\n') && !trimmed.contains('\r')) {
+      return parseBatch(trimmed);
+    }
+    try {
+      return await Isolate.run(() => parseBatch(content));
+    } catch (_) {
+      return parseBatch(content);
+    }
+  }
+
   /// Parse a single config link or batch of links (newline-separated or base64 subscription)
   static List<ProxyNode> parseBatch(String content) {
     final trimmed = content.trim();
