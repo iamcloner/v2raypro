@@ -7,10 +7,10 @@ import 'core/theme/app_theme.dart';
 import 'models/proxy_node.dart';
 import 'models/subscription_item.dart';
 import 'providers/app_providers.dart';
-import 'services/cloudflare_scanner_service.dart';
 import 'services/xray_process_service.dart';
 import 'utils/ip_mask_util.dart';
 import 'widgets/edit_config_dialog.dart';
+import 'widgets/country_flag_badge.dart';
 
 class SubscriptionsView extends ConsumerStatefulWidget {
   const SubscriptionsView({super.key});
@@ -25,6 +25,7 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
   final Set<String> _updatingSubIds = {};
   final Set<String> _testingNodeIds = {};
   final Set<String> _expandedSubConfigs = {};
+  final Map<String, int> _expandedSubLimit = {};
   final Map<String, bool> _testingSubMap = {};
   final Map<String, bool> _cancelSubMap = {};
   final Map<String, int> _subTestedCount = {};
@@ -246,13 +247,16 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
         _testingNodeIds.addAll(chunk.map((n) => n.id));
       });
 
+      final chunkResults = <String, int?>{};
       await Future.wait(chunk.map((n) async {
         if (_cancelSubMap[subId] == true) return;
         final lat = await XrayProcessService.instance.testNodeLatency(n);
-        if (mounted) {
-          ref.read(nodesProvider.notifier).updateLatency(n.id, lat);
-        }
+        chunkResults[n.id] = lat;
       }));
+
+      if (mounted && chunkResults.isNotEmpty) {
+        ref.read(nodesProvider.notifier).updateLatenciesBatch(chunkResults);
+      }
 
       if (mounted) {
         setState(() {
@@ -267,6 +271,68 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
         _testingSubMap[subId] = false;
         _cancelSubMap[subId] = false;
       });
+    }
+  }
+
+  Future<void> _deleteDeadSubNodes(SubscriptionItem sub, List<ProxyNode> subNodes, String locale) async {
+    final deadNodes = subNodes.where((n) => n.hasTimedOut).toList();
+    if (deadNodes.isEmpty) {
+      final untestedCount = subNodes.where((n) => n.isUntested).length;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            untestedCount > 0
+                ? (locale == 'fa'
+                    ? 'ابتدا با دکمه «تست پینگ همه» کانفیگ‌های این ساب را بررسی کنید تا بی‌پاسخ‌ها مشخص شوند.'
+                    : 'Run "Test All Ping" first to check and mark timed-out configs in this subscription.')
+                : AppStrings.get('delete_dead_none', locale: locale),
+          ),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.delete_sweep_rounded, color: Colors.redAccent),
+            const SizedBox(width: 8),
+            Expanded(child: Text("${sub.name}: ${AppStrings.get('confirm_delete_dead_title', locale: locale)}")),
+          ],
+        ),
+        content: Text(
+          AppStrings.get('confirm_delete_dead_msg', locale: locale)
+              .replaceAll('{count}', deadNodes.length.toString()),
+        ),
+        actions: [
+          TextButton(
+            child: Text(AppStrings.get('cancel_scan', locale: locale)),
+            onPressed: () => Navigator.pop(ctx, false),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+            child: Text(AppStrings.get('delete_dead_configs', locale: locale)),
+            onPressed: () => Navigator.pop(ctx, true),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      final removed = ref.read(nodesProvider.notifier).removeDeadNodes(subscriptionId: sub.id);
+      final remaining = subNodes.length - removed;
+      ref.read(subscriptionsProvider.notifier).updateNodeCount(sub.id, remaining >= 0 ? remaining : 0);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            "${sub.name}: ${AppStrings.get('delete_dead_success', locale: locale).replaceAll('{count}', removed.toString())}",
+          ),
+          backgroundColor: Colors.redAccent.shade700,
+        ),
+      );
     }
   }
 
@@ -349,18 +415,21 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                     final isUpdating = _updatingSubIds.contains(sub.id);
                     final subNodes = allNodes.where((n) => n.subscriptionId == sub.id).toList();
 
-                    // Sort subNodes by ping latency ascending (lowest ping first, untested/null last)
+                    // Sort subNodes: working nodes first (lowest ping), then untested, then timed-out last
                     subNodes.sort((a, b) {
-                      if (a.latencyMs != null && b.latencyMs != null) {
+                      if (a.hasValidPing && b.hasValidPing) {
                         return a.latencyMs!.compareTo(b.latencyMs!);
                       }
-                      if (a.latencyMs != null && b.latencyMs == null) return -1;
-                      if (a.latencyMs == null && b.latencyMs != null) return 1;
+                      if (a.hasValidPing && !b.hasValidPing) return -1;
+                      if (!a.hasValidPing && b.hasValidPing) return 1;
+                      if (a.isUntested && b.hasTimedOut) return -1;
+                      if (a.hasTimedOut && b.isUntested) return 1;
                       return a.name.compareTo(b.name);
                     });
 
                     final isExpandedAll = _expandedSubConfigs.contains(sub.id);
-                    final displayedNodes = isExpandedAll ? subNodes : subNodes.take(3).toList();
+                    final maxDisplay = _expandedSubLimit[sub.id] ?? 50;
+                    final displayedNodes = isExpandedAll ? subNodes.take(maxDisplay).toList() : subNodes.take(3).toList();
 
                     final isTestingSub = _testingSubMap[sub.id] == true;
                     final totalSub = _subTotalCount[sub.id] ?? 0;
@@ -493,6 +562,13 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                                 onPressed: () => _testAllSubNodes(sub, subNodes),
                               ),
                               const SizedBox(width: 4),
+                              IconButton(
+                                visualDensity: VisualDensity.compact,
+                                icon: const Icon(Icons.delete_sweep_rounded, size: 18, color: Colors.redAccent),
+                                tooltip: AppStrings.get("delete_sub_dead", locale: locale),
+                                onPressed: () => _deleteDeadSubNodes(sub, subNodes, locale),
+                              ),
+                              const SizedBox(width: 4),
                             ],
                             IconButton(
                               visualDensity: VisualDensity.compact,
@@ -585,8 +661,8 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                               itemBuilder: (context, nodeIdx) {
                                 final node = displayedNodes[nodeIdx];
                                 final isTesting = _testingNodeIds.contains(node.id);
-                                final cfHosts = ref.watch(cfCheckedHostsProvider);
-                                final isCf = cfHosts[node.address.trim().toLowerCase()] ?? ref.read(cfCheckedHostsProvider.notifier).isCloudflare(node.address);
+                                final cdnMap = ref.watch(nodeCdnMapProvider);
+                                final cdn = cdnMap[node.address.trim().toLowerCase()] ?? ref.read(nodeCdnMapProvider.notifier).detectCdn(node.address);
 
                                 return ListTile(
                                   dense: true,
@@ -604,34 +680,9 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                                           overflow: TextOverflow.ellipsis,
                                         ),
                                       ),
-                                      if (isCf) ...[
+                                      if (cdn != null) ...[
                                         const SizedBox(width: 6),
-                                        Tooltip(
-                                          message: "Cloudflare IP (★)",
-                                          child: Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                                            decoration: BoxDecoration(
-                                              color: Colors.amber.withValues(alpha: 0.2),
-                                              borderRadius: BorderRadius.circular(4),
-                                              border: Border.all(color: Colors.amber, width: 0.8),
-                                            ),
-                                            child: const Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Icon(Icons.star_rounded, size: 13, color: Colors.amber),
-                                                SizedBox(width: 2),
-                                                Text(
-                                                  "CF",
-                                                  style: TextStyle(
-                                                    color: Colors.amber,
-                                                    fontSize: 10,
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ),
+                                        CdnBadge(cdn: cdn),
                                       ],
                                     ],
                                   ),
@@ -651,12 +702,13 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                                             child: CircularProgressIndicator(strokeWidth: 2),
                                           ),
                                         )
-                                      else if (node.latencyMs != null)
+                                      else if (node.hasValidPing)
                                         Container(
                                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                           decoration: BoxDecoration(
                                             color: AppTheme.successColor.withValues(alpha: 0.15),
                                             borderRadius: BorderRadius.circular(4),
+                                            border: Border.all(color: AppTheme.successColor.withValues(alpha: 0.3), width: 0.8),
                                           ),
                                           child: Text(
                                             "${node.latencyMs} ms",
@@ -665,6 +717,30 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                                               fontSize: 11,
                                               fontWeight: FontWeight.bold,
                                             ),
+                                          ),
+                                        )
+                                      else if (node.hasTimedOut)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: AppTheme.errorColor.withValues(alpha: 0.15),
+                                            borderRadius: BorderRadius.circular(4),
+                                            border: Border.all(color: AppTheme.errorColor.withValues(alpha: 0.4), width: 0.8),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              const Icon(Icons.cloud_off_rounded, size: 11, color: AppTheme.errorColor),
+                                              const SizedBox(width: 3),
+                                              Text(
+                                                AppStrings.get("timeout", locale: locale),
+                                                style: const TextStyle(
+                                                  color: AppTheme.errorColor,
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ],
                                           ),
                                         ),
                                       IconButton(
@@ -702,26 +778,49 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                               Padding(
                                 padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
                                 child: Center(
-                                  child: TextButton.icon(
-                                    icon: Icon(
-                                      isExpandedAll ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
-                                      size: 18,
-                                    ),
-                                    label: Text(
-                                      isExpandedAll
-                                          ? AppStrings.get("show_less_configs", locale: locale)
-                                          : "${AppStrings.get("show_all_configs", locale: locale)} (${subNodes.length})",
-                                      style: const TextStyle(fontSize: 12),
-                                    ),
-                                    onPressed: () {
-                                      setState(() {
-                                        if (isExpandedAll) {
-                                          _expandedSubConfigs.remove(sub.id);
-                                        } else {
-                                          _expandedSubConfigs.add(sub.id);
-                                        }
-                                      });
-                                    },
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      if (isExpandedAll && subNodes.length > displayedNodes.length)
+                                        TextButton.icon(
+                                          icon: const Icon(Icons.add_rounded, size: 16),
+                                          label: Text(
+                                            locale == 'fa'
+                                                ? 'نمایش بیشتر (+50 از ${subNodes.length - displayedNodes.length} باقی‌مانده)'
+                                                : 'Show More (+50 of ${subNodes.length - displayedNodes.length} remaining)',
+                                            style: const TextStyle(fontSize: 12),
+                                          ),
+                                          onPressed: () {
+                                            setState(() {
+                                              _expandedSubLimit[sub.id] = (_expandedSubLimit[sub.id] ?? 50) + 50;
+                                            });
+                                          },
+                                        ),
+                                      if (isExpandedAll && subNodes.length > displayedNodes.length)
+                                        const SizedBox(width: 12),
+                                      TextButton.icon(
+                                        icon: Icon(
+                                          isExpandedAll ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                                          size: 18,
+                                        ),
+                                        label: Text(
+                                          isExpandedAll
+                                              ? AppStrings.get("show_less_configs", locale: locale)
+                                              : "${AppStrings.get("show_all_configs", locale: locale)} (${subNodes.length})",
+                                          style: const TextStyle(fontSize: 12),
+                                        ),
+                                        onPressed: () {
+                                          setState(() {
+                                            if (isExpandedAll) {
+                                              _expandedSubConfigs.remove(sub.id);
+                                              _expandedSubLimit[sub.id] = 50;
+                                            } else {
+                                              _expandedSubConfigs.add(sub.id);
+                                            }
+                                          });
+                                        },
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ),

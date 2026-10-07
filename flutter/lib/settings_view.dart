@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/l10n/translations.dart';
 import 'core/theme/app_theme.dart';
+import 'models/dns_settings.dart';
 import 'providers/app_providers.dart';
+import 'services/cdn_scanner_service.dart';
 import 'services/update_service.dart';
 import 'services/xray_process_service.dart';
 
@@ -14,10 +16,11 @@ class SettingsView extends ConsumerStatefulWidget {
 }
 
 class _SettingsViewState extends ConsumerState<SettingsView> {
-  late TextEditingController _cfRangesController;
+  late TextEditingController _cdnRangesController;
+  late TextEditingController _dnsServersController;
   late TextEditingController _httpPortController;
   late TextEditingController _socksPortController;
-  late TextEditingController _appTestUrlController;
+  CdnProvider _selectedCdnForRanges = CdnProvider.cloudflare;
   bool _initialized = false;
 
   // Xray Core Update State
@@ -40,20 +43,13 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
   double _appProgress = 0.0;
   UpdateInfo? _appInfo;
   String? _appStatusMsg;
-  String? _downloadedAppPath;
-
-  @override
-  void initState() {
-    super.initState();
-    _appTestUrlController = TextEditingController(text: UpdateService.defaultAppTestUrl);
-  }
 
   @override
   void dispose() {
-    _cfRangesController.dispose();
+    _cdnRangesController.dispose();
+    _dnsServersController.dispose();
     _httpPortController.dispose();
     _socksPortController.dispose();
-    _appTestUrlController.dispose();
     super.dispose();
   }
 
@@ -170,8 +166,7 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
     });
     final locale = ref.read(currentLocaleProvider);
     try {
-      final customUrl = _appTestUrlController.text.trim().isNotEmpty ? _appTestUrlController.text.trim() : null;
-      final info = await UpdateService.instance.checkAppUpdate(customUrl: customUrl);
+      final info = await UpdateService.instance.checkAppUpdate();
       if (mounted) {
         setState(() {
           _appInfo = info;
@@ -257,7 +252,8 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
     final locale = ref.watch(currentLocaleProvider);
     final httpPort = ref.watch(httpPortProvider);
     final socksPort = ref.watch(socksPortProvider);
-    final cfRanges = ref.watch(cfRangesProvider);
+    final dnsSettings = ref.watch(dnsSettingsProvider);
+    final cdnRanges = ref.watch(cdnRangesProvider);
 
     final themeMode = ref.watch(appThemeModeProvider);
     final startOnBoot = ref.watch(startOnBootProvider);
@@ -267,7 +263,9 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
     final enableUdp = ref.watch(enableUdpProvider);
 
     if (!_initialized) {
-      _cfRangesController = TextEditingController(text: cfRanges.join('\n'));
+      final currentCdnList = cdnRanges[_selectedCdnForRanges] ?? _selectedCdnForRanges.defaultCidrs;
+      _cdnRangesController = TextEditingController(text: currentCdnList.join('\n'));
+      _dnsServersController = TextEditingController(text: dnsSettings.servers.join('\n'));
       _httpPortController = TextEditingController(text: httpPort.toString());
       _socksPortController = TextEditingController(text: socksPort.toString());
       _initialized = true;
@@ -581,14 +579,14 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                 const Divider(height: 1),
 
                 // 3.3 App Update
-                ExpansionTile(
+                ListTile(
                   leading: const Icon(Icons.system_update_rounded, color: Colors.tealAccent),
                   title: Text(AppStrings.get('app_update', locale: locale)),
                   subtitle: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '${AppStrings.get('current_version', locale: locale)}: ${UpdateService.currentAppVersion} ${_appInfo != null ? ' • ${AppStrings.get('latest_version', locale: locale)}: ${_appInfo!.latestVersion}' : ''}',
+                        '${AppStrings.get('current_version', locale: locale)}: ${UpdateService.currentAppVersion}${_appInfo != null ? ' • ${AppStrings.get('latest_version', locale: locale)}: ${_appInfo!.latestVersion}' : ''}',
                         style: const TextStyle(fontSize: 12, color: Colors.grey),
                       ),
                       if (_appStatusMsg != null)
@@ -596,7 +594,7 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                           _appStatusMsg!,
                           style: TextStyle(
                             fontSize: 11,
-                            color: _appStatusMsg!.contains('up to date') || _appStatusMsg!.contains('Downloaded')
+                            color: _appStatusMsg!.contains('up to date') || _appStatusMsg!.contains('به‌روز است') || _appStatusMsg!.contains('موفقیت')
                                 ? AppTheme.successColor
                                 : Colors.amber,
                           ),
@@ -607,7 +605,7 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                       ],
                     ],
                   ),
-                    trailing: Row(
+                  trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       if (_appInfo?.hasUpdate == true && !_appUpdating)
@@ -635,72 +633,8 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                           ),
                           onPressed: _appChecking || _appUpdating ? null : _checkAppUpdate,
                         ),
-                      const SizedBox(width: 8),
-                      const Icon(Icons.expand_more_rounded, size: 20),
                     ],
                   ),
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Text(
-                            locale == 'fa' ? 'آدرس مخزن / انتشار در گیت‌هاب (GitHub Release URL):' : 'Update Repository / Release URL:',
-                            style: const TextStyle(fontSize: 11, color: Colors.grey),
-                          ),
-                          const SizedBox(height: 6),
-                          TextField(
-                            controller: _appTestUrlController,
-                            style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
-                            decoration: InputDecoration(
-                              isDense: true,
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
-                              hintText: 'https://github.com/iamcloner/v2raypro/releases',
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppTheme.primaryAccent,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 10),
-                            ),
-                            icon: const Icon(Icons.cloud_download_rounded, size: 18),
-                            label: Text(
-                              locale == 'fa' ? 'دانلود و نصب مستقیم فایل فشرده از این آدرس' : 'Download & Apply Update Directly from URL',
-                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                            ),
-                            onPressed: _appUpdating ? null : () => _downloadAppUpdateDirectly(_appTestUrlController.text.trim()),
-                          ),
-                          if (_downloadedAppPath != null) ...[
-                            const SizedBox(height: 10),
-                            Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: AppTheme.successColor.withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(6),
-                                border: Border.all(color: AppTheme.successColor.withValues(alpha: 0.3)),
-                              ),
-                              child: Row(
-                                children: [
-                                  const Icon(Icons.folder_zip_rounded, color: AppTheme.successColor, size: 18),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      'Saved to: $_downloadedAppPath',
-                                      style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ],
                 ),
               ],
             ),
@@ -797,33 +731,23 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                     ),
                   ),
                 ),
-                const Divider(height: 1),
-                SwitchListTile(
-                  secondary: const Icon(Icons.compare_arrows_rounded, color: Colors.tealAccent),
-                  title: Text(AppStrings.get('enable_udp', locale: locale)),
-                  subtitle: Text(AppStrings.get('enable_udp_desc', locale: locale), style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                  value: enableUdp,
-                  onChanged: (val) {
-                    ref.read(enableUdpProvider.notifier).toggle(val);
-                  },
-                ),
               ],
             ),
           ),
           const SizedBox(height: 20),
 
-          // 5. Cloudflare Scan Ranges
+          // 5. DNS Settings Card
           Card(
             clipBehavior: Clip.antiAlias,
             child: ExpansionTile(
               initiallyExpanded: false,
-              leading: const Icon(Icons.network_ping_rounded, color: AppTheme.secondaryAccent),
+              leading: const Icon(Icons.dns_rounded, color: AppTheme.primaryAccent),
               title: Text(
-                AppStrings.get('cf_ranges_title', locale: locale),
+                AppStrings.get('dns_settings_title', locale: locale),
                 style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
               ),
               subtitle: Text(
-                '${cfRanges.length} CIDR ranges configured  •  Tap to view / edit',
+                '${dnsSettings.servers.length} servers configured (${dnsSettings.presetId.toUpperCase()})  •  Tap to view / edit',
                 style: const TextStyle(fontSize: 12, color: Colors.grey),
               ),
               children: [
@@ -833,19 +757,131 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Text(
-                        AppStrings.get('cf_ranges_desc', locale: locale),
+                        AppStrings.get('dns_settings_desc', locale: locale),
                         style: const TextStyle(fontSize: 12, color: Colors.grey),
                       ),
                       const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: DnsSettings.presets.map((preset) {
+                          final isSelected = dnsSettings.presetId == preset.id;
+                          return ChoiceChip(
+                            label: Text(preset.name),
+                            selected: isSelected,
+                            selectedColor: AppTheme.primaryAccent.withValues(alpha: 0.2),
+                            onSelected: (selected) {
+                              if (selected) {
+                                ref.read(dnsSettingsProvider.notifier).setPreset(preset.id);
+                                if (preset.id != 'custom') {
+                                  _dnsServersController.text = preset.servers.join('\n');
+                                }
+                              }
+                            },
+                          );
+                        }).toList(),
+                      ),
+                      const SizedBox(height: 12),
                       TextField(
-                        controller: _cfRangesController,
+                        controller: _dnsServersController,
+                        maxLines: 4,
+                        style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+                        decoration: InputDecoration(
+                          hintText: AppStrings.get('custom_dns_hint', locale: locale),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                          filled: true,
+                          fillColor: Theme.of(context).cardColor,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppTheme.primaryAccent,
+                              foregroundColor: Colors.white,
+                            ),
+                            icon: const Icon(Icons.save_rounded, size: 16),
+                            label: Text(AppStrings.get('save_dns', locale: locale)),
+                            onPressed: () {
+                              final servers = _dnsServersController.text
+                                  .split(RegExp(r'[\n,]'))
+                                  .map((s) => s.trim())
+                                  .where((s) => s.isNotEmpty)
+                                  .toList();
+                              if (servers.isNotEmpty) {
+                                ref.read(dnsSettingsProvider.notifier).updateCustomServers(servers);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text(AppStrings.get('dns_saved', locale: locale))),
+                                );
+                              }
+                            },
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // 6. Multi-CDN IP Ranges Card
+          Card(
+            clipBehavior: Clip.antiAlias,
+            child: ExpansionTile(
+              initiallyExpanded: false,
+              leading: const Icon(Icons.network_ping_rounded, color: AppTheme.secondaryAccent),
+              title: Text(
+                AppStrings.get('cdn_ranges_title', locale: locale),
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              subtitle: Text(
+                '${cdnRanges[_selectedCdnForRanges]?.length ?? 0} CIDR ranges for ${_selectedCdnForRanges.displayName}  •  Tap to view / edit',
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        AppStrings.get('cdn_ranges_desc', locale: locale),
+                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: CdnProvider.values.map((cdn) {
+                          final isSelected = _selectedCdnForRanges == cdn;
+                          return ChoiceChip(
+                            label: Text(cdn.displayName),
+                            selected: isSelected,
+                            selectedColor: AppTheme.secondaryAccent.withValues(alpha: 0.2),
+                            onSelected: (selected) {
+                              if (selected) {
+                                setState(() {
+                                  _selectedCdnForRanges = cdn;
+                                  final list = ref.read(cdnRangesProvider)[cdn] ?? cdn.defaultCidrs;
+                                  _cdnRangesController.text = list.join('\n');
+                                });
+                              }
+                            },
+                          );
+                        }).toList(),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _cdnRangesController,
                         maxLines: 8,
                         style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
                         decoration: InputDecoration(
                           hintText: AppStrings.get('cf_ranges_hint', locale: locale),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                           filled: true,
                           fillColor: Theme.of(context).cardColor,
                         ),
@@ -858,12 +894,12 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                             icon: const Icon(Icons.restore_rounded, size: 16),
                             label: Text(AppStrings.get('reset_default', locale: locale)),
                             onPressed: () {
-                              ref.read(cfRangesProvider.notifier).resetToDefault();
+                              ref.read(cdnRangesProvider.notifier).resetToDefault(_selectedCdnForRanges);
                               setState(() {
-                                _cfRangesController.text = ref.read(cfRangesProvider).join('\n');
+                                _cdnRangesController.text = _selectedCdnForRanges.defaultCidrs.join('\n');
                               });
                               ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text(AppStrings.get('reset_default', locale: locale))),
+                                SnackBar(content: Text(AppStrings.get('ranges_reset', locale: locale))),
                               );
                             },
                           ),
@@ -876,12 +912,12 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                             icon: const Icon(Icons.save_rounded, size: 16),
                             label: Text(AppStrings.get('save_ranges', locale: locale)),
                             onPressed: () {
-                              final lines = _cfRangesController.text
+                              final lines = _cdnRangesController.text
                                   .split('\n')
                                   .map((l) => l.trim())
                                   .where((l) => l.isNotEmpty && !l.startsWith('#'))
                                   .toList();
-                              ref.read(cfRangesProvider.notifier).updateRanges(lines);
+                              ref.read(cdnRangesProvider.notifier).updateRanges(_selectedCdnForRanges, lines);
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(content: Text(AppStrings.get('ranges_saved', locale: locale))),
                               );

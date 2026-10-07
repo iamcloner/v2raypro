@@ -1,5 +1,6 @@
 import 'configs_view.dart';
 import 'subscriptions_view.dart';
+import 'free_configs_view.dart';
 import 'scanner_view.dart';
 import 'logs_view.dart';
 import 'settings_view.dart';
@@ -13,13 +14,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'models/proxy_node.dart';
 import 'models/scan_result.dart';
 import 'models/outbound_info.dart';
+import 'models/traffic_stats.dart';
 import 'core/ffi/rust_bridge.dart';
 import 'core/l10n/translations.dart';
 import 'core/theme/app_theme.dart';
 import 'providers/app_providers.dart';
 import 'services/cloudflare_scanner_service.dart';
+import 'services/cdn_scanner_service.dart';
 import 'services/tray_service.dart';
 import 'services/update_service.dart';
+import 'package:local_notifier/local_notifier.dart';
 import 'services/xray_process_service.dart';
 import 'utils/ip_mask_util.dart';
 import 'widgets/country_flag_badge.dart';
@@ -114,6 +118,7 @@ class _MainShellState extends ConsumerState<MainShell> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkAutoConnect();
+      _checkStartupUpdate();
     });
   }
 
@@ -129,21 +134,176 @@ class _MainShellState extends ConsumerState<MainShell> {
     }
   }
 
+  Future<void> _checkStartupUpdate() async {
+    // Wait briefly so UI mounts smoothly and startup connects if needed
+    await Future.delayed(const Duration(seconds: 3));
+    if (!mounted) return;
+
+    try {
+      final info = await UpdateService.instance.checkAppUpdate();
+      if (!mounted) return;
+
+      if (info.hasUpdate) {
+        final locale = ref.read(currentLocaleProvider);
+        try {
+          final notification = LocalNotification(
+            title: 'V2RayPro Update Available',
+            body: locale == 'fa'
+                ? 'نسخه جدید (${info.latestVersion}) برای برنامه در دسترس است.'
+                : 'A new version (${info.latestVersion}) is available.',
+          );
+          await notification.show();
+        } catch (_) {}
+
+        if (mounted) {
+          _showStartupUpdateDialog(info);
+        }
+      }
+    } catch (_) {
+      // Ignore network errors during silent background check on startup
+    }
+  }
+
+  void _showStartupUpdateDialog(UpdateInfo info) {
+    final locale = ref.read(currentLocaleProvider);
+    bool downloading = false;
+    double progress = 0.0;
+    String status = '';
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFF1E2230),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: Row(
+              children: [
+                const Icon(Icons.system_update_rounded, color: Colors.tealAccent, size: 28),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    locale == 'fa' ? 'به‌روزرسانی جدید موجود است' : 'New Update Available',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
+                ),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  locale == 'fa'
+                      ? 'نسخه جدید (${info.latestVersion}) در گیت‌هاب منتشر شده است.\nنسخه فعلی شما: ${UpdateService.currentAppVersion}\n\nآیا مایل به دانلود و نصب آخرین نسخه هستید؟'
+                      : 'A new version (${info.latestVersion}) is published.\nYour current version: ${UpdateService.currentAppVersion}\n\nWould you like to update now?',
+                  style: const TextStyle(fontSize: 13, height: 1.5, color: Colors.white70),
+                ),
+                if (status.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  Text(status, style: const TextStyle(fontSize: 12, color: Colors.tealAccent)),
+                  const SizedBox(height: 6),
+                  LinearProgressIndicator(
+                    value: progress > 0 ? progress : null,
+                    backgroundColor: Colors.white10,
+                    valueColor: const AlwaysStoppedAnimation<Color>(Colors.tealAccent),
+                  ),
+                ],
+              ],
+            ),
+            actions: [
+              if (!downloading)
+                TextButton(
+                  onPressed: () => Navigator.of(dialogCtx).pop(),
+                  child: Text(locale == 'fa' ? 'بعداً' : 'Later', style: const TextStyle(color: Colors.grey)),
+                ),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.successColor,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                ),
+                icon: downloading
+                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.downloading_rounded, size: 18),
+                label: Text(
+                  downloading
+                      ? (locale == 'fa' ? 'در حال نصب...' : 'Updating...')
+                      : (locale == 'fa' ? 'دانلود و نصب خودکار' : 'Update Now'),
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+                onPressed: downloading || info.downloadUrl == null
+                    ? null
+                    : () async {
+                        setDialogState(() {
+                          downloading = true;
+                          progress = 0.0;
+                          status = locale == 'fa' ? 'در حال دانلود بسته آپدیت...' : 'Downloading update package...';
+                        });
+
+                        try {
+                          final success = await UpdateService.instance.downloadAndApplyAppUpdate(
+                            info.downloadUrl!,
+                            onProgress: (phase, p) {
+                              setDialogState(() {
+                                progress = p;
+                                if (phase == 'downloading') {
+                                  status = locale == 'fa'
+                                      ? 'در حال دریافت بسته به‌روزرسانی (${(p * 100).toInt()}%)'
+                                      : 'Downloading update package (${(p * 100).toInt()}%)';
+                                } else if (phase == 'extracting') {
+                                  status = locale == 'fa' ? 'در حال استخراج فایل‌ها...' : 'Extracting files...';
+                                } else if (phase == 'applying') {
+                                  status = locale == 'fa' ? 'در حال جایگزینی و ریستارت برنامه...' : 'Applying update and restarting...';
+                                }
+                              });
+                            },
+                          );
+                          if (!success) {
+                            setDialogState(() {
+                              downloading = false;
+                              status = locale == 'fa' ? 'خطا در اعمال به‌روزرسانی.' : 'Failed to apply update.';
+                            });
+                          }
+                        } catch (e) {
+                          setDialogState(() {
+                            downloading = false;
+                            status = 'Error: $e';
+                          });
+                        }
+                      },
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final locale = ref.watch(currentLocaleProvider);
     final isDesktop = MediaQuery.of(context).size.width >= 700;
     final nodes = ref.watch(nodesProvider);
     final activeNode = nodes.isEmpty ? null : nodes.firstWhere((n) => n.isActive, orElse: () => nodes.first);
-    final cfHosts = ref.watch(cfCheckedHostsProvider);
-    final isCf = activeNode != null && (cfHosts[activeNode.address.trim().toLowerCase()] ?? ref.read(cfCheckedHostsProvider.notifier).isCloudflare(activeNode.address));
+    final cdnMap = ref.watch(nodeCdnMapProvider);
+    final activeCdn = activeNode != null
+        ? (cdnMap[activeNode.address.trim().toLowerCase()] ??
+            ref.read(nodeCdnMapProvider.notifier).detectCdn(activeNode.address))
+        : null;
+    final hasCdn = activeCdn != null;
+    final scannerLabel = hasCdn
+        ? (locale == 'fa' ? 'اسکنر ${activeCdn.displayNameFa}' : '${activeCdn.displayName} Scanner')
+        : (locale == 'fa' ? 'اسکنر' : 'Scanner');
 
-    // Build pages and nav items dynamically: Scanner is completely excluded if active node is not Cloudflare
+    // Build pages and nav items dynamically: Scanner is completely excluded if active node is not a CDN node
     final pages = <Widget>[
       const DashboardView(),
       const ConfigsView(),
       const SubscriptionsView(),
-      if (isCf) const ScannerView(),
+      const FreeConfigsView(),
+      if (hasCdn) const ScannerView(),
       const LogsView(),
       const SettingsView(),
     ];
@@ -240,10 +400,14 @@ class _MainShellState extends ConsumerState<MainShell> {
                   icon: const Icon(Icons.rss_feed_rounded),
                   label: Text(AppStrings.get('subscriptions', locale: locale)),
                 ),
-                if (isCf)
+                NavigationRailDestination(
+                  icon: const Icon(Icons.card_giftcard_rounded),
+                  label: Text(AppStrings.get('free_configs', locale: locale)),
+                ),
+                if (hasCdn)
                   NavigationRailDestination(
                     icon: const Icon(Icons.radar_rounded),
-                    label: Text(AppStrings.get('scanner', locale: locale)),
+                    label: Text(scannerLabel),
                   ),
                 NavigationRailDestination(
                   icon: const Icon(Icons.article_rounded),
@@ -327,10 +491,14 @@ class _MainShellState extends ConsumerState<MainShell> {
             icon: const Icon(Icons.rss_feed_rounded),
             label: AppStrings.get('subscriptions', locale: locale),
           ),
-          if (isCf)
+          NavigationDestination(
+            icon: const Icon(Icons.card_giftcard_rounded),
+            label: AppStrings.get('free_configs', locale: locale),
+          ),
+          if (hasCdn)
             NavigationDestination(
               icon: const Icon(Icons.radar_rounded),
-              label: AppStrings.get('scanner', locale: locale),
+              label: scannerLabel,
             ),
           NavigationDestination(
             icon: const Icon(Icons.article_rounded),
@@ -385,9 +553,7 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
     setState(() => _isTestingPing = true);
     final lat = await XrayProcessService.instance.testNodeLatency(node);
     if (mounted) {
-      if (lat != null) {
-        ref.read(nodesProvider.notifier).updateLatency(node.id, lat);
-      }
+      ref.read(nodesProvider.notifier).updateLatency(node.id, lat);
       setState(() => _isTestingPing = false);
     }
   }
@@ -409,12 +575,16 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
     final isTun = ref.watch(isTunEnabledProvider);
     final connectedAt = ref.watch(connectedAtProvider);
     final outbound = ref.watch(outboundInfoProvider);
-    final cfHosts = ref.watch(cfCheckedHostsProvider);
+    final traffic = ref.watch(trafficStatsProvider);
+    final cdnMap = ref.watch(nodeCdnMapProvider);
     final showFullIp = ref.watch(showFullIpProvider);
 
     final isConnected = status == ConnectionStateEnum.connected;
     final isConnecting = status == ConnectionStateEnum.connecting;
-    final isCf = activeNode != null && (cfHosts[activeNode.address.trim().toLowerCase()] ?? ref.read(cfCheckedHostsProvider.notifier).isCloudflare(activeNode.address));
+    final activeCdn = activeNode != null
+        ? (cdnMap[activeNode.address.trim().toLowerCase()] ??
+            ref.read(nodeCdnMapProvider.notifier).detectCdn(activeNode.address))
+        : null;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
@@ -438,7 +608,7 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                 locale: locale,
                 isConnected: isConnected,
                 isConnecting: isConnecting,
-                isCf: isCf,
+                activeCdn: activeCdn,
                 showFullIp: showFullIp,
               );
               final ipCard = _buildIpInfoCard(
@@ -600,7 +770,7 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
               Expanded(
                 child: _buildMetricTile(
                   title: AppStrings.get('download', locale: locale),
-                  value: isConnected ? '12.4 MB' : '0 B',
+                  value: isConnected ? TrafficStats.formatBytes(traffic.downlinkBytes) : '0 B',
                   icon: Icons.arrow_downward_rounded,
                   color: AppTheme.successColor,
                 ),
@@ -609,7 +779,7 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
               Expanded(
                 child: _buildMetricTile(
                   title: AppStrings.get('upload', locale: locale),
-                  value: isConnected ? '1.8 MB' : '0 B',
+                  value: isConnected ? TrafficStats.formatBytes(traffic.uplinkBytes) : '0 B',
                   icon: Icons.arrow_upward_rounded,
                   color: AppTheme.secondaryAccent,
                 ),
@@ -827,7 +997,7 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
     required String locale,
     required bool isConnected,
     required bool isConnecting,
-    required bool isCf,
+    required CdnProvider? activeCdn,
     required bool showFullIp,
   }) {
     return Card(
@@ -909,31 +1079,9 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  if (isCf) ...[
+                  if (activeCdn != null) ...[
                     const SizedBox(width: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: Colors.amber.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(color: Colors.amber, width: 0.8),
-                      ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.star_rounded, size: 13, color: Colors.amber),
-                          SizedBox(width: 2),
-                          Text(
-                            "CF",
-                            style: TextStyle(
-                              color: Colors.amber,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                    CdnBadge(cdn: activeCdn),
                   ],
                 ],
               ),

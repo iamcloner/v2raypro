@@ -5,6 +5,7 @@ import 'core/l10n/translations.dart';
 import 'core/theme/app_theme.dart';
 import 'models/scan_result.dart';
 import 'providers/app_providers.dart';
+import 'services/cdn_scanner_service.dart';
 import 'services/cloudflare_scanner_service.dart';
 
 class ScannerView extends ConsumerStatefulWidget {
@@ -49,9 +50,21 @@ class _ScannerViewState extends ConsumerState<ScannerView>
         ? null
         : nodes.firstWhere((n) => n.isActive, orElse: () => nodes.first);
     final locale = ref.watch(currentLocaleProvider);
-    final isCf = activeNode != null &&
-        CloudflareScannerService.isCloudflareIp(
-            activeNode.address, ref.watch(cfRangesProvider));
+    final cdnMap = ref.watch(nodeCdnMapProvider);
+    final detectedCdn = activeNode != null
+        ? (cdnMap[activeNode.address.trim().toLowerCase()] ??
+            ref.read(nodeCdnMapProvider.notifier).detectCdn(activeNode.address))
+        : null;
+
+    if (detectedCdn != null && state.selectedCdn != detectedCdn && !state.isScanning) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          ref.read(scannerProvider.notifier).setSelectedCdn(detectedCdn);
+        }
+      });
+    }
+
+    final currentCdn = state.selectedCdn;
 
     // Keep sliders in sync with provider if not editing
     if (!state.isScanning) {
@@ -82,7 +95,7 @@ class _ScannerViewState extends ConsumerState<ScannerView>
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // 1. Target Node Info Header with Reset & Restore Buttons
-            _buildNodeHeaderCard(activeNode, isCf, locale),
+            _buildNodeHeaderCard(activeNode, currentCdn, detectedCdn, locale),
             const SizedBox(height: 16),
 
             // 2. Strategy Switcher with Info Guide Button
@@ -90,7 +103,7 @@ class _ScannerViewState extends ConsumerState<ScannerView>
             const SizedBox(height: 16),
 
             // 3. Scan Concurrency Slider & Action Controls
-            _buildControlsCard(state, activeNode, isCf, locale),
+            _buildControlsCard(state, activeNode, locale),
             const SizedBox(height: 16),
 
             // 4. Progress Indicator (only while active scanning)
@@ -110,7 +123,16 @@ class _ScannerViewState extends ConsumerState<ScannerView>
     );
   }
 
-  Widget _buildNodeHeaderCard(dynamic activeNode, bool isCf, String locale) {
+  Widget _buildNodeHeaderCard(
+    dynamic activeNode,
+    CdnProvider currentCdn,
+    CdnProvider? detectedCdn,
+    String locale,
+  ) {
+    final origAddr = activeNode?.originalAddress ?? activeNode?.address;
+    final isDomain = origAddr != null &&
+        !origAddr.toString().contains(RegExp(r'^\d+\.\d+\.\d+\.\d+$'));
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
@@ -126,7 +148,7 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                         color: AppTheme.primaryAccent, size: 22),
                     const SizedBox(width: 8),
                     Text(
-                      AppStrings.get('scanner', locale: locale),
+                      locale == 'fa' ? 'اسکنر ${currentCdn.displayNameFa}' : '${currentCdn.displayName} Scanner',
                       style: const TextStyle(
                           fontSize: 18, fontWeight: FontWeight.bold),
                     ),
@@ -184,6 +206,57 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                 ),
               ],
             ),
+            const SizedBox(height: 12),
+            // Target CDN Selection Chips
+            Row(
+              children: [
+                Text(
+                  '${AppStrings.get('cdn_select', locale: locale)}: ',
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: CdnProvider.values.map((cdn) {
+                        final isSelected = cdn == currentCdn;
+                        final isDetected = cdn == detectedCdn;
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: ChoiceChip(
+                            label: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (isDetected) ...[
+                                  const Icon(Icons.check_circle_rounded,
+                                      size: 13, color: Colors.greenAccent),
+                                  const SizedBox(width: 4),
+                                ],
+                                Text(locale == 'fa'
+                                    ? cdn.displayNameFa
+                                    : cdn.displayName),
+                              ],
+                            ),
+                            selected: isSelected,
+                            selectedColor: AppTheme.primaryAccent.withValues(alpha: 0.3),
+                            onSelected: ref.watch(scannerProvider).isScanning
+                                ? null
+                                : (selected) {
+                                    if (selected) {
+                                      ref
+                                          .read(scannerProvider.notifier)
+                                          .setSelectedCdn(cdn);
+                                    }
+                                  },
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 10),
             Row(
               children: [
@@ -191,30 +264,35 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                   child: Text(
                     activeNode == null
                         ? AppStrings.get('no_nodes', locale: locale)
-                        : '${activeNode.name} (${activeNode.address})',
+                        : (activeNode.originalAddress != null
+                            ? '${activeNode.name} • ${activeNode.originalAddress} -> ${activeNode.address}'
+                            : (isDomain
+                                ? '${activeNode.name} (${activeNode.address})'
+                                : '${activeNode.name} (${activeNode.address})')),
                     style: const TextStyle(color: Colors.grey, fontSize: 13),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                if (isCf) ...[
+                if (detectedCdn != null) ...[
                   const SizedBox(width: 8),
                   Container(
                     padding:
                         const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
-                      color: Colors.amber.withValues(alpha: 0.2),
+                      color: Colors.greenAccent.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: Colors.amber, width: 0.8),
+                      border: Border.all(color: Colors.greenAccent, width: 0.8),
                     ),
-                    child: const Row(
+                    child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.star_rounded, size: 13, color: Colors.amber),
-                        SizedBox(width: 3),
+                        const Icon(Icons.check_circle_outline_rounded,
+                            size: 12, color: Colors.greenAccent),
+                        const SizedBox(width: 3),
                         Text(
-                          "CF",
-                          style: TextStyle(
-                            color: Colors.amber,
+                          detectedCdn.displayName,
+                          style: const TextStyle(
+                            color: Colors.greenAccent,
                             fontSize: 11,
                             fontWeight: FontWeight.bold,
                           ),
@@ -225,30 +303,11 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                 ],
               ],
             ),
-            if (activeNode != null && !isCf) ...[
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.amber.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
-                  border:
-                      Border.all(color: Colors.amber.withValues(alpha: 0.3)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.info_outline_rounded,
-                        color: Colors.amber, size: 20),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        AppStrings.get('scanner_cf_only_notice', locale: locale),
-                        style:
-                            const TextStyle(color: Colors.amber, fontSize: 12),
-                      ),
-                    ),
-                  ],
-                ),
+            if (activeNode != null && isDomain) ...[
+              const SizedBox(height: 8),
+              Text(
+                '${AppStrings.get('domain_detected', locale: locale)}: ${currentCdn.displayName} (SNI & Host preserved)',
+                style: const TextStyle(color: Colors.cyanAccent, fontSize: 11),
               ),
             ],
           ],
@@ -377,7 +436,7 @@ class _ScannerViewState extends ConsumerState<ScannerView>
   }
 
   Widget _buildControlsCard(
-      ScannerState state, dynamic activeNode, bool isCf, String locale) {
+      ScannerState state, dynamic activeNode, String locale) {
     final isRadar = state.strategy == ScannerStrategy.radar;
     return Card(
       child: Padding(
@@ -581,7 +640,7 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                       style: const TextStyle(
                           fontSize: 15, fontWeight: FontWeight.bold),
                     ),
-                    onPressed: (activeNode == null || !isCf)
+                    onPressed: (activeNode == null)
                         ? null
                         : () {
                             if (state.isScanning) {

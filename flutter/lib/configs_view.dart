@@ -14,6 +14,7 @@ import 'utils/config_parser.dart';
 import 'utils/ip_mask_util.dart';
 import 'widgets/add_config_dialog.dart';
 import 'widgets/edit_config_dialog.dart';
+import 'widgets/country_flag_badge.dart';
 
 class ConfigsView extends ConsumerStatefulWidget {
   const ConfigsView({super.key});
@@ -35,7 +36,7 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
     if (text.isEmpty) return;
 
     // 1. Try URL parsing (vless, vmess, trojan, ss)
-    final nodes = ConfigParser.parseBatch(text);
+    final nodes = await ConfigParser.parseBatchAsync(text);
     if (nodes.isNotEmpty) {
       ref.read(nodesProvider.notifier).addNodes(nodes);
       if (mounted) {
@@ -152,13 +153,16 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
         _testingNodeIds.addAll(chunk.map((n) => n.id));
       });
 
+      final chunkResults = <String, int?>{};
       await Future.wait(chunk.map((n) async {
         if (_cancelTestingAll) return;
         final lat = await XrayProcessService.instance.testNodeLatency(n);
-        if (mounted) {
-          ref.read(nodesProvider.notifier).updateLatency(n.id, lat);
-        }
+        chunkResults[n.id] = lat;
       }));
+
+      if (mounted && chunkResults.isNotEmpty) {
+        ref.read(nodesProvider.notifier).updateLatenciesBatch(chunkResults);
+      }
 
       if (mounted) {
         setState(() {
@@ -177,17 +181,80 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
     }
   }
 
+  Future<void> _deleteDeadNodes(List<ProxyNode> customNodes, String locale) async {
+    final deadNodes = customNodes.where((n) => n.hasTimedOut).toList();
+    if (deadNodes.isEmpty) {
+      final untestedCount = customNodes.where((n) => n.isUntested).length;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            untestedCount > 0
+                ? (locale == 'fa'
+                    ? 'ابتدا با دکمه «تست پینگ همه» کانفیگ‌ها را بررسی کنید تا بی‌پاسخ‌ها مشخص شوند.'
+                    : 'Run "Test All Ping" first to check and mark timed-out configs.')
+                : AppStrings.get('delete_dead_none', locale: locale),
+          ),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.delete_sweep_rounded, color: Colors.redAccent),
+            const SizedBox(width: 8),
+            Text(AppStrings.get('confirm_delete_dead_title', locale: locale)),
+          ],
+        ),
+        content: Text(
+          AppStrings.get('confirm_delete_dead_msg', locale: locale)
+              .replaceAll('{count}', deadNodes.length.toString()),
+        ),
+        actions: [
+          TextButton(
+            child: Text(AppStrings.get('cancel_scan', locale: locale)),
+            onPressed: () => Navigator.pop(ctx, false),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+            child: Text(AppStrings.get('delete_dead_configs', locale: locale)),
+            onPressed: () => Navigator.pop(ctx, true),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      final removed = ref.read(nodesProvider.notifier).removeDeadNodes(onlyCustom: true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            AppStrings.get('delete_dead_success', locale: locale)
+                .replaceAll('{count}', removed.toString()),
+          ),
+          backgroundColor: Colors.redAccent.shade700,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final allNodes = ref.watch(nodesProvider);
     final nodes = allNodes.where((n) => n.subscriptionId == null).toList();
-    // Sort by latest ping latency ascending (lowest ping first, null/untested last)
+    // Sort by status: working nodes first (lowest ping to highest), then untested, then timed-out last
     nodes.sort((a, b) {
-      if (a.latencyMs != null && b.latencyMs != null) {
+      if (a.hasValidPing && b.hasValidPing) {
         return a.latencyMs!.compareTo(b.latencyMs!);
       }
-      if (a.latencyMs != null && b.latencyMs == null) return -1;
-      if (a.latencyMs == null && b.latencyMs != null) return 1;
+      if (a.hasValidPing && !b.hasValidPing) return -1;
+      if (!a.hasValidPing && b.hasValidPing) return 1;
+      if (a.isUntested && b.hasTimedOut) return -1;
+      if (a.hasTimedOut && b.isUntested) return 1;
       return a.name.compareTo(b.name);
     });
     final locale = ref.watch(currentLocaleProvider);
@@ -216,7 +283,7 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
                     ),
                     Row(
                       children: [
-                        if (nodes.isNotEmpty)
+                        if (nodes.isNotEmpty) ...[
                           OutlinedButton.icon(
                             style: _isTestingAll
                                 ? OutlinedButton.styleFrom(
@@ -245,7 +312,18 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
                             ),
                             onPressed: () => _testAllNodes(nodes),
                           ),
-                        const SizedBox(width: 12),
+                          const SizedBox(width: 8),
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.redAccent,
+                              side: BorderSide(color: Colors.redAccent.withValues(alpha: 0.6), width: 1.2),
+                            ),
+                            icon: const Icon(Icons.delete_sweep_rounded, size: 18),
+                            label: Text(AppStrings.get('delete_dead_configs', locale: locale)),
+                            onPressed: () => _deleteDeadNodes(nodes, locale),
+                          ),
+                          const SizedBox(width: 12),
+                        ],
                         FilledButton.icon(
                           style: FilledButton.styleFrom(backgroundColor: AppTheme.primaryAccent),
                           icon: const Icon(Icons.add),
@@ -286,8 +364,8 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
                       itemBuilder: (context, index) {
                         final node = nodes[index];
                         final isTesting = _testingNodeIds.contains(node.id);
-                        final cfHosts = ref.watch(cfCheckedHostsProvider);
-                        final isCf = cfHosts[node.address.trim().toLowerCase()] ?? ref.read(cfCheckedHostsProvider.notifier).isCloudflare(node.address);
+                        final cdnMap = ref.watch(nodeCdnMapProvider);
+                        final cdn = cdnMap[node.address.trim().toLowerCase()] ?? ref.read(nodeCdnMapProvider.notifier).detectCdn(node.address);
 
                         return Card(
                           child: ListTile(
@@ -304,34 +382,9 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
-                                if (isCf) ...[
+                                if (cdn != null) ...[
                                   const SizedBox(width: 6),
-                                  Tooltip(
-                                    message: "Cloudflare IP (★)",
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        color: Colors.amber.withValues(alpha: 0.2),
-                                        borderRadius: BorderRadius.circular(4),
-                                        border: Border.all(color: Colors.amber, width: 0.8),
-                                      ),
-                                      child: const Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(Icons.star_rounded, size: 14, color: Colors.amber),
-                                          SizedBox(width: 2),
-                                          Text(
-                                            "CF",
-                                            style: TextStyle(
-                                              color: Colors.amber,
-                                              fontSize: 10,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
+                                  CdnBadge(cdn: cdn),
                                 ],
                               ],
                             ),
@@ -350,12 +403,13 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
                                       child: CircularProgressIndicator(strokeWidth: 2),
                                     ),
                                   )
-                                else if (node.latencyMs != null)
+                                else if (node.hasValidPing)
                                   Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                     decoration: BoxDecoration(
                                       color: AppTheme.successColor.withValues(alpha: 0.15),
                                       borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: AppTheme.successColor.withValues(alpha: 0.3), width: 0.8),
                                     ),
                                     child: Text(
                                       '${node.latencyMs} ms',
@@ -364,6 +418,30 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
                                         fontSize: 12,
                                         fontWeight: FontWeight.bold,
                                       ),
+                                    ),
+                                  )
+                                else if (node.hasTimedOut)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: AppTheme.errorColor.withValues(alpha: 0.15),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: AppTheme.errorColor.withValues(alpha: 0.4), width: 0.8),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(Icons.cloud_off_rounded, size: 12, color: AppTheme.errorColor),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          AppStrings.get('timeout', locale: locale),
+                                          style: const TextStyle(
+                                            color: AppTheme.errorColor,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 IconButton(
