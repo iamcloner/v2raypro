@@ -7,6 +7,7 @@ build/ios/
 build/linux/
 build/macos/
 build/web/
+dist/
 *.zip
 
 flutter/build/
@@ -24,7 +25,8 @@ rust/target/
 # Runtime Configs & Logs
 # ========================================================
 *.log
-**/v2raypro_active_config.json
+**/v2raypro_*.json
+scratch/
 test_tun.json
 test_generated_tun.json
 
