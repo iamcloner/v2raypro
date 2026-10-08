@@ -675,6 +675,25 @@ loc=XX
       // Cleanup
       XrayProcessService.instance.routingRules = [];
     });
+
+    test('XrayProcessService fast timeout quickly fails unreachable nodes', () async {
+      final node = ProxyNode(
+        id: 'unreachable-test',
+        name: 'Dead Node',
+        protocol: ProtocolType.vless,
+        address: '192.0.2.1',
+        port: 443,
+        uuidOrPassword: 'uuid-1234',
+      );
+      final sw = Stopwatch()..start();
+      final res = await XrayProcessService.instance.testNodeRealDelay(
+        node,
+        timeout: const Duration(milliseconds: 200),
+      );
+      sw.stop();
+      expect(res.isSuccess, isFalse);
+      expect(sw.elapsedMilliseconds, lessThan(2000));
+    });
   });
 }
 

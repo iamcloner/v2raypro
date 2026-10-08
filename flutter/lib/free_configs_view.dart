@@ -404,20 +404,6 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
                                     ),
                                   const SizedBox(width: 8),
 
-                                  // Copy link button
-                                  IconButton(
-                                    icon: const Icon(Icons.copy_rounded, size: 18),
-                                    tooltip: AppStrings.get('copy_ip', locale: locale),
-                                    onPressed: () {
-                                      final uri = node.toVlessUri();
-                                      Clipboard.setData(ClipboardData(text: uri));
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(content: Text(AppStrings.get('share_copied', locale: locale))),
-                                      );
-                                    },
-                                  ),
-                                  const SizedBox(width: 6),
-
                                   // Connect Action Button
                                   if (isThisNodeConnecting)
                                     const SizedBox(

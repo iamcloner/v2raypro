@@ -65,6 +65,7 @@ class XrayProcessService {
   List<RoutingRule> routingRules = [];
   String? lastLog;
   String? lastErrorLog;
+  static int _nextBatchPort = 29200;
 
   Timer? _trafficTimer;
   final _trafficStreamController = StreamController<TrafficStats>.broadcast();
@@ -772,7 +773,10 @@ class XrayProcessService {
     final xrayBin = _findXrayBinary();
     if (xrayBin == null) return {};
 
-    final basePort = 29200 + (Random().nextInt(400) * 10);
+    final basePort = _nextBatchPort;
+    _nextBatchPort += validNodes.length + 5;
+    if (_nextBatchPort > 55000) _nextBatchPort = 29200;
+
     final inbounds = <Map<String, dynamic>>[];
     final outbounds = <Map<String, dynamic>>[];
     final rules = <Map<String, dynamic>>[];
@@ -821,21 +825,13 @@ class XrayProcessService {
     try {
       await tempFile.writeAsString(jsonEncode(testConfig));
 
-      final valResult = await Process.run(xrayBin, ['run', '-test', '-c', tempFile.path]);
-      if (valResult.exitCode != 0) {
-        if (validNodes.length > 1) {
-          final singleResults = <String, NodeTestResult>{};
-          for (final singleNode in validNodes) {
-            final res = await testNodesBatchRealProxy([singleNode], timeout: timeout);
-            singleResults.addAll(res);
-          }
-          return singleResults;
-        }
-        return {};
-      }
-
-      proc = await Process.start(xrayBin, ['run', '-c', tempFile.path]);
-      await Future.delayed(const Duration(milliseconds: 250));
+      proc = await Process.start(
+        xrayBin,
+        ['run', '-c', tempFile.path],
+        workingDirectory: File(xrayBin).parent.path,
+      );
+      // Fast startup delay for localhost socket binding
+      await Future.delayed(const Duration(milliseconds: 40));
 
       final results = <String, NodeTestResult>{};
       await Future.wait(List.generate(validNodes.length, (i) async {
@@ -846,11 +842,12 @@ class XrayProcessService {
         client.connectionTimeout = timeout;
 
         // 1. Primary: Cloudflare cdn-cgi/trace gives real exit IP and exit country code
-        // 1. Primary: Cloudflare cdn-cgi/trace gives real exit IP and exit country code
         final sw = Stopwatch()..start();
+        bool proxyConnected = false;
         try {
           final r = await client.getUrl(Uri.parse('http://cp.cloudflare.com/cdn-cgi/trace')).timeout(timeout);
           final resp = await r.close().timeout(timeout);
+          proxyConnected = true;
           if (resp.statusCode == 200) {
             final body = await resp.transform(utf8.decoder).join().timeout(timeout);
             sw.stop();
@@ -873,7 +870,8 @@ class XrayProcessService {
         } catch (_) {}
 
         // 2. Secondary: ip-api.com gives authentic exit IP and exit country
-        if (!results.containsKey(node.id)) {
+        // Only attempted if proxy connected (prevent wasting timeouts on dead nodes)
+        if (!results.containsKey(node.id) && proxyConnected) {
           final swApi = Stopwatch()..start();
           try {
             final r = await client.getUrl(Uri.parse('http://ip-api.com/json/')).timeout(timeout);
@@ -899,7 +897,7 @@ class XrayProcessService {
 
         // 3. Fallback if exit IP endpoints were blocked but node has internet connectivity:
         // Set countryCode to null (Unknown) since exit country cannot be accurately determined
-        if (!results.containsKey(node.id)) {
+        if (!results.containsKey(node.id) && proxyConnected) {
           final fallbackUrls = [
             'http://cp.cloudflare.com/generate_204',
             'http://www.google.com/generate_204',
@@ -947,7 +945,7 @@ class XrayProcessService {
   /// 3. Fallback: performs direct transport protocol handshake test to the destination server.
   Future<NodeTestResult> testNodeRealDelay(
     ProxyNode node, {
-    Duration timeout = const Duration(seconds: 4),
+    Duration timeout = const Duration(milliseconds: 2800),
   }) async {
     // 1. If this node is currently connected and active in Xray, test real end-to-end internet ping via local proxy
     if (_state == EngineState.running && _activeRunningNode?.id == node.id) {
@@ -1091,11 +1089,14 @@ class XrayProcessService {
     return null;
   }
 
-  Future<int?> _testNodeRealProtocolDelay(ProxyNode node, {Duration timeout = const Duration(seconds: 4)}) async {
+  Future<int?> _testNodeRealProtocolDelay(ProxyNode node, {Duration timeout = const Duration(milliseconds: 2800)}) async {
+    final effectiveTimeout = timeout > const Duration(milliseconds: 1000)
+        ? const Duration(milliseconds: 800)
+        : timeout;
     final sw = Stopwatch()..start();
     Socket? rawSocket;
     try {
-      rawSocket = await Socket.connect(node.address, node.port, timeout: timeout);
+      rawSocket = await Socket.connect(node.address, node.port, timeout: effectiveTimeout);
       Socket activeSocket = rawSocket;
 
       final host = (node.host != null && node.host!.isNotEmpty)
@@ -1111,7 +1112,7 @@ class XrayProcessService {
             rawSocket,
             host: sni,
             onBadCertificate: (_) => node.allowInsecure || globalAllowInsecure,
-          ).timeout(timeout);
+          ).timeout(effectiveTimeout);
         } catch (_) {
           rawSocket.destroy();
           return null;
@@ -1124,7 +1125,7 @@ class XrayProcessService {
             rawSocket,
             host: sni,
             onBadCertificate: (_) => true,
-          ).timeout(timeout);
+          ).timeout(effectiveTimeout);
           activeSocket = probe;
         } catch (_) {
           // Expected for Reality nodes without full uTLS client
@@ -1203,7 +1204,7 @@ class XrayProcessService {
           },
         );
 
-        final result = await completer.future.timeout(timeout, onTimeout: () => null);
+        final result = await completer.future.timeout(effectiveTimeout, onTimeout: () => null);
         await subscription.cancel();
         activeSocket.destroy();
         return result;
@@ -1233,7 +1234,7 @@ class XrayProcessService {
           },
         );
 
-        final result = await completer.future.timeout(timeout, onTimeout: () => null);
+        final result = await completer.future.timeout(effectiveTimeout, onTimeout: () => null);
         await subscription.cancel();
         activeSocket.destroy();
         return result;

@@ -204,7 +204,7 @@ class FreeConfigsService {
 
           final res = await XrayProcessService.instance.testNodeRealDelay(
             node,
-            timeout: const Duration(seconds: 4),
+            timeout: const Duration(milliseconds: 2800),
           );
           if (_isCancelled) break;
 
