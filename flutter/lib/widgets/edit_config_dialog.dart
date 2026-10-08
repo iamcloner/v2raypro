@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/l10n/translations.dart';
 import '../core/theme/app_theme.dart';
@@ -40,6 +40,7 @@ class _EditConfigDialogState extends ConsumerState<EditConfigDialog> {
   late ProtocolType _protocol;
   late NetworkType _network;
   late SecurityType _security;
+  late bool _allowInsecure;
 
   @override
   void initState() {
@@ -58,6 +59,7 @@ class _EditConfigDialogState extends ConsumerState<EditConfigDialog> {
     _protocol = n.protocol;
     _network = n.network;
     _security = n.security;
+    _allowInsecure = n.allowInsecure;
   }
 
   @override
@@ -89,6 +91,7 @@ class _EditConfigDialogState extends ConsumerState<EditConfigDialog> {
       path: _pathController.text.trim().isEmpty ? null : _pathController.text.trim(),
       publicKey: _publicKeyController.text.trim().isEmpty ? null : _publicKeyController.text.trim(),
       shortId: _shortIdController.text.trim().isEmpty ? null : _shortIdController.text.trim(),
+      allowInsecure: _allowInsecure,
     );
 
     ref.read(nodesProvider.notifier).updateNode(updated);
@@ -256,6 +259,23 @@ class _EditConfigDialogState extends ConsumerState<EditConfigDialog> {
                   ),
                 ],
               ),
+              if (_security == SecurityType.tls) ...[
+                const SizedBox(height: 8),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: Text(
+                    AppStrings.get('allow_insecure', locale: loc),
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: Text(
+                    AppStrings.get('allow_insecure_desc', locale: loc),
+                    style: TextStyle(fontSize: 11, color: Colors.grey.shade400),
+                  ),
+                  value: _allowInsecure,
+                  onChanged: (val) => setState(() => _allowInsecure = val),
+                ),
+              ],
               const SizedBox(height: 12),
               TextField(
                 controller: _pathController,

@@ -244,7 +244,8 @@ class NodesNotifier extends StateNotifier<List<ProxyNode>> {
               addr.startsWith('162.159.') ||
               addr.startsWith('8.6.') ||
               addr.contains('fastly') ||
-              addr.contains('cloudflare');
+              addr.contains('cloudflare') ||
+              CountryService.isCdnOrCloudflare(addr);
           if (isCdnOrCloudflare || n.subscriptionId == 'free_configs') {
             cCode = null;
             cName = null;
@@ -314,10 +315,23 @@ class NodesNotifier extends StateNotifier<List<ProxyNode>> {
   void updateLatency(String id, int? latencyMs, {String? countryCode, String? country}) {
     state = state.map((n) {
       if (n.id == id) {
+        final bool isSuccess = latencyMs != null && latencyMs > 0;
+        final String? fromName = CountryService.extractCountryCodeFromName(n.name);
+        final String? verifiedCountryCode = isSuccess
+            ? (countryCode ?? n.countryCode)
+            : fromName;
+        final String? verifiedCountry = isSuccess
+            ? (country ?? (verifiedCountryCode != null ? CountryService.getCountryName(verifiedCountryCode) : n.country))
+            : (fromName != null ? CountryService.getCountryName(fromName) : null);
+
+        final bool clearCountry = !isSuccess && fromName == null;
+
         return n.copyWith(
           latencyMs: latencyMs,
-          countryCode: countryCode ?? n.countryCode,
-          country: country ?? n.country,
+          clearLatency: latencyMs == null,
+          clearCountry: clearCountry,
+          countryCode: verifiedCountryCode,
+          country: verifiedCountry,
           lastTestedAt: DateTime.now(),
         );
       }
@@ -331,10 +345,20 @@ class NodesNotifier extends StateNotifier<List<ProxyNode>> {
     final now = DateTime.now();
     state = state.map((n) {
       if (latencies.containsKey(n.id)) {
-        final cCode = countryCodes?[n.id] ?? n.countryCode;
+        final lat = latencies[n.id];
+        final bool isSuccess = lat != null && lat > 0;
+        final String? fromName = CountryService.extractCountryCodeFromName(n.name);
+        final cCode = isSuccess
+            ? (countryCodes?[n.id] ?? n.countryCode)
+            : fromName;
+        final bool clearCountry = !isSuccess && fromName == null;
+
         return n.copyWith(
-          latencyMs: latencies[n.id],
+          latencyMs: lat,
+          clearLatency: lat == null,
+          clearCountry: clearCountry,
           countryCode: cCode,
+          country: cCode != null ? CountryService.getCountryName(cCode) : null,
           lastTestedAt: now,
         );
       }

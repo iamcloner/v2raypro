@@ -122,6 +122,9 @@ class XrayProcessService {
       final tls = <String, dynamic>{
         "serverName": node.sni ?? node.host ?? node.address,
       };
+      if (node.allowInsecure) {
+        tls["allowInsecure"] = true;
+      }
       if (node.fingerprint != null && node.fingerprint!.isNotEmpty) {
         tls["fingerprint"] = node.fingerprint;
       }
@@ -925,10 +928,10 @@ class XrayProcessService {
       } catch (_) {}
     }
 
-    // 3. Fallback to direct real protocol handshake latency test
+    // 3. Fallback protocol handshake test (strictly respecting TLS certificate validity):
     final handshakeLat = await _testNodeRealProtocolDelay(node, timeout: timeout);
     if (handshakeLat != null && handshakeLat > 0) {
-      final cCode = CountryService.extractCountryCodeFromName(node.name) ?? node.countryCode;
+      final cCode = CountryService.extractCountryCodeFromName(node.name);
       return NodeTestResult(
         latencyMs: handshakeLat,
         countryCode: cCode,
@@ -1059,10 +1062,11 @@ class XrayProcessService {
           activeSocket = await SecureSocket.secure(
             rawSocket,
             host: sni,
-            onBadCertificate: (_) => true,
+            onBadCertificate: (_) => node.allowInsecure,
           ).timeout(timeout);
         } catch (_) {
-          // If SecureSocket fails, connection already established over TCP
+          rawSocket.destroy();
+          return null;
         }
       } else if (node.security == SecurityType.reality) {
         // Reality uses uTLS which Dart SecureSocket does not natively handle.

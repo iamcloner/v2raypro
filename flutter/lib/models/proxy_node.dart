@@ -191,6 +191,7 @@ class ProxyNode {
     bool? isActive,
     String? originalAddress,
     bool clearOriginalAddress = false,
+    bool clearCountry = false,
     String? countryCode,
     String? country,
   }) {
@@ -228,8 +229,8 @@ class ProxyNode {
       lastTestedAt: lastTestedAt ?? this.lastTestedAt,
       isActive: isActive ?? this.isActive,
       originalAddress: clearOriginalAddress ? null : (originalAddress ?? this.originalAddress),
-      countryCode: countryCode ?? this.countryCode,
-      country: country ?? this.country,
+      countryCode: clearCountry ? null : (countryCode ?? this.countryCode),
+      country: clearCountry ? null : (country ?? this.country),
     );
   }
 

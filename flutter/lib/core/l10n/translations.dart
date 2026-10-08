@@ -227,6 +227,8 @@ class AppStrings {
       "free_configs_ready": "{count} verified free configs ready to use",
       "scanning_free_subs": "Fetching and scanning free subscriptions...",
       "found_of_target": "Found {count} of {target} responsive configs",
+      "allow_insecure": "Allow Insecure (Skip TLS Verify)",
+      "allow_insecure_desc": "Ignore TLS certificate errors (useful for CDN clean IPs)",
     },
     "fa": {
       "app_title": "وی‌تو‌ری پرو",
@@ -455,6 +457,8 @@ class AppStrings {
       "free_configs_ready": "{count} کانفیگ فعال و سالم آماده اتصال",
       "scanning_free_subs": "در حال دریافت و اسکن ساب‌های رایگان...",
       "found_of_target": "یافت شد: {count} از {target} کانفیگ سالم",
+      "allow_insecure": "نادیده گرفتن خطای گواهینامه TLS (Allow Insecure)",
+      "allow_insecure_desc": "رد کردن خطای عدم تطابق گواهینامه (مناسب برای آی‌پی‌های تمیز CDN)",
     }
   };
 

@@ -238,5 +238,82 @@ loc=XX
       );
       expect(CountryService.resolveSync(nodeNl), equals('NL'));
     });
+
+    test('XrayProcessService.generateXrayConfig includes allowInsecure in tlsSettings when enabled', () {
+      final nodeInsecure = ProxyNode(
+        id: 'node-insecure-1',
+        name: 'Insecure Node',
+        protocol: ProtocolType.vmess,
+        address: '151.101.201.135',
+        port: 443,
+        uuidOrPassword: 'test-uuid',
+        security: SecurityType.tls,
+        sni: 'ssl.fastly.com',
+        allowInsecure: true,
+      );
+
+      final config = XrayProcessService.instance.generateXrayConfig(nodeInsecure);
+      final outbounds = config['outbounds'] as List;
+      final proxyOut = outbounds.firstWhere((o) => o['tag'] == 'proxy') as Map<String, dynamic>;
+      final tlsSettings = proxyOut['streamSettings']['tlsSettings'] as Map<String, dynamic>;
+
+      expect(tlsSettings['allowInsecure'], isTrue);
+      expect(tlsSettings['serverName'], equals('ssl.fastly.com'));
+    });
+
+    test('ConfigParser parses allowInsecure for VMess, VLESS, and Trojan', () {
+      final vmessJson = jsonEncode({
+        'v': '2',
+        'ps': 'Test VMess Insecure',
+        'add': '151.101.201.135',
+        'port': 443,
+        'id': 'uuid-1234',
+        'aid': 0,
+        'net': 'ws',
+        'tls': 'tls',
+        'sni': 'ssl.fastly.com',
+        'allowInsecure': true,
+      });
+      final vmessNode = ConfigParser.parseSingle('vmess://${base64Encode(utf8.encode(vmessJson))}');
+      expect(vmessNode, isNotNull);
+      expect(vmessNode!.allowInsecure, isTrue);
+
+      final vlessNode = ConfigParser.parseSingle(
+        'vless://uuid-1234@151.101.201.135:443?security=tls&sni=ssl.fastly.com&insecure=1#VlessInsecure',
+      );
+      expect(vlessNode, isNotNull);
+      expect(vlessNode!.allowInsecure, isTrue);
+
+      final trojanNode = ConfigParser.parseSingle(
+        'trojan://pass123@151.101.201.135:443?security=tls&sni=ssl.fastly.com&allowInsecure=1#TrojanInsecure',
+      );
+      expect(trojanNode, isNotNull);
+      expect(trojanNode!.allowInsecure, isTrue);
+    });
+
+    test('updateLatency clears false country if node test times out', () {
+      final container = ProviderContainer();
+      final node = ProxyNode(
+        id: 'node-fail-test',
+        name: 'Some Server',
+        protocol: ProtocolType.vmess,
+        address: '151.101.201.135',
+        port: 443,
+        uuidOrPassword: 'uuid-123',
+        countryCode: 'US',
+        country: 'United States',
+      );
+
+      container.read(nodesProvider.notifier).addNode(node);
+
+      // Node test fails (latencyMs = null)
+      container.read(nodesProvider.notifier).updateLatency('node-fail-test', null);
+
+      final updated = container.read(nodesProvider).firstWhere((n) => n.id == 'node-fail-test');
+      expect(updated.latencyMs, isNull);
+      expect(updated.countryCode, isNull);
+      expect(updated.country, isNull);
+    });
   });
 }
+

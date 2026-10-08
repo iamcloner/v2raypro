@@ -139,7 +139,10 @@ class ConfigParser {
         security: security,
         sni: params['sni'] ?? params['host'],
         alpn: alpnList,
-        allowInsecure: params['allowInsecure'] == '1' || params['allowInsecure'] == 'true',
+        allowInsecure: params['allowInsecure'] == '1' ||
+            params['allowInsecure'] == 'true' ||
+            params['insecure'] == '1' ||
+            params['insecure'] == 'true',
         fingerprint: params['fp'] ?? params['fingerprint'],
         publicKey: params['pbk'],
         shortId: params['sid'],
@@ -200,6 +203,11 @@ class ConfigParser {
         }
       }
 
+      final allowInsecure = map['insecure'] == '1' ||
+          map['insecure'] == true ||
+          map['allowInsecure'] == '1' ||
+          map['allowInsecure'] == true;
+
       return ProxyNode(
         id: const Uuid().v4(),
         name: name,
@@ -215,6 +223,7 @@ class ConfigParser {
         security: security,
         sni: map['sni']?.toString() ?? map['host']?.toString(),
         alpn: alpnList,
+        allowInsecure: allowInsecure,
         fingerprint: map['fp']?.toString(),
         headerType: map['type']?.toString(),
       );
@@ -277,7 +286,10 @@ class ConfigParser {
         security: security,
         sni: params['sni'] ?? params['host'],
         alpn: alpnList,
-        allowInsecure: params['allowInsecure'] == '1' || params['allowInsecure'] == 'true',
+        allowInsecure: params['allowInsecure'] == '1' ||
+            params['allowInsecure'] == 'true' ||
+            params['insecure'] == '1' ||
+            params['insecure'] == 'true',
         fingerprint: params['fp'] ?? params['fingerprint'],
         flow: params['flow'],
         headerType: params['headerType'],
