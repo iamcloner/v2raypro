@@ -232,7 +232,31 @@ class NodesNotifier extends StateNotifier<List<ProxyNode>> {
             hasActive = true;
           }
         }
-        fixed.add(n.copyWith(id: uniqueId, isActive: active));
+
+        // Clean up legacy false 'US' stamps that were caused by GeoIP matching on Cloudflare/CDN entry IPs
+        String? cCode = n.countryCode;
+        String? cName = n.country;
+        if (cCode == 'US' && CountryService.extractCountryCodeFromName(n.name) != 'US') {
+          final addr = n.address.trim().toLowerCase();
+          final isCdnOrCloudflare = addr.startsWith('104.') ||
+              addr.startsWith('172.6') ||
+              addr.startsWith('188.114.') ||
+              addr.startsWith('162.159.') ||
+              addr.startsWith('8.6.') ||
+              addr.contains('fastly') ||
+              addr.contains('cloudflare');
+          if (isCdnOrCloudflare || n.subscriptionId == 'free_configs') {
+            cCode = null;
+            cName = null;
+          }
+        }
+
+        fixed.add(n.copyWith(
+          id: uniqueId,
+          isActive: active,
+          countryCode: cCode,
+          country: cName,
+        ));
       }
 
       if (fixed.isNotEmpty && !hasActive) {
@@ -1421,6 +1445,29 @@ class OutboundInfoNotifier extends StateNotifier<OutboundInfo> {
           countryCode ??= data["country_code"]?.toString();
           city ??= data["city"]?.toString();
           isp ??= data["isp"]?.toString();
+        }
+      } catch (_) {}
+    }
+
+    // 4. Fallback 3: Cloudflare cdn-cgi/trace (Ultra fast exit IP and loc)
+    if (countryCode == null || countryCode.isEmpty) {
+      try {
+        final req = await client.getUrl(Uri.parse("http://cp.cloudflare.com/cdn-cgi/trace"));
+        final resp = await req.close().timeout(const Duration(seconds: 4));
+        if (resp.statusCode == 200) {
+          final body = await resp.transform(utf8.decoder).join();
+          final trace = NodeTestResult.parseCloudflareTrace(body);
+          ipv4 ??= trace.ip;
+          if (trace.loc != null && trace.loc!.isNotEmpty && trace.loc != 'XX') {
+            countryCode = trace.loc;
+            country ??= CountryService.getCountryName(countryCode);
+          } else if (trace.ip != null) {
+            final geo = LocalGeoIp.instance.lookup(trace.ip!);
+            if (geo != null) {
+              countryCode = geo;
+              country ??= CountryService.getCountryName(countryCode);
+            }
+          }
         }
       } catch (_) {}
     }

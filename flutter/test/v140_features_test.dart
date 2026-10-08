@@ -203,5 +203,40 @@ loc=XX
       expect(updated.country, equals('Germany'));
       expect(updated.latencyMs, equals(135));
     });
+
+    test('CountryService.resolveSync does not return US for Cloudflare/CDN address when name is generic', () {
+      final node = ProxyNode(
+        id: 'cf-node',
+        name: 'Config 1',
+        protocol: ProtocolType.vless,
+        address: '104.21.5.12',
+        port: 443,
+        uuidOrPassword: 'test-uuid',
+      );
+      // Even though 104.21.5.12 is Cloudflare IP, resolveSync must return null, not US!
+      expect(CountryService.resolveSync(node), isNull);
+    });
+
+    test('CountryService.resolveSync returns country when present in name remarks', () {
+      final nodeDe = ProxyNode(
+        id: 'de-node',
+        name: '🇩🇪 Germany Server',
+        protocol: ProtocolType.vless,
+        address: '104.21.5.12',
+        port: 443,
+        uuidOrPassword: 'test-uuid',
+      );
+      expect(CountryService.resolveSync(nodeDe), equals('DE'));
+
+      final nodeNl = ProxyNode(
+        id: 'nl-node',
+        name: 'Fast Server [NL]',
+        protocol: ProtocolType.vless,
+        address: '172.67.1.1',
+        port: 443,
+        uuidOrPassword: 'test-uuid',
+      );
+      expect(CountryService.resolveSync(nodeNl), equals('NL'));
+    });
   });
 }

@@ -810,15 +810,14 @@ class XrayProcessService {
             if (cCode == null && trace.ip != null) {
               cCode = LocalGeoIp.instance.lookup(trace.ip!);
             }
-            if (cCode != null) {
-              final cName = CountryService.getCountryName(cCode);
-              results[node.id] = NodeTestResult(
-                latencyMs: sw.elapsedMilliseconds,
-                countryCode: cCode,
-                country: cName,
-                exitIp: trace.ip,
-              );
-            }
+            cCode ??= CountryService.extractCountryCodeFromName(node.name) ?? node.countryCode;
+            final cName = cCode != null ? CountryService.getCountryName(cCode) : null;
+            results[node.id] = NodeTestResult(
+              latencyMs: sw.elapsedMilliseconds,
+              countryCode: cCode,
+              country: cName,
+              exitIp: trace.ip,
+            );
           }
         } catch (_) {}
 
@@ -833,7 +832,7 @@ class XrayProcessService {
               swApi.stop();
               final data = jsonDecode(body);
               if (data is Map && data['status'] == 'success') {
-                final cCode = (data['countryCode'] as String?)?.toUpperCase();
+                final cCode = (data['countryCode'] as String?)?.toUpperCase() ?? CountryService.extractCountryCodeFromName(node.name) ?? node.countryCode;
                 final cName = data['country'] as String? ?? (cCode != null ? CountryService.getCountryName(cCode) : null);
                 final exitIp = data['query']?.toString();
                 results[node.id] = NodeTestResult(
@@ -863,8 +862,8 @@ class XrayProcessService {
               final resp = await r.close().timeout(timeout);
               swFall.stop();
               if (resp.statusCode == 204 || resp.statusCode == 200) {
-                final cCode = node.countryCode ?? CountryService.resolveSync(node) ?? await CountryService.instance.resolveCountryCode(node);
-                final cName = node.country ?? (cCode != null ? CountryService.getCountryName(cCode) : null);
+                final cCode = CountryService.extractCountryCodeFromName(node.name) ?? node.countryCode;
+                final cName = cCode != null ? CountryService.getCountryName(cCode) : null;
                 results[node.id] = NodeTestResult(
                   latencyMs: swFall.elapsedMilliseconds,
                   countryCode: cCode,
@@ -906,11 +905,11 @@ class XrayProcessService {
         if (activeRes.countryCode != null) {
           return activeRes;
         }
-        final cCode = node.countryCode ?? CountryService.resolveSync(node) ?? await CountryService.instance.resolveCountryCode(node);
+        final cCode = CountryService.extractCountryCodeFromName(node.name) ?? node.countryCode;
         return NodeTestResult(
           latencyMs: activeRes.latencyMs,
           countryCode: cCode,
-          country: node.country ?? (cCode != null ? CountryService.getCountryName(cCode) : null),
+          country: cCode != null ? CountryService.getCountryName(cCode) : node.country,
           exitIp: activeRes.exitIp,
         );
       }
@@ -929,11 +928,11 @@ class XrayProcessService {
     // 3. Fallback to direct real protocol handshake latency test
     final handshakeLat = await _testNodeRealProtocolDelay(node, timeout: timeout);
     if (handshakeLat != null && handshakeLat > 0) {
-      final cCode = node.countryCode ?? CountryService.resolveSync(node) ?? await CountryService.instance.resolveCountryCode(node);
+      final cCode = CountryService.extractCountryCodeFromName(node.name) ?? node.countryCode;
       return NodeTestResult(
         latencyMs: handshakeLat,
         countryCode: cCode,
-        country: node.country ?? (cCode != null ? CountryService.getCountryName(cCode) : null),
+        country: cCode != null ? CountryService.getCountryName(cCode) : null,
       );
     }
 
@@ -965,15 +964,13 @@ class XrayProcessService {
         if (cCode == null && trace.ip != null) {
           cCode = LocalGeoIp.instance.lookup(trace.ip!);
         }
-        if (cCode != null) {
-          final cName = CountryService.getCountryName(cCode);
-          return NodeTestResult(
-            latencyMs: sw.elapsedMilliseconds,
-            countryCode: cCode,
-            country: cName,
-            exitIp: trace.ip,
-          );
-        }
+        final cName = cCode != null ? CountryService.getCountryName(cCode) : null;
+        return NodeTestResult(
+          latencyMs: sw.elapsedMilliseconds,
+          countryCode: cCode,
+          country: cName,
+          exitIp: trace.ip,
+        );
       }
     } catch (_) {
       try {

@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import '../models/proxy_node.dart';
+import 'cdn_scanner_service.dart';
+import 'cloudflare_scanner_service.dart';
 
 class LocalGeoIp {
   static final LocalGeoIp instance = LocalGeoIp._internal();
@@ -290,20 +292,42 @@ class CountryService {
     return null;
   }
 
+  static bool isCdnOrCloudflare(String address) {
+    final clean = address.trim().toLowerCase();
+    if (CloudflareScannerService.isCloudflareHostSync(clean)) return true;
+    if (CdnScannerService.detectCdnHostSync(clean) != null) return true;
+    if (clean.startsWith('104.') ||
+        clean.startsWith('172.6') ||
+        clean.startsWith('188.114.') ||
+        clean.startsWith('162.159.') ||
+        clean.startsWith('8.6.')) {
+      return true;
+    }
+    return false;
+  }
+
   /// Resolves country code for a ProxyNode synchronously if cached or present in name/host/local IP
   static String? resolveSync(ProxyNode node) {
     if (node.countryCode != null && node.countryCode!.trim().length == 2) {
       return node.countryCode!.trim().toUpperCase();
     }
+    // 1. Explicit remarks/name text (flags, [DE], country name)
     final fromName = extractCountryCodeFromName(node.name);
     if (fromName != null) return fromName;
 
     final addr = node.address.trim().toLowerCase();
     if (_cache.containsKey(addr)) return _cache[addr];
 
+    // 2. If address is a CDN or Cloudflare Anycast IP, DO NOT lookup in GeoIP!
+    // Cloudflare/CDN Anycast IPs are registered in US and will falsely label proxies as US.
+    if (isCdnOrCloudflare(addr)) {
+      return null;
+    }
+
     final fromHost = extractCountryFromHost(addr);
     if (fromHost != null) return fromHost;
 
+    // 3. For direct non-CDN VPS IPs, local GeoIP lookup is valid
     final localCode = LocalGeoIp.instance.lookup(addr);
     if (localCode != null) {
       _cache[addr] = localCode;
@@ -334,7 +358,11 @@ class CountryService {
       return _cache[addr];
     }
 
-    // 4. Check domain TLD
+    // 4. If address is a CDN or Cloudflare Anycast IP, DO NOT lookup in GeoIP!
+    if (isCdnOrCloudflare(addr)) {
+      return null;
+    }
+
     final fromHost = extractCountryFromHost(addr);
     if (fromHost != null) {
       _cache[addr] = fromHost;
@@ -351,6 +379,9 @@ class CountryService {
         final lookup = await InternetAddress.lookup(addr).timeout(const Duration(seconds: 1));
         if (lookup.isNotEmpty) {
           ip = lookup.first.address;
+          if (isCdnOrCloudflare(ip)) {
+            return null;
+          }
         }
       } catch (_) {}
     }
