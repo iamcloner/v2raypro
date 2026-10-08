@@ -131,6 +131,15 @@ class XrayProcessService {
       if (node.alpn != null && node.alpn!.isNotEmpty) {
         tls["alpn"] = node.alpn;
       }
+      if (node.echConfigList != null && node.echConfigList!.trim().isNotEmpty) {
+        tls["echConfigList"] = node.echConfigList!.trim();
+      }
+      if (node.verifyPeerCertByName != null && node.verifyPeerCertByName!.trim().isNotEmpty) {
+        tls["verifyPeerCertByName"] = node.verifyPeerCertByName!.trim();
+      }
+      if (node.certificatePinning != null && node.certificatePinning!.trim().isNotEmpty) {
+        tls["pinnedPeerCertificatePublicKeySha256"] = node.certificatePinning!.trim();
+      }
       streamSettings["tlsSettings"] = tls;
     } else if (node.security == SecurityType.reality) {
       if (node.publicKey != null && node.publicKey!.trim().isNotEmpty) {
@@ -293,6 +302,13 @@ class XrayProcessService {
             }
           ]
         }
+      };
+    }
+
+    if (node.enableMux) {
+      outbound["mux"] = {
+        "enabled": true,
+        "concurrency": 8,
       };
     }
 

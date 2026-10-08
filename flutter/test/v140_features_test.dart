@@ -314,6 +314,79 @@ loc=XX
       expect(updated.countryCode, isNull);
       expect(updated.country, isNull);
     });
+
+    test('ProxyNode serialization and copyWith correctly handle 4-tab new fields', () {
+      final node = ProxyNode(
+        id: 'tab-node-1',
+        name: 'My Custom Tab Node',
+        protocol: ProtocolType.vless,
+        address: '10.0.0.1',
+        port: 8443,
+        uuidOrPassword: 'tab-uuid-1',
+        enableMux: true,
+        echConfigList: 'AH6+...base64ECH',
+        verifyPeerCertByName: 'example.com',
+        certificatePinning: 'abcd1234ef5678',
+      );
+
+      final json = node.toJson();
+      expect(json['enable_mux'], isTrue);
+      expect(json['ech_config_list'], equals('AH6+...base64ECH'));
+      expect(json['verify_peer_cert_by_name'], equals('example.com'));
+      expect(json['certificate_pinning'], equals('abcd1234ef5678'));
+
+      final restored = ProxyNode.fromJson(json);
+      expect(restored.enableMux, isTrue);
+      expect(restored.echConfigList, equals('AH6+...base64ECH'));
+      expect(restored.verifyPeerCertByName, equals('example.com'));
+      expect(restored.certificatePinning, equals('abcd1234ef5678'));
+
+      final modified = restored.copyWith(
+        enableMux: false,
+        verifyPeerCertByName: 'new-example.com',
+      );
+      expect(modified.enableMux, isFalse);
+      expect(modified.verifyPeerCertByName, equals('new-example.com'));
+      expect(modified.certificatePinning, equals('abcd1234ef5678'));
+    });
+
+    test('XrayProcessService.generateXrayConfig properly applies mux and TLS advanced settings', () {
+      final node = ProxyNode(
+        id: 'node-adv-tls',
+        name: 'Advanced TLS Node',
+        protocol: ProtocolType.vless,
+        address: 'my.server.com',
+        port: 443,
+        uuidOrPassword: 'some-uuid-value',
+        security: SecurityType.tls,
+        sni: 'my.server.com',
+        fingerprint: 'chrome',
+        alpn: ['h2', 'http/1.1'],
+        enableMux: true,
+        echConfigList: 'base64-ech-payload',
+        verifyPeerCertByName: 'my.server.com',
+        certificatePinning: 'pinned-sha256-hash',
+      );
+
+      final config = XrayProcessService.instance.generateXrayConfig(node);
+      final outbounds = config['outbounds'] as List;
+      final proxyOut = outbounds.firstWhere((o) => o['tag'] == 'proxy') as Map<String, dynamic>;
+
+      // Verify mux
+      expect(proxyOut['mux'], isNotNull);
+      expect(proxyOut['mux']['enabled'], isTrue);
+      expect(proxyOut['mux']['concurrency'], equals(8));
+
+      // Verify streamSettings TLS
+      final streamSettings = proxyOut['streamSettings'] as Map<String, dynamic>;
+      final tlsSettings = streamSettings['tlsSettings'] as Map<String, dynamic>;
+      expect(tlsSettings['serverName'], equals('my.server.com'));
+      expect(tlsSettings['fingerprint'], equals('chrome'));
+      expect(tlsSettings['alpn'], equals(['h2', 'http/1.1']));
+      expect(tlsSettings['echConfigList'], equals('base64-ech-payload'));
+      expect(tlsSettings['verifyPeerCertByName'], equals('my.server.com'));
+      expect(tlsSettings['pinnedPeerCertificatePublicKeySha256'], equals('pinned-sha256-hash'));
+    });
   });
 }
 
