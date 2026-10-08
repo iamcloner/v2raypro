@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:uuid/uuid.dart';
 import 'core/l10n/translations.dart';
 import 'core/theme/app_theme.dart';
@@ -128,6 +129,65 @@ class _RoutingViewState extends ConsumerState<RoutingView> with SingleTickerProv
                     ),
                   ),
                   const SizedBox(height: 16),
+                  if (type == RoutingRuleType.app) ...[
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          AppStrings.get('routing_app_file_label', locale: locale),
+                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                        ),
+                        OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: AppTheme.primaryAccent, width: 1.2),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          ),
+                          icon: const Icon(Icons.folder_open_rounded, size: 16, color: AppTheme.primaryAccent),
+                          label: Text(
+                            AppStrings.get('routing_open_exe', locale: locale),
+                            style: const TextStyle(fontSize: 12, color: AppTheme.primaryAccent, fontWeight: FontWeight.bold),
+                          ),
+                          onPressed: () async {
+                            try {
+                              final result = await FilePicker.platform.pickFiles(
+                                type: FileType.custom,
+                                allowedExtensions: ['exe'],
+                                dialogTitle: locale == 'fa' ? 'انتخاب فایل اجرایی برنامه (.exe)' : 'Select Executable (.exe)',
+                              );
+                              if (result != null && result.files.isNotEmpty) {
+                                final fileName = result.files.single.name;
+                                if (fileName.isNotEmpty) {
+                                  setDialogState(() {
+                                    final current = valuesController.text.trim();
+                                    if (current.isEmpty) {
+                                      valuesController.text = fileName;
+                                    } else {
+                                      final lines = current
+                                          .split(RegExp(r'[\r\n,]+'))
+                                          .map((s) => s.trim())
+                                          .where((s) => s.isNotEmpty)
+                                          .toList();
+                                      if (!lines.any((l) => l.toLowerCase() == fileName.toLowerCase())) {
+                                        lines.add(fileName);
+                                        valuesController.text = lines.join('\n');
+                                      }
+                                    }
+                                    if (remarkController.text.trim().isEmpty) {
+                                      final base = fileName.replaceAll(RegExp(r'\.exe$', caseSensitive: false), '');
+                                      if (base.isNotEmpty) {
+                                        remarkController.text = base[0].toUpperCase() + base.substring(1);
+                                      }
+                                    }
+                                  });
+                                }
+                              }
+                            } catch (_) {}
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                  ],
                   TextField(
                     controller: valuesController,
                     maxLines: 6,
@@ -281,15 +341,59 @@ class _RoutingViewState extends ConsumerState<RoutingView> with SingleTickerProv
                         AppStrings.get('routing_empty', locale: locale),
                         style: const TextStyle(fontSize: 14, color: Colors.grey),
                       ),
-                      const SizedBox(height: 16),
-                      ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.primaryAccent,
-                          foregroundColor: Colors.white,
-                        ),
-                        icon: const Icon(Icons.add_rounded, size: 18),
-                        label: Text(AppStrings.get('routing_add_rule', locale: locale)),
-                        onPressed: () => _showRuleDialog(defaultType: type),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        alignment: WrapAlignment.center,
+                        children: [
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppTheme.primaryAccent,
+                              foregroundColor: Colors.white,
+                            ),
+                            icon: const Icon(Icons.add_rounded, size: 18),
+                            label: Text(AppStrings.get('routing_add_rule', locale: locale)),
+                            onPressed: () => _showRuleDialog(defaultType: type),
+                          ),
+                          if (type == RoutingRuleType.app)
+                            OutlinedButton.icon(
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(color: AppTheme.primaryAccent, width: 1.2),
+                              ),
+                              icon: const Icon(Icons.folder_open_rounded, size: 18, color: AppTheme.primaryAccent),
+                              label: Text(
+                                AppStrings.get('routing_open_exe', locale: locale),
+                                style: const TextStyle(color: AppTheme.primaryAccent, fontWeight: FontWeight.bold),
+                              ),
+                              onPressed: () async {
+                                try {
+                                  final result = await FilePicker.platform.pickFiles(
+                                    type: FileType.custom,
+                                    allowedExtensions: ['exe'],
+                                    dialogTitle: locale == 'fa' ? 'انتخاب فایل اجرایی برنامه (.exe)' : 'Select Executable (.exe)',
+                                  );
+                                  if (result != null && result.files.isNotEmpty) {
+                                    final fileName = result.files.single.name;
+                                    if (fileName.isNotEmpty) {
+                                      final base = fileName.replaceAll(RegExp(r'\.exe$', caseSensitive: false), '');
+                                      final remark = base.isNotEmpty ? base[0].toUpperCase() + base.substring(1) : null;
+                                      _showRuleDialog(
+                                        defaultType: RoutingRuleType.app,
+                                        existingRule: RoutingRule(
+                                          id: const Uuid().v4(),
+                                          type: RoutingRuleType.app,
+                                          values: [fileName],
+                                          action: RoutingAction.direct,
+                                          enabled: true,
+                                          remark: remark,
+                                        ),
+                                      );
+                                    }
+                                  }
+                                } catch (_) {}
+                              },
+                            ),
+                        ],
                       ),
                     ],
                   ),

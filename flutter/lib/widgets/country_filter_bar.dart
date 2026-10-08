@@ -78,24 +78,27 @@ class _CountryFilterBarState extends State<CountryFilterBar> {
   Widget build(BuildContext context) {
     if (widget.nodes.isEmpty) return const SizedBox.shrink();
 
-    // Group tested nodes by country
+    // Group tested nodes by country (only healthy nodes) and track timeouts
     final Map<String, int> counts = {};
     int unknownCount = 0;
-    int testedCount = 0;
+    int healthyTestedCount = 0;
+    int timeoutCount = 0;
 
     for (final node in widget.nodes) {
       if (node.hasValidPing) {
-        testedCount++;
+        healthyTestedCount++;
         final code = node.countryCode?.trim().toUpperCase();
         if (code != null && code.length == 2) {
           counts[code] = (counts[code] ?? 0) + 1;
         } else {
           unknownCount++;
         }
+      } else if (node.hasTimedOut) {
+        timeoutCount++;
       }
     }
 
-    if (testedCount == 0 && counts.isEmpty && unknownCount == 0) {
+    if (healthyTestedCount == 0 && counts.isEmpty && unknownCount == 0 && timeoutCount == 0) {
       return const SizedBox.shrink();
     }
 
@@ -150,7 +153,7 @@ class _CountryFilterBarState extends State<CountryFilterBar> {
                       child: FilterChip(
                         avatar: const Icon(Icons.public_rounded, size: 16),
                         label: Text(
-                          '${AppStrings.get('all_countries', locale: widget.locale)} ($testedCount)',
+                          '${AppStrings.get('all_countries', locale: widget.locale)} ($healthyTestedCount)',
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: widget.selectedCountryCode == null ? FontWeight.bold : FontWeight.normal,
@@ -204,6 +207,27 @@ class _CountryFilterBarState extends State<CountryFilterBar> {
                           checkmarkColor: Colors.white,
                           onSelected: (_) => widget.onCountrySelected(
                             widget.selectedCountryCode == '__unknown__' ? null : '__unknown__',
+                          ),
+                        ),
+                      ),
+                    if (timeoutCount > 0)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: FilterChip(
+                          avatar: const Icon(Icons.timer_off_rounded, size: 15, color: Colors.redAccent),
+                          label: Text(
+                            '${AppStrings.get('timeouts_category', locale: widget.locale)} ($timeoutCount)',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.redAccent.shade100,
+                              fontWeight: widget.selectedCountryCode == '__timeouts__' ? FontWeight.bold : FontWeight.normal,
+                            ),
+                          ),
+                          selected: widget.selectedCountryCode == '__timeouts__',
+                          selectedColor: Colors.redAccent.withValues(alpha: 0.25),
+                          checkmarkColor: Colors.white,
+                          onSelected: (_) => widget.onCountrySelected(
+                            widget.selectedCountryCode == '__timeouts__' ? null : '__timeouts__',
                           ),
                         ),
                       ),

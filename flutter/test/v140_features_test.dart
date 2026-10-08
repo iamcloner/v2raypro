@@ -551,6 +551,130 @@ loc=XX
       expect(res.exitIp, equals('104.16.1.1'));
       expect(res.latencyTier, equals('Good'));
     });
+
+    test('Country filtering separates healthy nodes from timed out nodes', () {
+      final healthyUS = ProxyNode(
+        id: 'h-us',
+        name: 'US Node 1',
+        protocol: ProtocolType.vless,
+        address: '1.2.3.4',
+        port: 443,
+        uuidOrPassword: 'uuid',
+        latencyMs: 120,
+        lastTestedAt: DateTime.now(),
+        countryCode: 'US',
+      );
+
+      final deadUS = ProxyNode(
+        id: 'd-us',
+        name: 'US Node 2',
+        protocol: ProtocolType.vless,
+        address: '1.2.3.5',
+        port: 443,
+        uuidOrPassword: 'uuid',
+        latencyMs: -1,
+        lastTestedAt: DateTime.now(),
+        countryCode: 'US',
+      );
+
+      final untestedDE = ProxyNode(
+        id: 'u-de',
+        name: 'DE Node 1',
+        protocol: ProtocolType.vless,
+        address: '5.6.7.8',
+        port: 443,
+        uuidOrPassword: 'uuid',
+        countryCode: 'DE',
+      );
+
+      final nodes = [healthyUS, deadUS, untestedDE];
+
+      // US filter: should ONLY match healthy nodes with countryCode == 'US'
+      final filteredUS = nodes.where((n) => n.hasValidPing && n.countryCode == 'US').toList();
+      expect(filteredUS.length, equals(1));
+      expect(filteredUS.first.id, equals('h-us'));
+
+      // Timeouts filter: should match only timed-out nodes
+      final timeouts = nodes.where((n) => n.hasTimedOut).toList();
+      expect(timeouts.length, equals(1));
+      expect(timeouts.first.id, equals('d-us'));
+
+      // Untested:
+      expect(untestedDE.isUntested, isTrue);
+      expect(untestedDE.hasValidPing, isFalse);
+      expect(untestedDE.hasTimedOut, isFalse);
+    });
+
+    test('FreeConfigsState accurately manages timeoutNodes and allNodes', () {
+      final healthy = ProxyNode(
+        id: 'free-1',
+        name: 'Free 1',
+        protocol: ProtocolType.vless,
+        address: '1.1.1.1',
+        port: 443,
+        uuidOrPassword: 'uuid',
+        latencyMs: 80,
+        lastTestedAt: DateTime.now(),
+      );
+      final dead = ProxyNode(
+        id: 'free-2',
+        name: 'Free 2',
+        protocol: ProtocolType.vless,
+        address: '2.2.2.2',
+        port: 443,
+        uuidOrPassword: 'uuid',
+        latencyMs: -1,
+        lastTestedAt: DateTime.now(),
+      );
+
+      const state = FreeConfigsState(
+        workingNodes: [],
+        timeoutNodes: [],
+      );
+      expect(state.allNodes, isEmpty);
+
+      final updatedState = state.copyWith(
+        workingNodes: [healthy],
+        timeoutNodes: [dead],
+        testedCandidates: 2,
+      );
+
+      expect(updatedState.workingNodes.length, equals(1));
+      expect(updatedState.timeoutNodes.length, equals(1));
+      expect(updatedState.allNodes.length, equals(2));
+      expect(updatedState.failedCount, equals(1));
+    });
+
+    test('RoutingRuleType.app generates process routing rules for Xray TUN mode', () {
+      const appRule = RoutingRule(
+        id: 'rule-app-1',
+        type: RoutingRuleType.app,
+        values: ['telegram.exe', 'chrome.exe'],
+        action: RoutingAction.proxy,
+        enabled: true,
+      );
+
+      XrayProcessService.instance.routingRules = [appRule];
+      final node = ProxyNode(
+        id: 'n1',
+        name: 'Test',
+        protocol: ProtocolType.vless,
+        address: '1.1.1.1',
+        port: 443,
+        uuidOrPassword: 'uuid',
+      );
+
+      // In TUN mode:
+      final tunConfig = XrayProcessService.instance.generateXrayConfig(node, enableTun: true);
+      final rules = (tunConfig['routing'] as Map<String, dynamic>)['rules'] as List;
+      final appRouting = rules.firstWhere((r) => r is Map && r['process'] != null) as Map<String, dynamic>;
+
+      expect(appRouting['outboundTag'], equals('proxy'));
+      expect(appRouting['process'], equals(['telegram.exe', 'chrome.exe']));
+
+      // Cleanup
+      XrayProcessService.instance.routingRules = [];
+    });
   });
 }
 

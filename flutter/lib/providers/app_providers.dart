@@ -1864,6 +1864,7 @@ final enableUdpProvider = StateNotifierProvider<EnableUdpNotifier, bool>((ref) =
 
 class FreeConfigsState {
   final List<ProxyNode> workingNodes;
+  final List<ProxyNode> timeoutNodes;
   final bool isScanning;
   final int totalScraped;
   final int totalUnique;
@@ -1873,10 +1874,13 @@ class FreeConfigsState {
   final double progress;
   final String? estimatedRemainingTime;
 
+  List<ProxyNode> get allNodes => [...workingNodes, ...timeoutNodes];
+
   int get failedCount => (testedCandidates - workingNodes.length).clamp(0, testedCandidates);
 
   const FreeConfigsState({
     this.workingNodes = const [],
+    this.timeoutNodes = const [],
     this.isScanning = false,
     this.totalScraped = 0,
     this.totalUnique = 0,
@@ -1889,6 +1893,7 @@ class FreeConfigsState {
 
   FreeConfigsState copyWith({
     List<ProxyNode>? workingNodes,
+    List<ProxyNode>? timeoutNodes,
     bool? isScanning,
     int? totalScraped,
     int? totalUnique,
@@ -1900,6 +1905,7 @@ class FreeConfigsState {
   }) {
     return FreeConfigsState(
       workingNodes: workingNodes ?? this.workingNodes,
+      timeoutNodes: timeoutNodes ?? this.timeoutNodes,
       isScanning: isScanning ?? this.isScanning,
       totalScraped: totalScraped ?? this.totalScraped,
       totalUnique: totalUnique ?? this.totalUnique,
@@ -1936,17 +1942,20 @@ class FreeConfigsNotifier extends StateNotifier<FreeConfigsState> {
       totalScraped: 0,
       totalUnique: 0,
       workingNodes: [],
+      timeoutNodes: [],
       estimatedRemainingTime: null,
     );
 
     await FreeConfigsService.instance.fetchAndScan(
-      batchSize: 30,
+      concurrency: 10,
       onProgress: (prog) {
+        if (!state.isScanning && prog.status != 'completed') return;
         final progressRatio = prog.totalUnique > 0
             ? (prog.testedCandidates / prog.totalUnique).clamp(0.0, 1.0)
             : 0.0;
         state = state.copyWith(
           workingNodes: prog.workingNodes,
+          timeoutNodes: prog.timeoutNodes,
           totalScraped: prog.totalScraped,
           totalUnique: prog.totalUnique,
           testedCandidates: prog.testedCandidates,

@@ -16,6 +16,7 @@ class FreeConfigsScanProgress {
   final int targetWorking;
   final String status;
   final List<ProxyNode> workingNodes;
+  final List<ProxyNode> timeoutNodes;
   final bool isCompleted;
   final String? estimatedRemainingTime;
 
@@ -29,6 +30,7 @@ class FreeConfigsScanProgress {
     this.targetWorking = 30,
     this.status = '',
     this.workingNodes = const [],
+    this.timeoutNodes = const [],
     this.isCompleted = false,
     this.estimatedRemainingTime,
   });
@@ -52,11 +54,18 @@ class FreeConfigsService {
 
   bool _isCancelled = false;
   bool _isScanning = false;
+  final List<HttpClient> _activeClients = [];
 
   bool get isScanning => _isScanning;
 
   void cancel() {
     _isCancelled = true;
+    for (final c in _activeClients) {
+      try {
+        c.close(force: true);
+      } catch (_) {}
+    }
+    _activeClients.clear();
   }
 
   /// Generate a deduplication key based on protocol and network endpoints
@@ -64,18 +73,33 @@ class FreeConfigsService {
     return "${n.protocol.name}|${n.address.trim().toLowerCase()}|${n.port}|${n.uuidOrPassword.trim()}|${n.network.name}|${(n.path ?? '').trim()}";
   }
 
-  /// Fetch from free subscription links, deduplicate, shuffle, and test 30 by 30
+  /// Fetch from free subscription links, deduplicate, shuffle, and test with 10 concurrency streaming
   Future<List<ProxyNode>> fetchAndScan({
     void Function(FreeConfigsScanProgress)? onProgress,
     int targetWorking = 30,
-    int batchSize = 30,
+    int concurrency = 10,
+    int batchSize = 10,
     Random? rng,
   }) async {
-    if (_isScanning) return [];
+    if (_isScanning) {
+      // If a previous scan is still terminating, wait up to 2s for it to finish cleanly
+      _isCancelled = true;
+      int waited = 0;
+      while (_isScanning && waited < 40) {
+        await Future.delayed(const Duration(milliseconds: 50));
+        waited++;
+      }
+      if (_isScanning) {
+        _isScanning = false;
+      }
+    }
+
     _isScanning = true;
     _isCancelled = false;
+    _activeClients.clear();
 
     final workingNodes = <ProxyNode>[];
+    final timeoutNodes = <ProxyNode>[];
 
     try {
       onProgress?.call(const FreeConfigsScanProgress(
@@ -86,18 +110,24 @@ class FreeConfigsService {
       // 1. Fetch all subscription URLs concurrently
       final fetchTasks = defaultSubUrls.map((url) async {
         if (_isCancelled) return '';
+        HttpClient? client;
         try {
-          final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
+          client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
+          _activeClients.add(client);
           final req = await client.getUrl(Uri.parse(url));
           req.headers.set('User-Agent', 'v2rayN/6.42');
           final resp = await req.close().timeout(const Duration(seconds: 10));
           if (resp.statusCode == 200) {
             final body = await resp.transform(utf8.decoder).join();
-            client.close();
             return body;
           }
-          client.close();
-        } catch (_) {}
+        } catch (_) {
+        } finally {
+          if (client != null) {
+            _activeClients.remove(client);
+            try { client.close(); } catch (_) {}
+          }
+        }
         return '';
       });
 
@@ -161,85 +191,75 @@ class FreeConfigsService {
         targetWorking: targetWorking,
       ));
 
-      // 6. Test all unique nodes in batches of 30 for authentic real proxy routing
-      int offset = 0;
+      // 6. Test all unique nodes with 10 concurrent workers (streaming updates on each node)
+      int currentIndex = 0;
+      int testedCount = 0;
       final testStartTime = DateTime.now();
 
-      while (offset < uniqueNodes.length && !_isCancelled) {
-        final end = min(offset + batchSize, uniqueNodes.length);
-        final batch = uniqueNodes.sublist(offset, end);
-        offset = end;
+      Future<void> runWorker() async {
+        while (currentIndex < uniqueNodes.length && !_isCancelled) {
+          final nodeIndex = currentIndex++;
+          if (nodeIndex >= uniqueNodes.length) break;
+          final node = uniqueNodes[nodeIndex];
 
-        // Run authentic ephemeral Xray multi-inbound probe (100% verified real connection)
-        final batchResults = await XrayProcessService.instance.testNodesBatchRealProxy(
-          batch,
-          timeout: const Duration(seconds: 4),
-        );
+          final res = await XrayProcessService.instance.testNodeRealDelay(
+            node,
+            timeout: const Duration(seconds: 4),
+          );
+          if (_isCancelled) break;
 
-        if (_isCancelled) return [];
+          testedCount++;
 
-        for (final node in batch) {
-          final res = batchResults[node.id];
-          if (res != null && res.isSuccess) {
-            workingNodes.add(node.copyWith(
+          if (res.isSuccess) {
+            final testedNode = node.copyWith(
               latencyMs: res.latencyMs,
               countryCode: res.countryCode,
               country: res.country,
               lastTestedAt: DateTime.now(),
-            ));
-          }
-        }
-
-        // Fallback ONLY for platforms where local Xray binary is not directly available
-        if (!XrayProcessService.instance.isCoreAvailable() && !_isCancelled) {
-          final fallbackResults = await Future.wait(batch.map((node) async {
-            if (_isCancelled) return null;
-            final res = await XrayProcessService.instance.testNodeRealDelay(
-              node,
-              timeout: const Duration(seconds: 4),
             );
-            if (res.isSuccess) {
-              return node.copyWith(
-                latencyMs: res.latencyMs,
-                countryCode: res.countryCode,
-                country: res.country,
-                lastTestedAt: DateTime.now(),
-              );
-            }
-            return null;
-          }));
-
-          for (final res in fallbackResults) {
-            if (res != null) {
-              workingNodes.add(res);
-            }
+            workingNodes.add(testedNode);
+            workingNodes.sort((a, b) => a.latencyMs!.compareTo(b.latencyMs!));
+            // Immediate persistence of discovered working nodes
+            StorageService.instance.saveFreeConfigs(workingNodes);
+          } else {
+            final deadNode = node.copyWith(
+              latencyMs: -1,
+              lastTestedAt: DateTime.now(),
+            );
+            timeoutNodes.add(deadNode);
           }
+
+          String? etaStr;
+          if (totalUnique > 50 && testedCount > 0 && testedCount < totalUnique) {
+            final elapsed = DateTime.now().difference(testStartTime);
+            final avgPerNode = elapsed.inMilliseconds / testedCount;
+            final remainingMs = (avgPerNode * (totalUnique - testedCount)).round();
+            final remSeconds = (remainingMs / 1000).round();
+            final minutes = remSeconds ~/ 60;
+            final seconds = remSeconds % 60;
+            etaStr = '~${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+          }
+
+          // Trigger onProgress immediately for every single node tested
+          onProgress?.call(FreeConfigsScanProgress(
+            totalScraped: totalScraped,
+            totalUnique: totalUnique,
+            testedCandidates: testedCount,
+            workingFound: workingNodes.length,
+            status: testedCount >= totalUnique ? 'completed' : 'testing',
+            workingNodes: List.unmodifiable(workingNodes),
+            timeoutNodes: List.unmodifiable(timeoutNodes),
+            isCompleted: testedCount >= totalUnique,
+            estimatedRemainingTime: etaStr,
+          ));
         }
-
-        workingNodes.sort((a, b) => a.latencyMs!.compareTo(b.latencyMs!));
-
-        String? etaStr;
-        if (totalUnique > 50 && offset > 0 && offset < totalUnique) {
-          final elapsed = DateTime.now().difference(testStartTime);
-          final avgPerNode = elapsed.inMilliseconds / offset;
-          final remainingMs = (avgPerNode * (totalUnique - offset)).round();
-          final remSeconds = (remainingMs / 1000).round();
-          final minutes = remSeconds ~/ 60;
-          final seconds = remSeconds % 60;
-          etaStr = '~${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
-        }
-
-        onProgress?.call(FreeConfigsScanProgress(
-          totalScraped: totalScraped,
-          totalUnique: totalUnique,
-          testedCandidates: offset,
-          workingFound: workingNodes.length,
-          status: offset >= uniqueNodes.length ? 'completed' : 'testing',
-          workingNodes: List.unmodifiable(workingNodes),
-          isCompleted: offset >= uniqueNodes.length,
-          estimatedRemainingTime: etaStr,
-        ));
       }
+
+      final workerCount = min(concurrency, uniqueNodes.length);
+      final workers = List.generate(workerCount, (_) => runWorker());
+      await Future.wait(workers);
+
+      if (_isCancelled) return workingNodes;
 
       // Persist the found working nodes
       if (workingNodes.isNotEmpty) {
@@ -249,16 +269,18 @@ class FreeConfigsService {
       onProgress?.call(FreeConfigsScanProgress(
         totalScraped: totalScraped,
         totalUnique: totalUnique,
-        testedCandidates: offset,
+        testedCandidates: testedCount,
         workingFound: workingNodes.length,
         status: 'completed',
         workingNodes: List.unmodifiable(workingNodes),
+        timeoutNodes: List.unmodifiable(timeoutNodes),
         isCompleted: true,
       ));
 
       return workingNodes;
     } finally {
       _isScanning = false;
+      _activeClients.clear();
     }
   }
 }

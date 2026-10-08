@@ -68,13 +68,16 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
     final isConnected = connectionState == ConnectionStateEnum.connected;
     final isConnecting = connectionState == ConnectionStateEnum.connecting;
 
-    final filteredNodes = freeState.workingNodes.where((n) {
-      // 1. Country filter
+    final nodesToFilter = freeState.allNodes.isNotEmpty ? freeState.allNodes : freeState.workingNodes;
+    final filteredNodes = nodesToFilter.where((n) {
+      // 1. Country & Timeouts filter
       if (_selectedCountryCode != null) {
-        if (_selectedCountryCode == '__unknown__') {
-          if (n.countryCode != null && n.countryCode!.trim().isNotEmpty) return false;
+        if (_selectedCountryCode == '__timeouts__') {
+          if (!n.hasTimedOut) return false;
+        } else if (_selectedCountryCode == '__unknown__') {
+          if (!n.hasValidPing || (n.countryCode != null && n.countryCode!.trim().isNotEmpty)) return false;
         } else {
-          if (n.countryCode?.trim().toUpperCase() != _selectedCountryCode) return false;
+          if (!n.hasValidPing || n.countryCode?.trim().toUpperCase() != _selectedCountryCode) return false;
         }
       }
 
@@ -231,17 +234,17 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
               const SizedBox(height: 16),
             ],
 
-            // Country Filter Bar (based on real tested countries)
-            if (freeState.workingNodes.isNotEmpty)
+            // Country Filter Bar (based on real tested countries and timeouts)
+            if (nodesToFilter.isNotEmpty)
               CountryFilterBar(
-                nodes: freeState.workingNodes,
+                nodes: nodesToFilter,
                 selectedCountryCode: _selectedCountryCode,
                 onCountrySelected: (code) => setState(() => _selectedCountryCode = code),
                 locale: locale,
               ),
 
             // Search filter if nodes present
-            if (freeState.workingNodes.isNotEmpty) ...[
+            if (nodesToFilter.isNotEmpty) ...[
               SizedBox(
                 height: 42,
                 child: TextField(
@@ -264,7 +267,7 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
 
             // Content List
             Expanded(
-              child: freeState.workingNodes.isEmpty && !freeState.isScanning
+              child: nodesToFilter.isEmpty && !freeState.isScanning
                   ? Center(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,

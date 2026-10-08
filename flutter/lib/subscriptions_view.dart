@@ -468,10 +468,13 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                     final selectedCountry = _subCountryFilterMap[sub.id];
                     final filteredSubNodes = subNodes.where((n) {
                       if (selectedCountry == null) return true;
-                      if (selectedCountry == '__unknown__') {
-                        return n.countryCode == null || n.countryCode!.trim().isEmpty;
+                      if (selectedCountry == '__timeouts__') {
+                        return n.hasTimedOut;
                       }
-                      return n.countryCode?.trim().toUpperCase() == selectedCountry;
+                      if (selectedCountry == '__unknown__') {
+                        return n.hasValidPing && (n.countryCode == null || n.countryCode!.trim().isEmpty);
+                      }
+                      return n.hasValidPing && n.countryCode?.trim().toUpperCase() == selectedCountry;
                     }).toList();
                     final displayedNodes = isExpandedAll ? filteredSubNodes.take(maxDisplay).toList() : filteredSubNodes.take(3).toList();
 

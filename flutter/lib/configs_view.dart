@@ -301,10 +301,13 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
 
     final filteredNodes = nodes.where((n) {
       if (_selectedCountryCode == null) return true;
-      if (_selectedCountryCode == '__unknown__') {
-        return n.countryCode == null || n.countryCode!.trim().isEmpty;
+      if (_selectedCountryCode == '__timeouts__') {
+        return n.hasTimedOut;
       }
-      return n.countryCode?.trim().toUpperCase() == _selectedCountryCode;
+      if (_selectedCountryCode == '__unknown__') {
+        return n.hasValidPing && (n.countryCode == null || n.countryCode!.trim().isEmpty);
+      }
+      return n.hasValidPing && n.countryCode?.trim().toUpperCase() == _selectedCountryCode;
     }).toList();
 
     return CallbackShortcuts(
