@@ -13,6 +13,7 @@ import 'widgets/edit_config_dialog.dart';
 import 'widgets/country_flag_badge.dart';
 import 'widgets/country_filter_bar.dart';
 import 'services/country_service.dart';
+import 'services/storage_service.dart';
 
 class SubscriptionsView extends ConsumerStatefulWidget {
   const SubscriptionsView({super.key});
@@ -33,6 +34,7 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
   final Map<String, int> _subTestedCount = {};
   final Map<String, int> _subTotalCount = {};
   final Map<String, String?> _subCountryFilterMap = {};
+  final Map<String, String?> _subEtaMap = {};
   bool _isUpdatingAll = false;
 
   void _showAddDialog(String locale) {
@@ -251,6 +253,7 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
 
     int currentIndex = 0;
     const concurrency = 10;
+    final testStartTime = DateTime.now();
 
     Future<void> runWorker() async {
       while (currentIndex < subNodes.length && _cancelSubMap[subId] != true && mounted) {
@@ -268,9 +271,21 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
             countryCode: res.countryCode,
             country: res.country,
           );
+          final tested = (_subTestedCount[subId] ?? 0) + 1;
+          String? eta;
+          if (subNodes.length > 50 && tested > 0 && tested < subNodes.length) {
+            final elapsed = DateTime.now().difference(testStartTime);
+            final avgPerNode = elapsed.inMilliseconds / tested;
+            final remainingMs = (avgPerNode * (subNodes.length - tested)).round();
+            final remSeconds = (remainingMs / 1000).round();
+            final minutes = remSeconds ~/ 60;
+            final seconds = remSeconds % 60;
+            eta = '~${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+          }
           setState(() {
             _testingNodeIds.remove(n.id);
-            _subTestedCount[subId] = (_subTestedCount[subId] ?? 0) + 1;
+            _subTestedCount[subId] = tested;
+            _subEtaMap[subId] = eta;
           });
         }
       }
@@ -284,7 +299,11 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
       setState(() {
         _testingSubMap[subId] = false;
         _cancelSubMap[subId] = false;
+        _subEtaMap[subId] = null;
       });
+      // Immediately flush tested latencies and countries to storage
+      final allNodes = ref.read(nodesProvider);
+      StorageService.instance.saveNodes(allNodes, immediate: true);
     }
   }
 
@@ -576,7 +595,9 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                                     : const Icon(Icons.speed_rounded, size: 16),
                                 label: Text(
                                   isTestingSub
-                                      ? '$subPercent% (${AppStrings.get("cancel_scan", locale: locale)})'
+                                      ? (_subEtaMap[sub.id] != null
+                                          ? '$subPercent% (${_subEtaMap[sub.id]})'
+                                          : '$subPercent% (${AppStrings.get("cancel_scan", locale: locale)})')
                                       : AppStrings.get("test_all_sub", locale: locale),
                                   style: TextStyle(
                                     fontSize: 12,
@@ -829,20 +850,20 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                                 );
                               },
                             ),
-                            if (subNodes.length > 3)
+                            if (filteredSubNodes.length > 3)
                               Padding(
                                 padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
                                 child: Center(
                                   child: Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      if (isExpandedAll && subNodes.length > displayedNodes.length)
+                                      if (isExpandedAll && filteredSubNodes.length > displayedNodes.length)
                                         TextButton.icon(
                                           icon: const Icon(Icons.add_rounded, size: 16),
                                           label: Text(
                                             locale == 'fa'
-                                                ? 'نمایش بیشتر (+50 از ${subNodes.length - displayedNodes.length} باقی‌مانده)'
-                                                : 'Show More (+50 of ${subNodes.length - displayedNodes.length} remaining)',
+                                                ? 'نمایش بیشتر (+50 از ${filteredSubNodes.length - displayedNodes.length} باقی‌مانده)'
+                                                : 'Show More (+50 of ${filteredSubNodes.length - displayedNodes.length} remaining)',
                                             style: const TextStyle(fontSize: 12),
                                           ),
                                           onPressed: () {
@@ -851,7 +872,7 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                                             });
                                           },
                                         ),
-                                      if (isExpandedAll && subNodes.length > displayedNodes.length)
+                                      if (isExpandedAll && filteredSubNodes.length > displayedNodes.length)
                                         const SizedBox(width: 12),
                                       TextButton.icon(
                                         icon: Icon(
@@ -861,7 +882,7 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                                         label: Text(
                                           isExpandedAll
                                               ? AppStrings.get("show_less_configs", locale: locale)
-                                              : "${AppStrings.get("show_all_configs", locale: locale)} (${subNodes.length})",
+                                              : "${AppStrings.get("show_all_configs", locale: locale)} (${filteredSubNodes.length})",
                                           style: const TextStyle(fontSize: 12),
                                         ),
                                         onPressed: () {

@@ -17,6 +17,7 @@ import 'widgets/edit_config_dialog.dart';
 import 'widgets/country_flag_badge.dart';
 import 'widgets/country_filter_bar.dart';
 import 'services/country_service.dart';
+import 'services/storage_service.dart';
 
 class ConfigsView extends ConsumerStatefulWidget {
   const ConfigsView({super.key});
@@ -32,6 +33,7 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
   int _totalToTest = 0;
   int _testedCount = 0;
   String? _selectedCountryCode;
+  String? _testRemainingEta;
 
   Future<void> _pasteFromClipboard() async {
     final data = await Clipboard.getData(Clipboard.kTextPlain);
@@ -157,6 +159,7 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
 
     int currentIndex = 0;
     const concurrency = 10;
+    final testStartTime = DateTime.now();
 
     Future<void> runWorker() async {
       while (currentIndex < nodes.length && !_cancelTestingAll && mounted) {
@@ -174,9 +177,21 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
             countryCode: res.countryCode,
             country: res.country,
           );
+          final tested = _testedCount + 1;
+          String? eta;
+          if (nodes.length > 50 && tested > 0 && tested < nodes.length) {
+            final elapsed = DateTime.now().difference(testStartTime);
+            final avgPerNode = elapsed.inMilliseconds / tested;
+            final remainingMs = (avgPerNode * (nodes.length - tested)).round();
+            final remSeconds = (remainingMs / 1000).round();
+            final minutes = remSeconds ~/ 60;
+            final seconds = remSeconds % 60;
+            eta = '~${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+          }
           setState(() {
             _testingNodeIds.remove(n.id);
-            _testedCount++;
+            _testedCount = tested;
+            _testRemainingEta = eta;
           });
         }
       }
@@ -191,7 +206,11 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
         _isTestingAll = false;
         _cancelTestingAll = false;
         _testingNodeIds.clear();
+        _testRemainingEta = null;
       });
+      // Immediately flush tested latencies and countries to storage
+      final allNodes = ref.read(nodesProvider);
+      StorageService.instance.saveNodes(allNodes, immediate: true);
     }
   }
 
@@ -328,7 +347,9 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
                                 : const Icon(Icons.speed_rounded, size: 18),
                             label: Text(
                               _isTestingAll
-                                  ? '$progressPercent% (${AppStrings.get("cancel_scan", locale: locale)})'
+                                  ? (_testRemainingEta != null
+                                      ? '$progressPercent% ($_testRemainingEta)'
+                                      : '$progressPercent% (${AppStrings.get("cancel_scan", locale: locale)})')
                                   : AppStrings.get('test_all', locale: locale),
                               style: TextStyle(
                                 color: _isTestingAll ? Colors.amber : null,

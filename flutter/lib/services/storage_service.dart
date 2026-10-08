@@ -4,6 +4,7 @@ import "dart:io";
 import "package:shared_preferences/shared_preferences.dart";
 import "../models/dns_settings.dart";
 import "../models/proxy_node.dart";
+import "../models/routing_rule.dart";
 import "../models/subscription_item.dart";
 import "cdn_scanner_service.dart";
 
@@ -21,6 +22,9 @@ class StorageService {
   static const _httpPortKey = "v2raypro_http_port";
   static const _socksPortKey = "v2raypro_socks_port";
   static const _freeConfigsKey = "v2raypro_saved_free_configs";
+  static const _allowInsecureKey = "v2raypro_global_allow_insecure";
+  static const _enableMuxKey = "v2raypro_global_enable_mux";
+  static const _routingRulesKey = "v2raypro_routing_rules";
 
   File _getBackupFile(String filename) {
     final exeDir = File(Platform.resolvedExecutable).parent.path;
@@ -201,6 +205,47 @@ class StorageService {
 
   Future<void> saveTunEnabled(bool val) => saveBool(_tunKey, val);
   Future<bool> loadTunEnabled() => loadBool(_tunKey, defaultValue: false);
+
+  Future<void> saveGlobalAllowInsecure(bool val) => saveBool(_allowInsecureKey, val);
+  Future<bool> loadGlobalAllowInsecure() => loadBool(_allowInsecureKey, defaultValue: false);
+
+  Future<void> saveGlobalEnableMux(bool val) => saveBool(_enableMuxKey, val);
+  Future<bool> loadGlobalEnableMux() => loadBool(_enableMuxKey, defaultValue: false);
+
+  Future<void> saveRoutingRules(List<RoutingRule> rules) async {
+    try {
+      final jsonList = rules.map((r) => r.toJson()).toList();
+      final str = jsonEncode(jsonList);
+      final file = _getBackupFile("v2raypro_routing_rules.json");
+      await file.writeAsString(str);
+
+      if (str.length < 65536) {
+        final sp = await SharedPreferences.getInstance();
+        await sp.setString(_routingRulesKey, str);
+      }
+    } catch (_) {}
+  }
+
+  Future<List<RoutingRule>> loadRoutingRules() async {
+    try {
+      String? content;
+      final file = _getBackupFile("v2raypro_routing_rules.json");
+      if (await file.exists()) {
+        content = await file.readAsString();
+      }
+
+      if (content == null || content.isEmpty) {
+        final sp = await SharedPreferences.getInstance();
+        content = sp.getString(_routingRulesKey);
+      }
+
+      if (content != null && content.isNotEmpty) {
+        final decoded = jsonDecode(content) as List;
+        return decoded.map((e) => RoutingRule.fromJson(e as Map<String, dynamic>)).toList();
+      }
+    } catch (_) {}
+    return [];
+  }
 
   Future<void> saveCdnRanges(CdnProvider provider, List<String> ranges) async {
     try {

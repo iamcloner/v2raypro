@@ -4,9 +4,9 @@ import "dart:ffi" as ffi;
 import "dart:io";
 import "dart:math";
 import "../models/proxy_node.dart";
+import "../models/routing_rule.dart";
 import "../models/log_entry.dart";
 import "../models/traffic_stats.dart";
-import "cdn_scanner_service.dart";
 import "country_service.dart";
 import "log_service.dart";
 
@@ -60,6 +60,9 @@ class XrayProcessService {
   int apiPort = 10085;
   List<String> dnsServers = const ["1.1.1.1", "1.0.0.1", "https://1.1.1.1/dns-query"];
   bool isSystemProxySet = false;
+  bool globalAllowInsecure = false;
+  bool globalEnableMux = false;
+  List<RoutingRule> routingRules = [];
   String? lastLog;
   String? lastErrorLog;
 
@@ -122,7 +125,7 @@ class XrayProcessService {
       final tls = <String, dynamic>{
         "serverName": node.sni ?? node.host ?? node.address,
       };
-      if (node.allowInsecure) {
+      if (node.allowInsecure || globalAllowInsecure) {
         tls["allowInsecure"] = true;
       }
       if (node.fingerprint != null && node.fingerprint!.isNotEmpty) {
@@ -305,7 +308,7 @@ class XrayProcessService {
       };
     }
 
-    if (node.enableMux) {
+    if (node.enableMux || globalEnableMux) {
       outbound["mux"] = {
         "enabled": true,
         "concurrency": 8,
@@ -414,7 +417,34 @@ class XrayProcessService {
           {"type": "field", "inboundTag": ["api"], "outboundTag": "api"},
           if (enableTun)
             {"type": "field", "inboundTag": ["tun-in"], "port": 53, "outboundTag": "dns-out"},
-          {"type": "field", "outboundTag": "direct", "ip": ["geoip:private"]}
+          {"type": "field", "outboundTag": "direct", "ip": ["geoip:private"]},
+          // User-defined custom routing rules
+          ...(() {
+            final custom = <Map<String, dynamic>>[];
+            for (final r in routingRules.where((rule) => rule.enabled)) {
+              if (r.values.isEmpty) continue;
+              if (r.type == RoutingRuleType.address) {
+                custom.add({
+                  "type": "field",
+                  "outboundTag": r.action.name,
+                  "domain": r.values,
+                });
+              } else if (r.type == RoutingRuleType.ip) {
+                custom.add({
+                  "type": "field",
+                  "outboundTag": r.action.name,
+                  "ip": r.values,
+                });
+              } else if (r.type == RoutingRuleType.app && enableTun) {
+                custom.add({
+                  "type": "field",
+                  "outboundTag": r.action.name,
+                  "process": r.values,
+                });
+              }
+            }
+            return custom;
+          })(),
         ]
       }
     };
@@ -1080,7 +1110,7 @@ class XrayProcessService {
           activeSocket = await SecureSocket.secure(
             rawSocket,
             host: sni,
-            onBadCertificate: (_) => node.allowInsecure,
+            onBadCertificate: (_) => node.allowInsecure || globalAllowInsecure,
           ).timeout(timeout);
         } catch (_) {
           rawSocket.destroy();

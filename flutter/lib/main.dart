@@ -2,6 +2,7 @@ import 'configs_view.dart';
 import 'subscriptions_view.dart';
 import 'free_configs_view.dart';
 import 'scanner_view.dart';
+import 'routing_view.dart';
 import 'logs_view.dart';
 import 'settings_view.dart';
 import 'dart:async';
@@ -305,6 +306,7 @@ class _MainShellState extends ConsumerState<MainShell> {
       const SubscriptionsView(),
       const FreeConfigsView(),
       if (hasCdn) const ScannerView(),
+      const RoutingView(),
       const LogsView(),
       const SettingsView(),
     ];
@@ -411,6 +413,10 @@ class _MainShellState extends ConsumerState<MainShell> {
                     label: Text(scannerLabel),
                   ),
                 NavigationRailDestination(
+                  icon: const Icon(Icons.alt_route_rounded),
+                  label: Text(AppStrings.get('routing', locale: locale)),
+                ),
+                NavigationRailDestination(
                   icon: const Icon(Icons.article_rounded),
                   label: Text(AppStrings.get('logs', locale: locale)),
                 ),
@@ -501,6 +507,10 @@ class _MainShellState extends ConsumerState<MainShell> {
               icon: const Icon(Icons.radar_rounded),
               label: scannerLabel,
             ),
+          NavigationDestination(
+            icon: const Icon(Icons.alt_route_rounded),
+            label: AppStrings.get('routing', locale: locale),
+          ),
           NavigationDestination(
             icon: const Icon(Icons.article_rounded),
             label: AppStrings.get('logs', locale: locale),

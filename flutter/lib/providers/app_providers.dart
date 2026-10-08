@@ -6,6 +6,7 @@ import "package:flutter/material.dart";
 import "package:flutter_riverpod/flutter_riverpod.dart";
 import "../models/proxy_node.dart";
 import "../models/scan_result.dart";
+import "../models/routing_rule.dart";
 import "../models/subscription_item.dart";
 import "../models/dns_settings.dart";
 import "../models/log_entry.dart";
@@ -765,6 +766,7 @@ class ScannerState {
   final String? statusMessage;
   final int radarHealthyCount;
   final bool showRadarTrafficWarning;
+  final String? estimatedRemainingTime;
 
   int get threshold => workers;
 
@@ -786,6 +788,7 @@ class ScannerState {
     this.statusMessage,
     this.radarHealthyCount = 0,
     this.showRadarTrafficWarning = false,
+    this.estimatedRemainingTime,
   }) : workers = (workers ?? threshold ?? 20).clamp(5, 100);
 
   ScannerState copyWith({
@@ -806,6 +809,7 @@ class ScannerState {
     String? statusMessage,
     int? radarHealthyCount,
     bool? showRadarTrafficWarning,
+    String? estimatedRemainingTime,
   }) {
     return ScannerState(
       isScanning: isScanning ?? this.isScanning,
@@ -824,6 +828,7 @@ class ScannerState {
       statusMessage: statusMessage ?? this.statusMessage,
       radarHealthyCount: radarHealthyCount ?? this.radarHealthyCount,
       showRadarTrafficWarning: showRadarTrafficWarning ?? this.showRadarTrafficWarning,
+      estimatedRemainingTime: estimatedRemainingTime ?? this.estimatedRemainingTime,
     );
   }
 }
@@ -947,11 +952,11 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
                 ? activeNode.sni
                 : (isDomain ? origAddress : null),
           );
-          final lat = await XrayProcessService.instance.testNodeLatency(
+          final res = await XrayProcessService.instance.testNodeRealDelay(
             candidateNode,
-            timeout: const Duration(seconds: 3),
+            timeout: const Duration(seconds: 4),
           );
-          return MapEntry(ip, lat);
+          return MapEntry(ip, res);
         });
 
         final chunkResults = await Future.wait(futures);
@@ -960,14 +965,21 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
         for (final entry in chunkResults) {
           if (_isCancelled) break;
           final ip = entry.key;
-          final lat = entry.value;
+          final res = entry.value;
 
           state = state.copyWith(
             scanned: state.scanned + 1,
             currentIp: ip,
           );
 
-          if (lat != null) {
+          final isVerified = res.isSuccess &&
+              res.latencyMs != null &&
+              res.countryCode != null &&
+              res.countryCode!.isNotEmpty &&
+              res.countryCode != 'XX';
+
+          if (isVerified) {
+            final lat = res.latencyMs!;
             final newHealthyCount = state.radarHealthyCount + 1;
             final shouldWarn = newHealthyCount >= 10 && !_hasWarnedRadarTraffic;
             if (shouldWarn) {
@@ -984,6 +996,9 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
               protocolSuccess: true,
               totalLatencyMs: lat,
               rankScore: lat.toDouble(),
+              countryCode: res.countryCode,
+              country: res.country ?? CountryService.getCountryName(res.countryCode!),
+              exitIp: res.exitIp,
             );
 
             // Update state.results with all responsive IPs (sorted by latency ascending)
@@ -1101,6 +1116,8 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
         statusMessage: "Scanning...",
       );
 
+      final scanStartTime = DateTime.now();
+
       for (int i = 0; i < candidates.length; i += workers) {
         if (_isCancelled) break;
         final chunk = candidates.sublist(i, min(i + workers, candidates.length));
@@ -1115,11 +1132,11 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
                 ? activeNode.sni
                 : (isDomain ? origAddress : null),
           );
-          final lat = await XrayProcessService.instance.testNodeLatency(
+          final res = await XrayProcessService.instance.testNodeRealDelay(
             candidateNode,
-            timeout: const Duration(seconds: 3),
+            timeout: const Duration(seconds: 4),
           );
-          return MapEntry(ip, lat);
+          return MapEntry(ip, res);
         });
 
         final chunkResults = await Future.wait(futures);
@@ -1128,14 +1145,31 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
         for (final entry in chunkResults) {
           if (_isCancelled) break;
           final ip = entry.key;
-          final lat = entry.value;
+          final res = entry.value;
+
+          final newScanned = state.scanned + 1;
+          String? eta;
+          if (newScanned > 5 && candidates.length > 50) {
+            final elapsedMs = DateTime.now().difference(scanStartTime).inMilliseconds;
+            final msPerItem = elapsedMs / newScanned;
+            final remSec = ((candidates.length - newScanned) * msPerItem / 1000).ceil();
+            eta = '~${(remSec ~/ 60).toString().padLeft(2, '0')}:${(remSec % 60).toString().padLeft(2, '0')}';
+          }
 
           state = state.copyWith(
-            scanned: state.scanned + 1,
+            scanned: newScanned,
             currentIp: ip,
+            estimatedRemainingTime: eta,
           );
 
-          if (lat != null) {
+          final isVerified = res.isSuccess &&
+              res.latencyMs != null &&
+              res.countryCode != null &&
+              res.countryCode!.isNotEmpty &&
+              res.countryCode != 'XX';
+
+          if (isVerified) {
+            final lat = res.latencyMs!;
             final scanRes = ScanResult(
               ip: ip,
               port: activeNode.port,
@@ -1146,6 +1180,9 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
               protocolSuccess: true,
               totalLatencyMs: lat,
               rankScore: lat.toDouble(),
+              countryCode: res.countryCode,
+              country: res.country ?? CountryService.getCountryName(res.countryCode!),
+              exitIp: res.exitIp,
             );
 
             final updatedList = [...state.results, scanRes];
@@ -1158,7 +1195,7 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
         }
       }
 
-      state = state.copyWith(isScanning: false, statusMessage: "Finished");
+      state = state.copyWith(isScanning: false, statusMessage: "Finished", estimatedRemainingTime: null);
       LogService.instance.add(
         "[Target] Scan finished. Tested ${state.scanned}/${candidates.length} IPs, found ${state.results.length} responsive servers.",
         level: LogLevel.info,
@@ -1369,6 +1406,93 @@ class SocksPortNotifier extends StateNotifier<int> {
 
 final socksPortProvider = StateNotifierProvider<SocksPortNotifier, int>((ref) {
   return SocksPortNotifier();
+});
+
+class GlobalAllowInsecureNotifier extends StateNotifier<bool> {
+  GlobalAllowInsecureNotifier() : super(false) {
+    _init();
+  }
+
+  Future<void> _init() async {
+    final v = await StorageService.instance.loadGlobalAllowInsecure();
+    if (!mounted) return;
+    state = v;
+    XrayProcessService.instance.globalAllowInsecure = v;
+  }
+
+  Future<void> toggle(bool val) async {
+    state = val;
+    XrayProcessService.instance.globalAllowInsecure = val;
+    await StorageService.instance.saveGlobalAllowInsecure(val);
+  }
+}
+
+final globalAllowInsecureProvider = StateNotifierProvider<GlobalAllowInsecureNotifier, bool>((ref) {
+  return GlobalAllowInsecureNotifier();
+});
+
+class GlobalEnableMuxNotifier extends StateNotifier<bool> {
+  GlobalEnableMuxNotifier() : super(false) {
+    _init();
+  }
+
+  Future<void> _init() async {
+    final v = await StorageService.instance.loadGlobalEnableMux();
+    if (!mounted) return;
+    state = v;
+    XrayProcessService.instance.globalEnableMux = v;
+  }
+
+  Future<void> toggle(bool val) async {
+    state = val;
+    XrayProcessService.instance.globalEnableMux = val;
+    await StorageService.instance.saveGlobalEnableMux(val);
+  }
+}
+
+final globalEnableMuxProvider = StateNotifierProvider<GlobalEnableMuxNotifier, bool>((ref) {
+  return GlobalEnableMuxNotifier();
+});
+
+class RoutingRulesNotifier extends StateNotifier<List<RoutingRule>> {
+  RoutingRulesNotifier() : super([]) {
+    _init();
+  }
+
+  Future<void> _init() async {
+    final saved = await StorageService.instance.loadRoutingRules();
+    if (!mounted) return;
+    state = saved;
+    XrayProcessService.instance.routingRules = saved;
+  }
+
+  Future<void> addRule(RoutingRule rule) async {
+    state = [...state, rule];
+    XrayProcessService.instance.routingRules = state;
+    await StorageService.instance.saveRoutingRules(state);
+  }
+
+  Future<void> updateRule(RoutingRule updated) async {
+    state = state.map((r) => r.id == updated.id ? updated : r).toList();
+    XrayProcessService.instance.routingRules = state;
+    await StorageService.instance.saveRoutingRules(state);
+  }
+
+  Future<void> deleteRule(String id) async {
+    state = state.where((r) => r.id != id).toList();
+    XrayProcessService.instance.routingRules = state;
+    await StorageService.instance.saveRoutingRules(state);
+  }
+
+  Future<void> toggleRule(String id, bool enabled) async {
+    state = state.map((r) => r.id == id ? r.copyWith(enabled: enabled) : r).toList();
+    XrayProcessService.instance.routingRules = state;
+    await StorageService.instance.saveRoutingRules(state);
+  }
+}
+
+final routingRulesProvider = StateNotifierProvider<RoutingRulesNotifier, List<RoutingRule>>((ref) {
+  return RoutingRulesNotifier();
 });
 
 class LogsNotifier extends StateNotifier<List<LogEntry>> {
@@ -1747,6 +1871,7 @@ class FreeConfigsState {
   final int targetCount;
   final String status;
   final double progress;
+  final String? estimatedRemainingTime;
 
   int get failedCount => (testedCandidates - workingNodes.length).clamp(0, testedCandidates);
 
@@ -1759,6 +1884,7 @@ class FreeConfigsState {
     this.targetCount = 30,
     this.status = 'idle',
     this.progress = 0.0,
+    this.estimatedRemainingTime,
   });
 
   FreeConfigsState copyWith({
@@ -1770,6 +1896,7 @@ class FreeConfigsState {
     int? targetCount,
     String? status,
     double? progress,
+    String? estimatedRemainingTime,
   }) {
     return FreeConfigsState(
       workingNodes: workingNodes ?? this.workingNodes,
@@ -1780,6 +1907,7 @@ class FreeConfigsState {
       targetCount: targetCount ?? this.targetCount,
       status: status ?? this.status,
       progress: progress ?? this.progress,
+      estimatedRemainingTime: estimatedRemainingTime ?? this.estimatedRemainingTime,
     );
   }
 }
@@ -1808,14 +1936,14 @@ class FreeConfigsNotifier extends StateNotifier<FreeConfigsState> {
       totalScraped: 0,
       totalUnique: 0,
       workingNodes: [],
+      estimatedRemainingTime: null,
     );
 
     await FreeConfigsService.instance.fetchAndScan(
-      targetWorking: 30,
       batchSize: 30,
       onProgress: (prog) {
-        final progressRatio = prog.targetWorking > 0
-            ? (prog.workingFound / prog.targetWorking).clamp(0.0, 1.0)
+        final progressRatio = prog.totalUnique > 0
+            ? (prog.testedCandidates / prog.totalUnique).clamp(0.0, 1.0)
             : 0.0;
         state = state.copyWith(
           workingNodes: prog.workingNodes,
@@ -1825,16 +1953,21 @@ class FreeConfigsNotifier extends StateNotifier<FreeConfigsState> {
           status: prog.status,
           progress: progressRatio,
           isScanning: !prog.isCompleted,
+          estimatedRemainingTime: prog.estimatedRemainingTime,
         );
       },
     );
 
-    state = state.copyWith(isScanning: false, status: 'completed');
+    if (state.workingNodes.isNotEmpty) {
+      await StorageService.instance.saveFreeConfigs(state.workingNodes);
+    }
+
+    state = state.copyWith(isScanning: false, status: 'completed', estimatedRemainingTime: null);
   }
 
   void cancelScan() {
     FreeConfigsService.instance.cancel();
-    state = state.copyWith(isScanning: false, status: 'cancelled');
+    state = state.copyWith(isScanning: false, status: 'cancelled', estimatedRemainingTime: null);
   }
 }
 

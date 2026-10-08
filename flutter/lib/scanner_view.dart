@@ -7,6 +7,7 @@ import 'models/scan_result.dart';
 import 'providers/app_providers.dart';
 import 'services/cdn_scanner_service.dart';
 import 'services/cloudflare_scanner_service.dart';
+import 'widgets/country_flag_badge.dart';
 
 class ScannerView extends ConsumerStatefulWidget {
   const ScannerView({super.key});
@@ -207,57 +208,6 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                       ),
                     ],
                   ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            // Target CDN Selection Chips
-            Row(
-              children: [
-                Text(
-                  '${AppStrings.get('cdn_select', locale: locale)}: ',
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: CdnProvider.values.map((cdn) {
-                        final isSelected = cdn == currentCdn;
-                        final isDetected = cdn == detectedCdn;
-                        return Padding(
-                          padding: const EdgeInsets.only(right: 6),
-                          child: ChoiceChip(
-                            label: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                if (isDetected) ...[
-                                  const Icon(Icons.check_circle_rounded,
-                                      size: 13, color: Colors.greenAccent),
-                                  const SizedBox(width: 4),
-                                ],
-                                Text(locale == 'fa'
-                                    ? cdn.displayNameFa
-                                    : cdn.displayName),
-                              ],
-                            ),
-                            selected: isSelected,
-                            selectedColor: AppTheme.primaryAccent.withValues(alpha: 0.3),
-                            onSelected: ref.watch(scannerProvider).isScanning
-                                ? null
-                                : (selected) {
-                                    if (selected) {
-                                      ref
-                                          .read(scannerProvider.notifier)
-                                          .setSelectedCdn(cdn);
-                                    }
-                                  },
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ),
                 ),
               ],
             ),
@@ -678,11 +628,42 @@ class _ScannerViewState extends ConsumerState<ScannerView>
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  isRadar
-                      ? '${AppStrings.get(state.isScanning ? 'scanning' : 'scan_finished', locale: locale)} (${AppStrings.get('scanned_count_label', locale: locale)}: ${state.scanned})'
-                      : '${AppStrings.get(state.isScanning ? 'scanning' : 'scan_finished', locale: locale)} (${state.scanned} / ${state.total})',
-                  style: const TextStyle(fontWeight: FontWeight.w600),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      isRadar
+                          ? '${AppStrings.get(state.isScanning ? 'scanning' : 'scan_finished', locale: locale)} (${AppStrings.get('scanned_count_label', locale: locale)}: ${state.scanned})'
+                          : '${AppStrings.get(state.isScanning ? 'scanning' : 'scan_finished', locale: locale)} (${state.scanned} / ${state.total})',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    if (!isRadar && state.isScanning && state.estimatedRemainingTime != null) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primaryAccent.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: AppTheme.primaryAccent.withValues(alpha: 0.4)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.timer_outlined, size: 12, color: AppTheme.primaryAccent),
+                            const SizedBox(width: 4),
+                            Text(
+                              '${AppStrings.get('estimated_remaining_time', locale: locale)}: ${state.estimatedRemainingTime}',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: AppTheme.primaryAccent,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
                 if (state.currentIp.isNotEmpty)
                   Text(
@@ -1050,83 +1031,67 @@ class _ScannerViewState extends ConsumerState<ScannerView>
         ),
         const SizedBox(height: 20),
 
-        // Discovered Responsive IPs in Radar Mode (Manual Switch Available)
+        // Discovered Responsive IPs in Radar Mode (Collapsible Accordion)
         Card(
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.dns_rounded,
-                            size: 20, color: AppTheme.successColor),
-                        const SizedBox(width: 8),
-                        Text(
-                          AppStrings.get('radar_discovered_ips', locale: locale),
-                          style: const TextStyle(
-                              fontWeight: FontWeight.bold, fontSize: 15),
-                        ),
-                      ],
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: AppTheme.successColor.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                            color: AppTheme.successColor.withValues(alpha: 0.4)),
-                      ),
-                      child: Text(
-                        '${state.results.length}',
-                        style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: AppTheme.successColor),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  AppStrings.get('radar_discovered_ips_hint', locale: locale),
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-                const SizedBox(height: 14),
-                if (state.results.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 20),
-                    child: Center(
-                      child: Text(
-                        state.isScanning
-                            ? AppStrings.get('scanning_subnets', locale: locale)
-                            : AppStrings.get('no_responsive_ips', locale: locale),
-                        style: const TextStyle(color: Colors.grey),
-                      ),
-                    ),
-                  )
-                else
-                  ListView.separated(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: state.results.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 8),
-                    itemBuilder: (context, index) {
-                      final res = state.results[index];
-                      return _buildTargetResultCard(
-                        res,
-                        index,
-                        locale,
-                        connectedIp: state.connectedIp,
-                      );
-                    },
-                  ),
-              ],
+          clipBehavior: Clip.antiAlias,
+          child: ExpansionTile(
+            initiallyExpanded: state.results.isNotEmpty && state.results.length <= 15,
+            leading: const Icon(Icons.dns_rounded, size: 20, color: AppTheme.successColor),
+            title: Text(
+              AppStrings.get('radar_discovered_ips', locale: locale),
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
             ),
+            subtitle: Text(
+              AppStrings.get('radar_discovered_ips_hint', locale: locale),
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            trailing: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: AppTheme.successColor.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppTheme.successColor.withValues(alpha: 0.4)),
+              ),
+              child: Text(
+                '${state.results.length}',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.successColor,
+                ),
+              ),
+            ),
+            childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            children: [
+              if (state.results.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 20),
+                  child: Center(
+                    child: Text(
+                      state.isScanning
+                          ? AppStrings.get('scanning_subnets', locale: locale)
+                          : AppStrings.get('no_responsive_ips', locale: locale),
+                      style: const TextStyle(color: Colors.grey),
+                    ),
+                  ),
+                )
+              else
+                ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: state.results.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  itemBuilder: (context, index) {
+                    final res = state.results[index];
+                    return _buildTargetResultCard(
+                      res,
+                      index,
+                      locale,
+                      connectedIp: state.connectedIp,
+                    );
+                  },
+                ),
+            ],
           ),
         ),
       ],
@@ -1176,35 +1141,64 @@ class _ScannerViewState extends ConsumerState<ScannerView>
             ),
           ],
         ),
-        const SizedBox(height: 16),
-        if (filtered.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 40),
-            child: Center(
+        Card(
+          clipBehavior: Clip.antiAlias,
+          child: ExpansionTile(
+            initiallyExpanded: true,
+            leading: const Icon(Icons.dns_rounded, size: 20, color: AppTheme.primaryAccent),
+            title: Text(
+              AppStrings.get('discovered_clean_ips', locale: locale),
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+            ),
+            trailing: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryAccent.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppTheme.primaryAccent.withValues(alpha: 0.4)),
+              ),
               child: Text(
-                state.isScanning
-                    ? AppStrings.get('target_active', locale: locale)
-                    : AppStrings.get('no_responsive_ips', locale: locale),
-                style: const TextStyle(color: Colors.grey),
+                '${filtered.length}',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.primaryAccent,
+                ),
               ),
             ),
-          )
-        else
-          ListView.separated(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: filtered.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 10),
-            itemBuilder: (context, index) {
-              final res = filtered[index];
-              return _buildTargetResultCard(
-                res,
-                index,
-                locale,
-                connectedIp: state.connectedIp,
-              );
-            },
+            childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            children: [
+              if (filtered.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 40),
+                  child: Center(
+                    child: Text(
+                      state.isScanning
+                          ? AppStrings.get('target_active', locale: locale)
+                          : AppStrings.get('no_responsive_ips', locale: locale),
+                      style: const TextStyle(color: Colors.grey),
+                    ),
+                  ),
+                )
+              else
+                ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: filtered.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 10),
+                  itemBuilder: (context, index) {
+                    final res = filtered[index];
+                    return _buildTargetResultCard(
+                      res,
+                      index,
+                      locale,
+                      connectedIp: state.connectedIp,
+                    );
+                  },
+                ),
+            ],
           ),
+        ),
       ],
     );
   }
@@ -1279,6 +1273,14 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                 children: [
                   Row(
                     children: [
+                      if (res.countryCode != null) ...[
+                        CountryFlagBadge(
+                          countryCode: res.countryCode,
+                          width: 20,
+                          height: 14,
+                        ),
+                        const SizedBox(width: 6),
+                      ],
                       Text(
                         res.ip,
                         style: const TextStyle(

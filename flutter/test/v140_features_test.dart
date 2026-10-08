@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:v2raypro/models/proxy_node.dart';
+import 'package:v2raypro/models/routing_rule.dart';
+import 'package:v2raypro/models/scan_result.dart';
 import 'package:v2raypro/providers/app_providers.dart';
 import 'package:v2raypro/services/country_service.dart';
 import 'package:v2raypro/services/free_configs_service.dart';
@@ -409,6 +411,145 @@ loc=XX
       // Verify null country name formatting
       expect(CountryService.getCountryName(null), isNull);
       expect(CountryService.getCountryName(''), isNull);
+    });
+
+    test('RoutingRule model serializes and deserializes properly', () {
+      const rule = RoutingRule(
+        id: 'rule-test-1',
+        type: RoutingRuleType.address,
+        values: ['geosite:ir', 'domain:aparat.com'],
+        action: RoutingAction.direct,
+        enabled: true,
+        remark: 'Iran Local',
+      );
+
+      final json = rule.toJson();
+      expect(json['id'], equals('rule-test-1'));
+      expect(json['type'], equals('address'));
+      expect(json['action'], equals('direct'));
+      expect(json['values'], equals(['geosite:ir', 'domain:aparat.com']));
+
+      final restored = RoutingRule.fromJson(json);
+      expect(restored.id, equals('rule-test-1'));
+      expect(restored.type, equals(RoutingRuleType.address));
+      expect(restored.action, equals(RoutingAction.direct));
+      expect(restored.values, equals(['geosite:ir', 'domain:aparat.com']));
+      expect(restored.enabled, isTrue);
+      expect(restored.remark, equals('Iran Local'));
+    });
+
+    test('XrayProcessService injects Routing rules into routing.rules config', () {
+      final node = ProxyNode(
+        id: 'routing-node-1',
+        name: 'Node with Routing',
+        protocol: ProtocolType.vless,
+        address: '1.2.3.4',
+        port: 443,
+        uuidOrPassword: 'uuid-1',
+      );
+
+      XrayProcessService.instance.routingRules = [
+        const RoutingRule(
+          id: 'rule-1',
+          type: RoutingRuleType.address,
+          values: ['geosite:ir'],
+          action: RoutingAction.direct,
+        ),
+        const RoutingRule(
+          id: 'rule-2',
+          type: RoutingRuleType.ip,
+          values: ['geoip:ir', '10.0.0.0/8'],
+          action: RoutingAction.block,
+        ),
+        const RoutingRule(
+          id: 'rule-3',
+          type: RoutingRuleType.app,
+          values: ['telegram.exe'],
+          action: RoutingAction.proxy,
+        ),
+      ];
+
+      final config = XrayProcessService.instance.generateXrayConfig(node, enableTun: true);
+      final routing = config['routing'] as Map<String, dynamic>;
+      final rules = routing['rules'] as List;
+
+      // Find the injected rules
+      final directDomainRule = rules.cast<Map<String, dynamic>?>().firstWhere(
+        (r) => r != null && r['outboundTag'] == 'direct' && r['domain'] != null,
+        orElse: () => null,
+      );
+      expect(directDomainRule, isNotNull);
+      expect(directDomainRule!['domain'], equals(['geosite:ir']));
+
+      final blockIpRule = rules.cast<Map<String, dynamic>?>().firstWhere(
+        (r) => r != null && r['outboundTag'] == 'block' && r['ip'] != null,
+        orElse: () => null,
+      );
+      expect(blockIpRule, isNotNull);
+      expect(blockIpRule!['ip'], equals(['geoip:ir', '10.0.0.0/8']));
+
+      final proxyAppRule = rules.cast<Map<String, dynamic>?>().firstWhere(
+        (r) => r != null && r['outboundTag'] == 'proxy' && r['process'] != null,
+        orElse: () => null,
+      );
+      expect(proxyAppRule, isNotNull);
+      expect(proxyAppRule!['process'], equals(['telegram.exe']));
+    });
+
+    test('Global Allow Insecure and Global Enable Mux apply to nodes even when node flags are false', () {
+      final node = ProxyNode(
+        id: 'plain-node-1',
+        name: 'Plain Node',
+        protocol: ProtocolType.vless,
+        address: '1.2.3.4',
+        port: 443,
+        uuidOrPassword: 'uuid-1',
+        security: SecurityType.tls,
+        allowInsecure: false,
+        enableMux: false,
+      );
+
+      XrayProcessService.instance.globalAllowInsecure = true;
+      XrayProcessService.instance.globalEnableMux = true;
+
+      final config = XrayProcessService.instance.generateXrayConfig(node);
+      final outbounds = config['outbounds'] as List;
+      final proxyOut = outbounds.firstWhere((o) => o['tag'] == 'proxy') as Map<String, dynamic>;
+
+      // Global Mux should be active
+      expect(proxyOut['mux'], isNotNull);
+      expect(proxyOut['mux']['enabled'], isTrue);
+
+      // Global Allow Insecure should be active in TLS streamSettings
+      final streamSettings = proxyOut['streamSettings'] as Map<String, dynamic>;
+      final tlsSettings = streamSettings['tlsSettings'] as Map<String, dynamic>;
+      expect(tlsSettings['allowInsecure'], isTrue);
+
+      // Reset
+      XrayProcessService.instance.globalAllowInsecure = false;
+      XrayProcessService.instance.globalEnableMux = false;
+    });
+
+    test('ScanResult serialization and deserialization with country fields', () {
+      final res = ScanResult(
+        ip: '104.16.1.1',
+        port: 443,
+        tcpSuccess: true,
+        tcpLatencyMs: 45,
+        tlsSuccess: true,
+        tlsLatencyMs: 50,
+        protocolSuccess: true,
+        totalLatencyMs: 95,
+        rankScore: 95.0,
+        countryCode: 'US',
+        country: 'United States',
+        exitIp: '104.16.1.1',
+      );
+
+      expect(res.countryCode, equals('US'));
+      expect(res.country, equals('United States'));
+      expect(res.exitIp, equals('104.16.1.1'));
+      expect(res.latencyTier, equals('Good'));
     });
   });
 }

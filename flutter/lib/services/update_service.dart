@@ -25,7 +25,7 @@ class UpdateService {
   static final UpdateService instance = UpdateService._internal();
   UpdateService._internal();
 
-  static const String _defaultFallbackVersion = "v1.4.0";
+  static const String _defaultFallbackVersion = "v1.5.1";
   static String? _cachedCurrentVersion;
 
   /// Read current app version dynamically from version.ini
@@ -590,7 +590,7 @@ class UpdateService {
       currentVersion: currentAppVersion,
       latestVersion: currentAppVersion,
       hasUpdate: false,
-      downloadUrl: "https://github.com/iamcloner/v2raypro/releases/download/v1.4.0/v2raypro-windows-v1.4.0.zip",
+      downloadUrl: "https://github.com/iamcloner/v2raypro/releases/download/v1.5.1/v2raypro-windows-v1.5.1.zip",
     );
   }
 

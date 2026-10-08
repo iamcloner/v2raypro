@@ -17,6 +17,7 @@ class FreeConfigsScanProgress {
   final String status;
   final List<ProxyNode> workingNodes;
   final bool isCompleted;
+  final String? estimatedRemainingTime;
 
   int get failedCount => (testedCandidates - workingFound).clamp(0, testedCandidates);
 
@@ -29,6 +30,7 @@ class FreeConfigsScanProgress {
     this.status = '',
     this.workingNodes = const [],
     this.isCompleted = false,
+    this.estimatedRemainingTime,
   });
 }
 
@@ -159,10 +161,11 @@ class FreeConfigsService {
         targetWorking: targetWorking,
       ));
 
-      // 6. Test in batches of 30 for authentic real proxy routing until 30 working nodes found
+      // 6. Test all unique nodes in batches of 30 for authentic real proxy routing
       int offset = 0;
+      final testStartTime = DateTime.now();
 
-      while (offset < uniqueNodes.length && workingNodes.length < targetWorking && !_isCancelled) {
+      while (offset < uniqueNodes.length && !_isCancelled) {
         final end = min(offset + batchSize, uniqueNodes.length);
         final batch = uniqueNodes.sublist(offset, end);
         offset = end;
@@ -184,12 +187,11 @@ class FreeConfigsService {
               country: res.country,
               lastTestedAt: DateTime.now(),
             ));
-            if (workingNodes.length >= targetWorking) break;
           }
         }
 
         // Fallback ONLY for platforms where local Xray binary is not directly available
-        if (workingNodes.length < targetWorking && !XrayProcessService.instance.isCoreAvailable() && !_isCancelled) {
+        if (!XrayProcessService.instance.isCoreAvailable() && !_isCancelled) {
           final fallbackResults = await Future.wait(batch.map((node) async {
             if (_isCancelled) return null;
             final res = await XrayProcessService.instance.testNodeRealDelay(
@@ -210,22 +212,32 @@ class FreeConfigsService {
           for (final res in fallbackResults) {
             if (res != null) {
               workingNodes.add(res);
-              if (workingNodes.length >= targetWorking) break;
             }
           }
         }
 
         workingNodes.sort((a, b) => a.latencyMs!.compareTo(b.latencyMs!));
 
+        String? etaStr;
+        if (totalUnique > 50 && offset > 0 && offset < totalUnique) {
+          final elapsed = DateTime.now().difference(testStartTime);
+          final avgPerNode = elapsed.inMilliseconds / offset;
+          final remainingMs = (avgPerNode * (totalUnique - offset)).round();
+          final remSeconds = (remainingMs / 1000).round();
+          final minutes = remSeconds ~/ 60;
+          final seconds = remSeconds % 60;
+          etaStr = '~${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+        }
+
         onProgress?.call(FreeConfigsScanProgress(
           totalScraped: totalScraped,
           totalUnique: totalUnique,
           testedCandidates: offset,
           workingFound: workingNodes.length,
-          targetWorking: targetWorking,
-          status: workingNodes.length >= targetWorking ? 'completed' : 'testing',
+          status: offset >= uniqueNodes.length ? 'completed' : 'testing',
           workingNodes: List.unmodifiable(workingNodes),
-          isCompleted: workingNodes.length >= targetWorking,
+          isCompleted: offset >= uniqueNodes.length,
+          estimatedRemainingTime: etaStr,
         ));
       }
 
@@ -239,7 +251,6 @@ class FreeConfigsService {
         totalUnique: totalUnique,
         testedCandidates: offset,
         workingFound: workingNodes.length,
-        targetWorking: targetWorking,
         status: 'completed',
         workingNodes: List.unmodifiable(workingNodes),
         isCompleted: true,

@@ -261,6 +261,8 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
     final autoSysProxy = ref.watch(autoEnableSysProxyOnConnectProvider);
     final autoTun = ref.watch(autoEnableTunOnConnectProvider);
     final enableUdp = ref.watch(enableUdpProvider);
+    final globalAllowInsecure = ref.watch(globalAllowInsecureProvider);
+    final globalEnableMux = ref.watch(globalEnableMuxProvider);
 
     if (!_initialized) {
       final currentCdnList = cdnRanges[_selectedCdnForRanges] ?? _selectedCdnForRanges.defaultCidrs;
@@ -437,6 +439,32 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                   value: enableUdp,
                   onChanged: (val) {
                     ref.read(enableUdpProvider.notifier).toggle(val);
+                  },
+                ),
+                const Divider(height: 1),
+                SwitchListTile(
+                  secondary: const Icon(Icons.security_update_warning_rounded, color: Colors.orangeAccent),
+                  title: Text(AppStrings.get('global_allow_insecure', locale: locale)),
+                  subtitle: Text(AppStrings.get('global_allow_insecure_desc', locale: locale), style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                  value: globalAllowInsecure,
+                  onChanged: (val) {
+                    ref.read(globalAllowInsecureProvider.notifier).toggle(val);
+                    if (ref.read(connectionStatusProvider) == ConnectionStateEnum.connected) {
+                      ref.read(connectionStatusProvider.notifier).reconnectWithUpdatedSettings();
+                    }
+                  },
+                ),
+                const Divider(height: 1),
+                SwitchListTile(
+                  secondary: const Icon(Icons.alt_route_rounded, color: Colors.cyanAccent),
+                  title: Text(AppStrings.get('global_enable_mux', locale: locale)),
+                  subtitle: Text(AppStrings.get('global_enable_mux_desc', locale: locale), style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                  value: globalEnableMux,
+                  onChanged: (val) {
+                    ref.read(globalEnableMuxProvider.notifier).toggle(val);
+                    if (ref.read(connectionStatusProvider) == ConnectionStateEnum.connected) {
+                      ref.read(connectionStatusProvider.notifier).reconnectWithUpdatedSettings();
+                    }
                   },
                 ),
               ],

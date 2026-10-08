@@ -32,13 +32,6 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
         _searchFilter = _searchController.text.trim().toLowerCase();
       });
     });
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final state = ref.read(freeConfigsProvider);
-      if (state.workingNodes.isEmpty && !state.isScanning) {
-        ref.read(freeConfigsProvider.notifier).startScan();
-      }
-    });
   }
 
   @override
@@ -199,15 +192,26 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
                             ),
                           ],
                         ),
-                        Text(
-                          AppStrings.get('found_of_target', locale: locale)
-                              .replaceAll('{count}', freeState.workingNodes.length.toString())
-                              .replaceAll('{target}', freeState.targetCount.toString()),
-                          style: const TextStyle(
-                            color: Colors.amber,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              '${freeState.testedCandidates} / ${freeState.totalUnique} (${(freeState.progress * 100).toInt()}%)',
+                              style: const TextStyle(
+                                color: Colors.amber,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
+                            if (freeState.estimatedRemainingTime != null)
+                              Text(
+                                '${AppStrings.get('estimated_remaining_time', locale: locale)}: ${freeState.estimatedRemainingTime}',
+                                style: TextStyle(
+                                  color: Colors.amber.shade200,
+                                  fontSize: 11,
+                                ),
+                              ),
+                          ],
                         ),
                       ],
                     ),

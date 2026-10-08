@@ -9,6 +9,9 @@ class ScanResult {
   final int? totalLatencyMs;
   final String? error;
   final double rankScore;
+  final String? countryCode;
+  final String? country;
+  final String? exitIp;
 
   ScanResult({
     required this.ip,
@@ -21,6 +24,9 @@ class ScanResult {
     this.totalLatencyMs,
     this.error,
     required this.rankScore,
+    this.countryCode,
+    this.country,
+    this.exitIp,
   });
 
   factory ScanResult.fromJson(Map<String, dynamic> json) {
@@ -35,6 +41,9 @@ class ScanResult {
       totalLatencyMs: (json["total_latency_ms"] as num?)?.toInt(),
       error: json["error"],
       rankScore: (json["rank_score"] as num?)?.toDouble() ?? 99999.0,
+      countryCode: json["country_code"],
+      country: json["country"],
+      exitIp: json["exit_ip"],
     );
   }
 
