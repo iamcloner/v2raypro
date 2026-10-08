@@ -824,19 +824,21 @@ class XrayProcessService {
           if (resp.statusCode == 200) {
             final body = await resp.transform(utf8.decoder).join().timeout(timeout);
             sw.stop();
-            final trace = NodeTestResult.parseCloudflareTrace(body);
-            String? cCode = trace.loc;
-            if (cCode == null && trace.ip != null) {
-              cCode = LocalGeoIp.instance.lookup(trace.ip!);
+            // Bidirectional verification: check that trace returned authentic payload
+            if (body.contains('ip=') || body.contains('loc=')) {
+              final trace = NodeTestResult.parseCloudflareTrace(body);
+              String? cCode = trace.loc;
+              if (cCode == null && trace.ip != null) {
+                cCode = LocalGeoIp.instance.lookup(trace.ip!);
+              }
+              final cName = cCode != null ? CountryService.getCountryName(cCode) : null;
+              results[node.id] = NodeTestResult(
+                latencyMs: sw.elapsedMilliseconds,
+                countryCode: cCode,
+                country: cName,
+                exitIp: trace.ip,
+              );
             }
-            cCode ??= CountryService.extractCountryCodeFromName(node.name) ?? node.countryCode;
-            final cName = cCode != null ? CountryService.getCountryName(cCode) : null;
-            results[node.id] = NodeTestResult(
-              latencyMs: sw.elapsedMilliseconds,
-              countryCode: cCode,
-              country: cName,
-              exitIp: trace.ip,
-            );
           }
         } catch (_) {}
 
@@ -851,7 +853,7 @@ class XrayProcessService {
               swApi.stop();
               final data = jsonDecode(body);
               if (data is Map && data['status'] == 'success') {
-                final cCode = (data['countryCode'] as String?)?.toUpperCase() ?? CountryService.extractCountryCodeFromName(node.name) ?? node.countryCode;
+                final cCode = (data['countryCode'] as String?)?.toUpperCase();
                 final cName = data['country'] as String? ?? (cCode != null ? CountryService.getCountryName(cCode) : null);
                 final exitIp = data['query']?.toString();
                 results[node.id] = NodeTestResult(
@@ -865,7 +867,8 @@ class XrayProcessService {
           } catch (_) {}
         }
 
-        // 3. Fallback if both exit IP endpoints failed: generate_204 endpoints
+        // 3. Fallback if exit IP endpoints were blocked but node has internet connectivity:
+        // Set countryCode to null (Unknown) since exit country cannot be accurately determined
         if (!results.containsKey(node.id)) {
           final fallbackUrls = [
             'http://cp.cloudflare.com/generate_204',
@@ -881,12 +884,11 @@ class XrayProcessService {
               final resp = await r.close().timeout(timeout);
               swFall.stop();
               if (resp.statusCode == 204 || resp.statusCode == 200) {
-                final cCode = CountryService.extractCountryCodeFromName(node.name) ?? node.countryCode;
-                final cName = cCode != null ? CountryService.getCountryName(cCode) : null;
+                // Verified bidirectional send/receive, but exit country is unknown
                 results[node.id] = NodeTestResult(
                   latencyMs: swFall.elapsedMilliseconds,
-                  countryCode: cCode,
-                  country: cName,
+                  countryCode: null,
+                  country: null,
                 );
                 break;
               }
@@ -947,11 +949,11 @@ class XrayProcessService {
     // 3. Fallback protocol handshake test (strictly respecting TLS certificate validity):
     final handshakeLat = await _testNodeRealProtocolDelay(node, timeout: timeout);
     if (handshakeLat != null && handshakeLat > 0) {
-      final cCode = CountryService.extractCountryCodeFromName(node.name);
+      // Direct handshake tests connectivity, but outbound exit country is unknown
       return NodeTestResult(
         latencyMs: handshakeLat,
-        countryCode: cCode,
-        country: cCode != null ? CountryService.getCountryName(cCode) : null,
+        countryCode: null,
+        country: null,
       );
     }
 

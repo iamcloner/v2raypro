@@ -11,6 +11,7 @@ import 'services/xray_process_service.dart';
 import 'utils/ip_mask_util.dart';
 import 'widgets/edit_config_dialog.dart';
 import 'widgets/country_flag_badge.dart';
+import 'widgets/country_filter_bar.dart';
 import 'services/country_service.dart';
 
 class SubscriptionsView extends ConsumerStatefulWidget {
@@ -31,6 +32,7 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
   final Map<String, bool> _cancelSubMap = {};
   final Map<String, int> _subTestedCount = {};
   final Map<String, int> _subTotalCount = {};
+  final Map<String, String?> _subCountryFilterMap = {};
   bool _isUpdatingAll = false;
 
   void _showAddDialog(String locale) {
@@ -444,7 +446,15 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
 
                     final isExpandedAll = _expandedSubConfigs.contains(sub.id);
                     final maxDisplay = _expandedSubLimit[sub.id] ?? 50;
-                    final displayedNodes = isExpandedAll ? subNodes.take(maxDisplay).toList() : subNodes.take(3).toList();
+                    final selectedCountry = _subCountryFilterMap[sub.id];
+                    final filteredSubNodes = subNodes.where((n) {
+                      if (selectedCountry == null) return true;
+                      if (selectedCountry == '__unknown__') {
+                        return n.countryCode == null || n.countryCode!.trim().isEmpty;
+                      }
+                      return n.countryCode?.trim().toUpperCase() == selectedCountry;
+                    }).toList();
+                    final displayedNodes = isExpandedAll ? filteredSubNodes.take(maxDisplay).toList() : filteredSubNodes.take(3).toList();
 
                     final isTestingSub = _testingSubMap[sub.id] == true;
                     final totalSub = _subTotalCount[sub.id] ?? 0;
@@ -659,6 +669,20 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                             ),
                           ),
                           const Divider(height: 1),
+                          if (subNodes.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                              child: CountryFilterBar(
+                                nodes: subNodes,
+                                selectedCountryCode: _subCountryFilterMap[sub.id],
+                                onCountrySelected: (code) {
+                                  setState(() {
+                                    _subCountryFilterMap[sub.id] = code;
+                                  });
+                                },
+                                locale: locale,
+                              ),
+                            ),
                           if (subNodes.isEmpty)
                             Padding(
                               padding: const EdgeInsets.all(16),

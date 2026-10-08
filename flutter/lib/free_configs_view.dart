@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/l10n/translations.dart';
 import 'core/theme/app_theme.dart';
@@ -9,6 +10,7 @@ import 'services/cdn_scanner_service.dart';
 import 'services/country_service.dart';
 import 'utils/ip_mask_util.dart';
 import 'widgets/country_flag_badge.dart';
+import 'widgets/country_filter_bar.dart';
 
 class FreeConfigsView extends ConsumerStatefulWidget {
   const FreeConfigsView({super.key});
@@ -20,6 +22,7 @@ class FreeConfigsView extends ConsumerStatefulWidget {
 class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
   final TextEditingController _searchController = TextEditingController();
   String _searchFilter = '';
+  String? _selectedCountryCode;
 
   @override
   void initState() {
@@ -51,10 +54,8 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
     final activeNode = nodes.where((n) => n.isActive).firstOrNull;
 
     if (connState == ConnectionStateEnum.connected && activeNode?.id == node.id) {
-      // Toggle disconnect
       await ref.read(connectionStatusProvider.notifier).toggleConnect();
     } else {
-      // Select and connect
       ref.read(nodesProvider.notifier).selectAndConnectFreeNode(node);
       await ref.read(connectionStatusProvider.notifier).connect(node);
     }
@@ -75,11 +76,25 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
     final isConnecting = connectionState == ConnectionStateEnum.connecting;
 
     final filteredNodes = freeState.workingNodes.where((n) {
-      if (_searchFilter.isEmpty) return true;
-      final name = n.name.toLowerCase();
-      final addr = n.address.toLowerCase();
-      final proto = n.protocol.name.toLowerCase();
-      return name.contains(_searchFilter) || addr.contains(_searchFilter) || proto.contains(_searchFilter);
+      // 1. Country filter
+      if (_selectedCountryCode != null) {
+        if (_selectedCountryCode == '__unknown__') {
+          if (n.countryCode != null && n.countryCode!.trim().isNotEmpty) return false;
+        } else {
+          if (n.countryCode?.trim().toUpperCase() != _selectedCountryCode) return false;
+        }
+      }
+
+      // 2. Text search filter
+      if (_searchFilter.isNotEmpty) {
+        final name = n.name.toLowerCase();
+        final addr = n.address.toLowerCase();
+        final proto = n.protocol.name.toLowerCase();
+        if (!name.contains(_searchFilter) && !addr.contains(_searchFilter) && !proto.contains(_searchFilter)) {
+          return false;
+        }
+      }
+      return true;
     }).toList();
 
     return Scaffold(
@@ -149,7 +164,11 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
             ),
             const SizedBox(height: 16),
 
-            // Scanning progress banner
+            // Metrics / Stats Dashboard Cards
+            _buildStatsDashboard(freeState, locale),
+            const SizedBox(height: 16),
+
+            // Scanning progress banner (if active)
             if (freeState.isScanning) ...[
               Container(
                 padding: const EdgeInsets.all(14),
@@ -206,32 +225,16 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
                 ),
               ),
               const SizedBox(height: 16),
-            ] else if (freeState.workingNodes.isNotEmpty) ...[
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                decoration: BoxDecoration(
-                  color: AppTheme.successColor.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppTheme.successColor.withValues(alpha: 0.25), width: 0.8),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.check_circle_rounded, size: 16, color: AppTheme.successColor),
-                    const SizedBox(width: 8),
-                    Text(
-                      AppStrings.get('free_configs_ready', locale: locale)
-                          .replaceAll('{count}', freeState.workingNodes.length.toString()),
-                      style: const TextStyle(
-                        color: AppTheme.successColor,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
             ],
+
+            // Country Filter Bar (based on real tested countries)
+            if (freeState.workingNodes.isNotEmpty)
+              CountryFilterBar(
+                nodes: freeState.workingNodes,
+                selectedCountryCode: _selectedCountryCode,
+                onCountrySelected: (code) => setState(() => _selectedCountryCode = code),
+                locale: locale,
+              ),
 
             // Search filter if nodes present
             if (freeState.workingNodes.isNotEmpty) ...[
@@ -327,7 +330,14 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
                                     color: isThisNodeConnected ? AppTheme.primaryAccent : Colors.grey,
                                     size: 22,
                                   ),
+                                  const SizedBox(width: 12),
 
+                                  // Country Flag / Unknown Pill Badge
+                                  CountryPillBadge(
+                                    countryCode: displayCountryCode,
+                                    country: displayCountry,
+                                    showUnknown: true,
+                                  ),
                                   const SizedBox(width: 10),
 
                                   // Node Details
@@ -364,15 +374,8 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
                                   ),
                                   const SizedBox(width: 12),
 
-                                  // Latency & Country Badge
-                                  if (displayCountryCode != null && displayCountryCode.isNotEmpty) ...[
-                                    CountryPillBadge(
-                                      countryCode: displayCountryCode,
-                                      country: displayCountry,
-                                    ),
-                                    const SizedBox(width: 6),
-                                  ],
-                                  if (node.hasValidPing) ...[
+                                  // Real Delay Latency Badge
+                                  if (node.hasValidPing)
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                       decoration: BoxDecoration(
@@ -392,10 +395,23 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
                                         ),
                                       ),
                                     ),
-                                  ],
-                                  const SizedBox(width: 12),
+                                  const SizedBox(width: 8),
 
-                                  // Connect Action Button (NO Edit, NO Share)
+                                  // Copy link button
+                                  IconButton(
+                                    icon: const Icon(Icons.copy_rounded, size: 18),
+                                    tooltip: AppStrings.get('copy_ip', locale: locale),
+                                    onPressed: () {
+                                      final uri = node.toVlessUri();
+                                      Clipboard.setData(ClipboardData(text: uri));
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text(AppStrings.get('share_copied', locale: locale))),
+                                      );
+                                    },
+                                  ),
+                                  const SizedBox(width: 6),
+
+                                  // Connect Action Button
                                   if (isThisNodeConnecting)
                                     const SizedBox(
                                       width: 20,
@@ -428,6 +444,104 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
                         );
                       },
                     ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatsDashboard(FreeConfigsState state, String locale) {
+    return Row(
+      children: [
+        _buildStatCard(
+          icon: Icons.cloud_download_rounded,
+          iconColor: Colors.blueAccent,
+          label: AppStrings.get('total_candidates', locale: locale),
+          value: state.totalScraped > 0 ? '${state.totalScraped}' : (state.workingNodes.isNotEmpty ? '${state.workingNodes.length}' : '0'),
+        ),
+        const SizedBox(width: 10),
+        _buildStatCard(
+          icon: Icons.filter_alt_rounded,
+          iconColor: Colors.purpleAccent,
+          label: AppStrings.get('unique_candidates', locale: locale),
+          value: state.totalUnique > 0 ? '${state.totalUnique}' : (state.workingNodes.isNotEmpty ? '${state.workingNodes.length}' : '0'),
+        ),
+        const SizedBox(width: 10),
+        _buildStatCard(
+          icon: Icons.speed_rounded,
+          iconColor: Colors.amber,
+          label: AppStrings.get('tested_count', locale: locale),
+          value: state.testedCandidates > 0 ? '${state.testedCandidates}' : (state.workingNodes.isNotEmpty ? '${state.workingNodes.length}' : '0'),
+        ),
+        const SizedBox(width: 10),
+        _buildStatCard(
+          icon: Icons.check_circle_rounded,
+          iconColor: AppTheme.successColor,
+          label: AppStrings.get('responsive_configs_count', locale: locale),
+          value: '${state.workingNodes.length}',
+          highlightColor: AppTheme.successColor,
+        ),
+        const SizedBox(width: 10),
+        _buildStatCard(
+          icon: Icons.cancel_rounded,
+          iconColor: Colors.redAccent,
+          label: AppStrings.get('failed_timeout_count', locale: locale),
+          value: '${state.failedCount}',
+          highlightColor: state.failedCount > 0 ? Colors.redAccent : null,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatCard({
+    required IconData icon,
+    required Color iconColor,
+    required String label,
+    required String value,
+    Color? highlightColor,
+  }) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFF161C28),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.white12, width: 0.8),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(7),
+              decoration: BoxDecoration(
+                color: iconColor.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, size: 18, color: iconColor),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(fontSize: 10.5, color: Colors.grey.shade400),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: highlightColor ?? Colors.white,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),

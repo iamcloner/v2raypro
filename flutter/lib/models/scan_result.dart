@@ -38,6 +38,8 @@ class ScanResult {
     );
   }
 
+  int? get latencyMs => totalLatencyMs ?? tcpLatencyMs;
+
   String get latencyTier {
     final lat = totalLatencyMs ?? tcpLatencyMs;
     if (lat == null) return "Timeout";

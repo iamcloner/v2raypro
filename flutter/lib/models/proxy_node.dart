@@ -258,6 +258,8 @@ class ProxyNode {
     );
   }
 
+  String toVlessUri() => toShareUrl();
+
   String toShareUrl() {
     switch (protocol) {
       case ProtocolType.vless:

@@ -1748,6 +1748,8 @@ class FreeConfigsState {
   final String status;
   final double progress;
 
+  int get failedCount => (testedCandidates - workingNodes.length).clamp(0, testedCandidates);
+
   const FreeConfigsState({
     this.workingNodes = const [],
     this.isScanning = false,

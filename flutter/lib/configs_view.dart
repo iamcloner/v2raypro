@@ -15,6 +15,7 @@ import 'utils/ip_mask_util.dart';
 import 'widgets/add_config_dialog.dart';
 import 'widgets/edit_config_dialog.dart';
 import 'widgets/country_flag_badge.dart';
+import 'widgets/country_filter_bar.dart';
 import 'services/country_service.dart';
 
 class ConfigsView extends ConsumerStatefulWidget {
@@ -30,6 +31,7 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
   bool _cancelTestingAll = false;
   int _totalToTest = 0;
   int _testedCount = 0;
+  String? _selectedCountryCode;
 
   Future<void> _pasteFromClipboard() async {
     final data = await Clipboard.getData(Clipboard.kTextPlain);
@@ -278,6 +280,14 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
     final progress = _totalToTest > 0 ? (_testedCount / _totalToTest).clamp(0.0, 1.0) : 0.0;
     final progressPercent = (progress * 100).toInt();
 
+    final filteredNodes = nodes.where((n) {
+      if (_selectedCountryCode == null) return true;
+      if (_selectedCountryCode == '__unknown__') {
+        return n.countryCode == null || n.countryCode!.trim().isEmpty;
+      }
+      return n.countryCode?.trim().toUpperCase() == _selectedCountryCode;
+    }).toList();
+
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.keyV, control: true): _pasteFromClipboard,
@@ -349,7 +359,14 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
+                if (nodes.isNotEmpty)
+                  CountryFilterBar(
+                    nodes: nodes,
+                    selectedCountryCode: _selectedCountryCode,
+                    onCountrySelected: (code) => setState(() => _selectedCountryCode = code),
+                    locale: locale,
+                  ),
                 if (nodes.isEmpty)
                   Expanded(
                     child: Center(
@@ -374,10 +391,10 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
                 else
                   Expanded(
                     child: ListView.separated(
-                      itemCount: nodes.length,
+                      itemCount: filteredNodes.length,
                       separatorBuilder: (c, i) => const SizedBox(height: 12),
                       itemBuilder: (context, index) {
-                        final node = nodes[index];
+                        final node = filteredNodes[index];
                         final isTesting = _testingNodeIds.contains(node.id);
                         final cdnMap = ref.watch(nodeCdnMapProvider);
                         final cdn = cdnMap[node.address.trim().toLowerCase()] ?? ref.read(nodeCdnMapProvider.notifier).detectCdn(node.address);

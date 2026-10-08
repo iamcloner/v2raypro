@@ -98,6 +98,10 @@ class _ScannerViewState extends ConsumerState<ScannerView>
             _buildNodeHeaderCard(activeNode, currentCdn, detectedCdn, locale),
             const SizedBox(height: 16),
 
+            // Metrics / Stats Dashboard Card
+            _buildScannerStatsDashboard(state, locale),
+            const SizedBox(height: 16),
+
             // 2. Strategy Switcher with Info Guide Button
             _buildStrategySelector(state, locale),
             const SizedBox(height: 16),
@@ -1394,6 +1398,104 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                   );
                 },
               ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildScannerStatsDashboard(ScannerState state, String locale) {
+    final scannedCount = state.scanned;
+    final responsiveCount = state.results.length;
+    final successRate = scannedCount > 0 ? ((responsiveCount / scannedCount) * 100).toStringAsFixed(1) : '0.0';
+    final bestPing = state.bestIp?.latencyMs != null
+        ? '${state.bestIp!.latencyMs} ms'
+        : (state.currentBestLatency != null ? '${state.currentBestLatency} ms' : '--');
+
+    return Row(
+      children: [
+        _buildScannerMetricCard(
+          icon: Icons.search_rounded,
+          iconColor: Colors.blueAccent,
+          label: AppStrings.get('tested_ips', locale: locale),
+          value: '$scannedCount',
+        ),
+        const SizedBox(width: 10),
+        _buildScannerMetricCard(
+          icon: Icons.dns_rounded,
+          iconColor: AppTheme.successColor,
+          label: AppStrings.get('responsive_ips', locale: locale),
+          value: '$responsiveCount',
+          highlightColor: AppTheme.successColor,
+        ),
+        const SizedBox(width: 10),
+        _buildScannerMetricCard(
+          icon: Icons.percent_rounded,
+          iconColor: Colors.amber,
+          label: AppStrings.get('success_rate', locale: locale),
+          value: '$successRate%',
+        ),
+        const SizedBox(width: 10),
+        _buildScannerMetricCard(
+          icon: Icons.bolt_rounded,
+          iconColor: AppTheme.primaryAccent,
+          label: AppStrings.get('best_ping', locale: locale),
+          value: bestPing,
+          highlightColor: bestPing != '--' ? AppTheme.primaryAccent : null,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildScannerMetricCard({
+    required IconData icon,
+    required Color iconColor,
+    required String label,
+    required String value,
+    Color? highlightColor,
+  }) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFF161C28),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.white12, width: 0.8),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: iconColor.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, size: 18, color: iconColor),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(fontSize: 11, color: Colors.grey.shade400),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: highlightColor ?? Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),

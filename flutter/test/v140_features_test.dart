@@ -387,6 +387,29 @@ loc=XX
       expect(tlsSettings['verifyPeerCertByName'], equals('my.server.com'));
       expect(tlsSettings['pinnedPeerCertificatePublicKeySha256'], equals('pinned-sha256-hash'));
     });
+
+    test('FreeConfigsScanProgress correctly calculates failedCount', () {
+      const progress = FreeConfigsScanProgress(
+        totalScraped: 120,
+        totalUnique: 100,
+        testedCandidates: 60,
+        workingFound: 15,
+        targetWorking: 30,
+      );
+
+      expect(progress.failedCount, equals(45));
+    });
+
+    test('CountryService & NodeTestResult strictly handles unknown country as null', () {
+      const traceBodyWithoutLoc = 'ip=198.51.100.1\nts=1672531199\nuag=Mozilla/5.0\n';
+      final trace = NodeTestResult.parseCloudflareTrace(traceBodyWithoutLoc);
+      expect(trace.ip, equals('198.51.100.1'));
+      expect(trace.loc, isNull);
+
+      // Verify null country name formatting
+      expect(CountryService.getCountryName(null), isNull);
+      expect(CountryService.getCountryName(''), isNull);
+    });
   });
 }
 

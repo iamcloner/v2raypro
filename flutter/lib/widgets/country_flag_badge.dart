@@ -133,17 +133,46 @@ class CdnBadge extends StatelessWidget {
 class CountryPillBadge extends StatelessWidget {
   final String? countryCode;
   final String? country;
+  final bool showUnknown;
 
   const CountryPillBadge({
     super.key,
     required this.countryCode,
     this.country,
+    this.showUnknown = false,
   });
 
   @override
   Widget build(BuildContext context) {
     if (countryCode == null || countryCode!.trim().length != 2) {
-      return const SizedBox.shrink();
+      if (!showUnknown) return const SizedBox.shrink();
+      return Tooltip(
+        message: 'Unknown Country (نامشخص)',
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.05),
+            borderRadius: BorderRadius.circular(5),
+            border: Border.all(color: Colors.white12, width: 0.8),
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.public_rounded, size: 13, color: Colors.blueAccent),
+              SizedBox(width: 4),
+              Text(
+                '??',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
     }
 
     final code = countryCode!.trim().toUpperCase();

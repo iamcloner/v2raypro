@@ -18,6 +18,8 @@ class FreeConfigsScanProgress {
   final List<ProxyNode> workingNodes;
   final bool isCompleted;
 
+  int get failedCount => (testedCandidates - workingFound).clamp(0, testedCandidates);
+
   const FreeConfigsScanProgress({
     this.totalScraped = 0,
     this.totalUnique = 0,
@@ -227,17 +229,8 @@ class FreeConfigsService {
         ));
       }
 
-      // Persist the found working nodes with country code resolved
+      // Persist the found working nodes
       if (workingNodes.isNotEmpty) {
-        for (int i = 0; i < workingNodes.length; i++) {
-          final node = workingNodes[i];
-          if (node.countryCode == null || node.countryCode!.isEmpty) {
-            final code = await CountryService.instance.resolveCountryCode(node);
-            if (code != null) {
-              workingNodes[i] = node.copyWith(countryCode: code);
-            }
-          }
-        }
         await StorageService.instance.saveFreeConfigs(workingNodes);
       }
 
