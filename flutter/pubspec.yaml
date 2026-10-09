@@ -1,7 +1,7 @@
 name: v2raypro
 description: "A modern, professional V2Ray/Xray client with Cloudflare IP scanner for Windows and Android"
 publish_to: "none"
-version: 1.5.1+1
+version: 1.6.1+1
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
