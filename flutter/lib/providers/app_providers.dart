@@ -89,6 +89,7 @@ class ConnectionStatusNotifier extends StateNotifier<ConnectionStateEnum> {
     final isTun = ref.read(isTunEnabledProvider) || ref.read(autoEnableTunOnConnectProvider);
     final isSysProxy = ref.read(isSystemProxyEnabledProvider) || ref.read(autoEnableSysProxyOnConnectProvider);
     final enableUdp = ref.read(enableUdpProvider);
+    final allowLan = ref.read(allowLanProvider);
 
     if (isTun && !XrayProcessService.instance.isRunningAsAdmin()) {
       LogService.instance.add("TUN Mode requires Administrator privileges on Windows. Please restart application as Administrator.", level: LogLevel.warning, source: "system");
@@ -102,12 +103,19 @@ class ConnectionStatusNotifier extends StateNotifier<ConnectionStateEnum> {
       enableTun: isTun,
       setSysProxy: isSysProxy,
       enableUdp: enableUdp,
+      allowLan: allowLan,
     );
     if (ok) {
       setConnected();
     } else {
       state = ConnectionStateEnum.error;
     }
+  }
+
+  Future<void> reconnect([ProxyNode? targetNode]) async {
+    state = ConnectionStateEnum.connecting;
+    await XrayProcessService.instance.stop();
+    await connect(targetNode);
   }
 
   Future<void> reconnectWithUpdatedSettings() async {
@@ -203,6 +211,30 @@ class TunNotifier extends StateNotifier<bool> {
 
 final isTunEnabledProvider = StateNotifierProvider<TunNotifier, bool>((ref) {
   return TunNotifier();
+});
+
+class AllowLanNotifier extends StateNotifier<bool> {
+  AllowLanNotifier() : super(false) {
+    _init();
+  }
+
+  Future<void> _init() async {
+    final enabled = await StorageService.instance.loadAllowLan();
+    if (mounted) {
+      state = enabled;
+      XrayProcessService.instance.globalAllowLan = enabled;
+    }
+  }
+
+  void toggle(bool enable) {
+    state = enable;
+    XrayProcessService.instance.globalAllowLan = enable;
+    StorageService.instance.saveAllowLan(enable);
+  }
+}
+
+final allowLanProvider = StateNotifierProvider<AllowLanNotifier, bool>((ref) {
+  return AllowLanNotifier();
 });
 
 // Production persistent nodes notifier
@@ -485,7 +517,7 @@ class NodesNotifier extends StateNotifier<List<ProxyNode>> {
     _save();
   }
 
-  void applyIp(String nodeId, String newIp) {
+  void applyIp(String nodeId, String newIp, {int? latencyMs, String? countryCode, String? country}) {
     state = state.map((n) {
       if (n.id == nodeId) {
         final orig = n.originalAddress ?? n.address;
@@ -495,9 +527,28 @@ class NodesNotifier extends StateNotifier<List<ProxyNode>> {
           address: newIp,
           host: (n.host != null && n.host!.isNotEmpty) ? n.host : (isDomain ? orig : null),
           sni: (n.sni != null && n.sni!.isNotEmpty) ? n.sni : (isDomain ? orig : null),
+          latencyMs: latencyMs ?? n.latencyMs,
+          countryCode: countryCode ?? n.countryCode,
+          country: country ?? n.country,
+          lastTestedAt: latencyMs != null ? DateTime.now() : n.lastTestedAt,
         );
       }
       return n;
+    }).toList();
+    _save();
+  }
+
+  void clearLatencies({String? subscriptionId, bool onlyCustom = false}) {
+    state = state.map((n) {
+      if (onlyCustom && n.subscriptionId != null) return n;
+      if (subscriptionId != null && n.subscriptionId != subscriptionId) return n;
+      final fromName = CountryService.extractCountryCodeFromName(n.name);
+      return n.copyWith(
+        clearLatency: true,
+        clearCountry: fromName == null,
+        countryCode: fromName,
+        country: fromName != null ? CountryService.getCountryName(fromName) : null,
+      );
     }).toList();
     _save();
   }
@@ -944,6 +995,7 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
 
         final futures = chunk.map((ip) async {
           final candidateNode = activeNode.copyWith(
+            id: 'scan_radar_${ip.replaceAll('.', '_')}',
             address: ip,
             host: (activeNode.host != null && activeNode.host!.isNotEmpty)
                 ? activeNode.host
@@ -974,12 +1026,15 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
 
           final isVerified = res.isSuccess &&
               res.latencyMs != null &&
-              res.countryCode != null &&
-              res.countryCode!.isNotEmpty &&
-              res.countryCode != 'XX';
+              res.latencyMs! > 0;
 
           if (isVerified) {
             final lat = res.latencyMs!;
+            final cCode = (res.countryCode != null && res.countryCode!.isNotEmpty && res.countryCode != 'XX')
+                ? res.countryCode!
+                : (CountryService.extractCountryCodeFromName(activeNode.name) ?? 'XX');
+            final cName = res.country ?? CountryService.getCountryName(cCode);
+
             final newHealthyCount = state.radarHealthyCount + 1;
             final shouldWarn = newHealthyCount >= 10 && !_hasWarnedRadarTraffic;
             if (shouldWarn) {
@@ -996,8 +1051,8 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
               protocolSuccess: true,
               totalLatencyMs: lat,
               rankScore: lat.toDouble(),
-              countryCode: res.countryCode,
-              country: res.country ?? CountryService.getCountryName(res.countryCode!),
+              countryCode: cCode,
+              country: cName,
               exitIp: res.exitIp,
             );
 
@@ -1045,38 +1100,16 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
                 level: LogLevel.access,
                 source: "scanner",
               );
-              ref.read(nodesProvider.notifier).applyIp(activeNode.id, ip);
-
-              // Connect or hot-switch Xray connection
-              final nodeToConnect = activeNode.copyWith(
-                address: ip,
-                originalAddress: origAddress,
-                host: (activeNode.host != null && activeNode.host!.isNotEmpty)
-                    ? activeNode.host
-                    : (isDomain ? origAddress : null),
-                sni: (activeNode.sni != null && activeNode.sni!.isNotEmpty)
-                    ? activeNode.sni
-                    : (isDomain ? origAddress : null),
+              ref.read(nodesProvider.notifier).applyIp(
+                activeNode.id,
+                ip,
+                latencyMs: lat,
+                countryCode: cCode,
+                country: cName,
               );
 
-              final connState = ref.read(connectionStatusProvider);
-              if (connState == ConnectionStateEnum.connected) {
-                await XrayProcessService.instance.stop();
-                await XrayProcessService.instance.start(
-                  nodeToConnect,
-                  enableTun: ref.read(isTunEnabledProvider),
-                  setSysProxy: ref.read(isSystemProxyEnabledProvider),
-                );
-              } else {
-                final ok = await XrayProcessService.instance.start(
-                  nodeToConnect,
-                  enableTun: ref.read(isTunEnabledProvider),
-                  setSysProxy: ref.read(isSystemProxyEnabledProvider),
-                );
-                if (ok) {
-                  ref.read(connectionStatusProvider.notifier).setConnected();
-                }
-              }
+              // Reconnect cleanly through connectionStatusProvider to refresh ping and outbound in Dashboard
+              await ref.read(connectionStatusProvider.notifier).reconnect();
             } else {
               state = state.copyWith(
                 results: updatedResults,
@@ -1124,6 +1157,7 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
 
         final futures = chunk.map((ip) async {
           final candidateNode = activeNode.copyWith(
+            id: 'scan_target_${ip.replaceAll('.', '_')}',
             address: ip,
             host: (activeNode.host != null && activeNode.host!.isNotEmpty)
                 ? activeNode.host
@@ -1164,12 +1198,15 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
 
           final isVerified = res.isSuccess &&
               res.latencyMs != null &&
-              res.countryCode != null &&
-              res.countryCode!.isNotEmpty &&
-              res.countryCode != 'XX';
+              res.latencyMs! > 0;
 
           if (isVerified) {
             final lat = res.latencyMs!;
+            final cCode = (res.countryCode != null && res.countryCode!.isNotEmpty && res.countryCode != 'XX')
+                ? res.countryCode!
+                : (CountryService.extractCountryCodeFromName(activeNode.name) ?? 'XX');
+            final cName = res.country ?? CountryService.getCountryName(cCode);
+
             final scanRes = ScanResult(
               ip: ip,
               port: activeNode.port,
@@ -1180,8 +1217,8 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
               protocolSuccess: true,
               totalLatencyMs: lat,
               rankScore: lat.toDouble(),
-              countryCode: res.countryCode,
-              country: res.country ?? CountryService.getCountryName(res.countryCode!),
+              countryCode: cCode,
+              country: cName,
               exitIp: res.exitIp,
             );
 
@@ -1214,40 +1251,20 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
       level: LogLevel.info,
       source: "scanner",
     );
-    ref.read(nodesProvider.notifier).applyIp(activeNode.id, ip);
+    final scanMatch = state.results.where((r) => r.ip == ip).firstOrNull;
+    final countryCode = scanMatch?.countryCode;
+    final countryName = scanMatch?.country;
+
+    ref.read(nodesProvider.notifier).applyIp(
+      activeNode.id,
+      ip,
+      latencyMs: latencyMs,
+      countryCode: countryCode,
+      country: countryName,
+    );
     state = state.copyWith(connectedIp: ip);
 
-    final origAddress = activeNode.originalAddress ?? activeNode.address;
-    final isDomain = !origAddress.contains(RegExp(r'^\d+\.\d+\.\d+\.\d+$'));
-    final nodeToConnect = activeNode.copyWith(
-      address: ip,
-      originalAddress: origAddress,
-      host: (activeNode.host != null && activeNode.host!.isNotEmpty)
-          ? activeNode.host
-          : (isDomain ? origAddress : null),
-      sni: (activeNode.sni != null && activeNode.sni!.isNotEmpty)
-          ? activeNode.sni
-          : (isDomain ? origAddress : null),
-    );
-
-    final connState = ref.read(connectionStatusProvider);
-    if (connState == ConnectionStateEnum.connected) {
-      await XrayProcessService.instance.stop();
-      await XrayProcessService.instance.start(
-        nodeToConnect,
-        enableTun: ref.read(isTunEnabledProvider),
-        setSysProxy: ref.read(isSystemProxyEnabledProvider),
-      );
-    } else {
-      final ok = await XrayProcessService.instance.start(
-        nodeToConnect,
-        enableTun: ref.read(isTunEnabledProvider),
-        setSysProxy: ref.read(isSystemProxyEnabledProvider),
-      );
-      if (ok) {
-        ref.read(connectionStatusProvider.notifier).setConnected();
-      }
-    }
+    await ref.read(connectionStatusProvider.notifier).reconnect();
   }
 
   Future<void> connectToTargetIp(String ip, int latencyMs) =>

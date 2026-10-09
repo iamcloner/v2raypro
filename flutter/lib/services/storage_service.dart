@@ -24,6 +24,7 @@ class StorageService {
   static const _freeConfigsKey = "v2raypro_saved_free_configs";
   static const _allowInsecureKey = "v2raypro_global_allow_insecure";
   static const _enableMuxKey = "v2raypro_global_enable_mux";
+  static const _allowLanKey = "v2raypro_allow_lan";
   static const _routingRulesKey = "v2raypro_routing_rules";
 
   File _getBackupFile(String filename) {
@@ -211,6 +212,9 @@ class StorageService {
 
   Future<void> saveGlobalEnableMux(bool val) => saveBool(_enableMuxKey, val);
   Future<bool> loadGlobalEnableMux() => loadBool(_enableMuxKey, defaultValue: false);
+
+  Future<void> saveAllowLan(bool val) => saveBool(_allowLanKey, val);
+  Future<bool> loadAllowLan() => loadBool(_allowLanKey, defaultValue: false);
 
   Future<void> saveRoutingRules(List<RoutingRule> rules) async {
     try {

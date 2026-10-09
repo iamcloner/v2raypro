@@ -44,6 +44,49 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
   UpdateInfo? _appInfo;
   String? _appStatusMsg;
 
+  // Update All State
+  bool _updatingAll = false;
+  String? _updateAllStatusMsg;
+
+  Future<void> _updateAll() async {
+    if (_updatingAll || _xrayUpdating || _geoUpdating || _appUpdating) return;
+    final locale = ref.read(currentLocaleProvider);
+    setState(() {
+      _updatingAll = true;
+      _updateAllStatusMsg = AppStrings.get('updating', locale: locale);
+    });
+
+    try {
+      // 1. Update Geo Files
+      await _updateGeoFiles();
+
+      // 2. Check & Update Xray Core
+      await _checkXrayUpdate();
+      if (_xrayInfo?.hasUpdate == true && _xrayInfo?.downloadUrl != null) {
+        await _updateXray();
+      }
+
+      // 3. Check App Update
+      await _checkAppUpdate();
+
+      if (mounted) {
+        setState(() {
+          _updatingAll = false;
+          _updateAllStatusMsg = locale == 'fa'
+              ? 'عملیات به‌روزرسانی همه با موفقیت انجام شد.'
+              : 'All updates checked and completed.';
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _updatingAll = false;
+          _updateAllStatusMsg = 'Error: $e';
+        });
+      }
+    }
+  }
+
   @override
   void dispose() {
     _cdnRangesController.dispose();
@@ -263,6 +306,7 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
     final enableUdp = ref.watch(enableUdpProvider);
     final globalAllowInsecure = ref.watch(globalAllowInsecureProvider);
     final globalEnableMux = ref.watch(globalEnableMuxProvider);
+    final allowLan = ref.watch(allowLanProvider);
 
     if (!_initialized) {
       final currentCdnList = cdnRanges[_selectedCdnForRanges] ?? _selectedCdnForRanges.defaultCidrs;
@@ -467,29 +511,74 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                     }
                   },
                 ),
+                const Divider(height: 1),
+                SwitchListTile(
+                  secondary: const Icon(Icons.lan_rounded, color: Colors.lightGreenAccent),
+                  title: Text(AppStrings.get('allow_lan', locale: locale)),
+                  subtitle: Text(AppStrings.get('allow_lan_desc', locale: locale), style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                  value: allowLan,
+                  onChanged: (val) {
+                    ref.read(allowLanProvider.notifier).toggle(val);
+                    if (ref.read(connectionStatusProvider) == ConnectionStateEnum.connected) {
+                      ref.read(connectionStatusProvider.notifier).reconnectWithUpdatedSettings();
+                    }
+                  },
+                ),
               ],
             ),
           ),
           const SizedBox(height: 20),
 
-          // 3. Updates Center
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                AppStrings.get('updates', locale: locale),
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-              Text(
-                AppStrings.get('updates_desc', locale: locale),
-                style: const TextStyle(fontSize: 11, color: Colors.grey),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
+          // 3. Updates Center (Accordion with Update All)
           Card(
-            child: Column(
+            clipBehavior: Clip.antiAlias,
+            child: ExpansionTile(
+              initiallyExpanded: false,
+              leading: const Icon(Icons.system_update_rounded, color: AppTheme.primaryAccent),
+              title: Text(
+                AppStrings.get('updates', locale: locale),
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+              ),
+              subtitle: Text(
+                _updateAllStatusMsg ?? AppStrings.get('updates_desc', locale: locale),
+                style: TextStyle(
+                  fontSize: 12,
+                  color: _updateAllStatusMsg != null ? AppTheme.successColor : Colors.grey,
+                ),
+              ),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppTheme.primaryAccent,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    ),
+                    icon: _updatingAll
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.autorenew_rounded, size: 16),
+                    label: Text(
+                      _updatingAll
+                          ? AppStrings.get('updating', locale: locale)
+                          : AppStrings.get('update_all', locale: locale),
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                    onPressed: _updatingAll ? null : _updateAll,
+                  ),
+                  const SizedBox(width: 8),
+                  const Icon(Icons.expand_more_rounded),
+                ],
+              ),
               children: [
+                if (_updatingAll) ...[
+                  const LinearProgressIndicator(),
+                  const SizedBox(height: 8),
+                ],
+                const Divider(height: 1),
                 // 3.1 Xray Core Update
                 ListTile(
                   leading: const Icon(Icons.dns_rounded, color: AppTheme.primaryAccent),

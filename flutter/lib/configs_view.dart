@@ -150,12 +150,15 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
     }
 
     setState(() {
+      _selectedCountryCode = null;
       _isTestingAll = true;
       _cancelTestingAll = false;
       _testingNodeIds.addAll(nodes.map((n) => n.id));
       _totalToTest = nodes.length;
       _testedCount = 0;
     });
+
+    ref.read(nodesProvider.notifier).clearLatencies(onlyCustom: true);
 
     int currentIndex = 0;
     const concurrency = 10;

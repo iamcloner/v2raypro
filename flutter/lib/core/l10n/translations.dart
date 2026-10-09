@@ -297,6 +297,10 @@ class AppStrings {
       "discovered_clean_ips": "Discovered Clean IPs",
       "expand_all": "Expand",
       "collapse": "Collapse",
+      "allow_lan": "Allow Connection from LAN",
+      "allow_lan_desc": "Allow other devices on local network to connect to proxy ports (0.0.0.0)",
+      "update_all": "Update All",
+      "update_all_desc": "Update Geo files, Xray core, and check app update simultaneously",
     },
     "fa": {
       "app_title": "وی‌تو‌ری پرو",
@@ -595,6 +599,10 @@ class AppStrings {
       "discovered_clean_ips": "آی‌پی‌های تمیز کشف‌شده",
       "expand_all": "نمایش همه",
       "collapse": "بستن",
+      "allow_lan": "اجازه اتصال از شبکه محلی (LAN)",
+      "allow_lan_desc": "اجازه اتصال سایر دستگاه‌های شبکه محلی به پورت‌های پروکسی (0.0.0.0)",
+      "update_all": "آپدیت همه",
+      "update_all_desc": "به‌روزرسانی همزمان فایل‌های Geo، هسته Xray و برنامه",
     }
   };
 

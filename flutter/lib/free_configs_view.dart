@@ -152,7 +152,10 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
                           AppStrings.get('get_new_configs', locale: locale),
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
-                        onPressed: () => ref.read(freeConfigsProvider.notifier).startScan(),
+                        onPressed: () {
+                          setState(() => _selectedCountryCode = null);
+                          ref.read(freeConfigsProvider.notifier).startScan();
+                        },
                       ),
                   ],
                 ),

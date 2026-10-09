@@ -2,7 +2,6 @@ import "dart:async";
 import "dart:convert";
 import "dart:ffi" as ffi;
 import "dart:io";
-import "dart:math";
 import "../models/proxy_node.dart";
 import "../models/routing_rule.dart";
 import "../models/log_entry.dart";
@@ -62,6 +61,7 @@ class XrayProcessService {
   bool isSystemProxySet = false;
   bool globalAllowInsecure = false;
   bool globalEnableMux = false;
+  bool globalAllowLan = false;
   List<RoutingRule> routingRules = [];
   String? lastLog;
   String? lastErrorLog;
@@ -112,7 +112,7 @@ class XrayProcessService {
     return true;
   }
 
-  Map<String, dynamic> generateXrayConfig(ProxyNode node, {bool enableTun = false, bool enableUdp = true}) {
+  Map<String, dynamic> generateXrayConfig(ProxyNode node, {bool enableTun = false, bool enableUdp = true, bool allowLan = false}) {
     final netName = (node.network == NetworkType.splithttp || node.network == NetworkType.xhttp)
         ? "xhttp"
         : node.network.name;
@@ -316,11 +316,12 @@ class XrayProcessService {
       };
     }
 
+    final listenAddr = (allowLan || globalAllowLan) ? "0.0.0.0" : "127.0.0.1";
     final inbounds = <Map<String, dynamic>>[
       {
         "tag": "socks-in",
         "port": socksPort,
-        "listen": "127.0.0.1",
+        "listen": listenAddr,
         "protocol": "socks",
         "settings": {"auth": "noauth", "udp": enableUdp},
         "sniffing": {"enabled": true, "destOverride": ["http", "tls"]}
@@ -328,7 +329,7 @@ class XrayProcessService {
       {
         "tag": "http-in",
         "port": httpPort,
-        "listen": "127.0.0.1",
+        "listen": listenAddr,
         "protocol": "http",
         "sniffing": {"enabled": true, "destOverride": ["http", "tls"]}
       }
@@ -481,12 +482,12 @@ class XrayProcessService {
     return await _isPortAvailable(port);
   }
 
-  Future<bool> start(ProxyNode node, {bool enableTun = false, bool setSysProxy = false, bool enableUdp = true}) async {
+  Future<bool> start(ProxyNode node, {bool enableTun = false, bool setSysProxy = false, bool enableUdp = true, bool allowLan = false}) async {
     // Always stop and cleanup any existing process
     await stop();
 
     _state = EngineState.starting;
-    LogService.instance.add("Initializing Xray core for node: ${node.name} (${node.address}:${node.port}) [TUN: $enableTun, SysProxy: $setSysProxy, UDP: $enableUdp]", level: LogLevel.info, source: "system");
+    LogService.instance.add("Initializing Xray core for node: ${node.name} (${node.address}:${node.port}) [TUN: $enableTun, SysProxy: $setSysProxy, UDP: $enableUdp, LAN: ${allowLan || globalAllowLan}]", level: LogLevel.info, source: "system");
 
     final binaryPath = _findXrayBinary();
     if (binaryPath == null) {
@@ -516,7 +517,7 @@ class XrayProcessService {
     }
 
     try {
-      final configJson = generateXrayConfig(node, enableTun: enableTun, enableUdp: enableUdp);
+      final configJson = generateXrayConfig(node, enableTun: enableTun, enableUdp: enableUdp, allowLan: allowLan || globalAllowLan);
       final tmpDir = Directory.systemTemp;
       _currentConfigFile = File("${tmpDir.path}/v2raypro_active_config.json");
       await _currentConfigFile!.writeAsString(jsonEncode(configJson));

@@ -244,12 +244,15 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
     }
 
     setState(() {
+      _subCountryFilterMap.remove(subId);
       _testingSubMap[subId] = true;
       _cancelSubMap[subId] = false;
       _testingNodeIds.addAll(subNodes.map((n) => n.id));
       _subTotalCount[subId] = subNodes.length;
       _subTestedCount[subId] = 0;
     });
+
+    ref.read(nodesProvider.notifier).clearLatencies(subscriptionId: subId);
 
     int currentIndex = 0;
     const concurrency = 10;
