@@ -77,9 +77,10 @@ class FreeConfigsService {
   Future<List<ProxyNode>> fetchAndScan({
     void Function(FreeConfigsScanProgress)? onProgress,
     int targetWorking = 30,
-    int concurrency = 10,
+    int concurrency = 25,
     int batchSize = 10,
     Random? rng,
+    dynamic testMode,
   }) async {
     if (_isScanning) {
       // If a previous scan is still terminating, wait up to 2s for it to finish cleanly
@@ -202,9 +203,11 @@ class FreeConfigsService {
           if (nodeIndex >= uniqueNodes.length) break;
           final node = uniqueNodes[nodeIndex];
 
+          final isTurbo = testMode != null && testMode.toString().contains('turbo');
           final res = await XrayProcessService.instance.testNodeRealDelay(
             node,
             timeout: const Duration(milliseconds: 2800),
+            isTurbo: isTurbo,
           );
           if (_isCancelled) break;
 

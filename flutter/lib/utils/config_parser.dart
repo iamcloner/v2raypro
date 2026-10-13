@@ -18,10 +18,18 @@ class ConfigParser {
     }
   }
 
-  /// Parse a single config link or batch of links (newline-separated or base64 subscription)
+  /// Parse a single config link or batch of links (newline-separated or base64 subscription or sing-box json)
   static List<ProxyNode> parseBatch(String content) {
     final trimmed = content.trim();
     if (trimmed.isEmpty) return [];
+
+    // Attempt sing-box JSON configuration detection
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      final singBoxNodes = parseSingBoxConfig(trimmed);
+      if (singBoxNodes.isNotEmpty) {
+        return singBoxNodes;
+      }
+    }
 
     // Attempt base64 subscription decoding
     String decoded = trimmed;
@@ -32,6 +40,14 @@ class ConfigParser {
     } catch (_) {
       // Not a base64 subscription, use raw content
       decoded = trimmed;
+    }
+
+    // Check decoded payload for sing-box JSON
+    if (decoded.trim().startsWith('{') || decoded.trim().startsWith('[')) {
+      final singBoxNodes = parseSingBoxConfig(decoded.trim());
+      if (singBoxNodes.isNotEmpty) {
+        return singBoxNodes;
+      }
     }
 
     final nodes = <ProxyNode>[];
@@ -57,6 +73,19 @@ class ConfigParser {
       return _parseTrojan(trimmed);
     } else if (trimmed.startsWith('ss://')) {
       return _parseShadowsocks(trimmed);
+    } else if (trimmed.startsWith('sing-box://') || trimmed.startsWith('singbox://')) {
+      return _parseSingBoxUrl(trimmed);
+    } else if (trimmed.startsWith('{')) {
+      try {
+        final decoded = jsonDecode(trimmed);
+        if (decoded is Map<String, dynamic>) {
+          if (decoded.containsKey('outbounds')) {
+            final list = parseSingBoxConfig(trimmed);
+            if (list.isNotEmpty) return list.first;
+          }
+          return parseSingBoxOutbound(decoded);
+        }
+      } catch (_) {}
     }
     return null;
   }
@@ -358,5 +387,333 @@ class ConfigParser {
     } catch (_) {
       return null;
     }
+  }
+
+  static ProxyNode? _parseSingBoxUrl(String url) {
+    try {
+      final payload = url.replaceFirst(RegExp(r'^sing-?box://', caseSensitive: false), '').trim();
+      if (payload.isEmpty) return null;
+
+      // Try direct JSON
+      if (payload.startsWith('{')) {
+        final decoded = jsonDecode(payload);
+        if (decoded is Map<String, dynamic>) {
+          return parseSingBoxOutbound(decoded);
+        }
+      }
+
+      // Try Base64 JSON
+      try {
+        final decodedBytes = base64Decode(_normalizeBase64(payload));
+        final jsonStr = utf8.decode(decodedBytes);
+        final decoded = jsonDecode(jsonStr);
+        if (decoded is Map<String, dynamic>) {
+          return parseSingBoxOutbound(decoded);
+        }
+      } catch (_) {}
+
+      // Try URI decoded
+      final uriDecoded = Uri.decodeComponent(payload);
+      if (uriDecoded.startsWith('{')) {
+        final decoded = jsonDecode(uriDecoded);
+        if (decoded is Map<String, dynamic>) {
+          return parseSingBoxOutbound(decoded);
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Parses a Sing-box outbound configuration map into a ProxyNode
+  static ProxyNode? parseSingBoxOutbound(Map<String, dynamic> map) {
+    try {
+      final type = (map['type'] as String?)?.toLowerCase();
+      if (type == null) return null;
+
+      ProtocolType protocol;
+      switch (type) {
+        case 'vless':
+          protocol = ProtocolType.vless;
+          break;
+        case 'vmess':
+          protocol = ProtocolType.vmess;
+          break;
+        case 'trojan':
+          protocol = ProtocolType.trojan;
+          break;
+        case 'shadowsocks':
+          protocol = ProtocolType.shadowsocks;
+          break;
+        default:
+          return null;
+      }
+
+      final address = (map['server'] as String?)?.trim() ?? '';
+      if (address.isEmpty) return null;
+      final port = (map['server_port'] as num?)?.toInt() ?? 443;
+      final name = (map['tag'] as String?)?.trim() ?? '$address:$port';
+
+      final uuidOrPassword = (map['uuid'] ?? map['password'] ?? '') as String;
+      final flow = map['flow'] as String?;
+      final cipher = map['method'] as String?;
+      final alterId = (map['alter_id'] as num?)?.toInt() ?? 0;
+
+      // TLS / Security
+      SecurityType security = SecurityType.none;
+      String? sni;
+      List<String>? alpn;
+      bool allowInsecure = false;
+      String? fingerprint;
+      String? publicKey;
+      String? shortId;
+
+      if (map['tls'] is Map) {
+        final tls = map['tls'] as Map<String, dynamic>;
+        if (tls['enabled'] == true) {
+          security = SecurityType.tls;
+          sni = tls['server_name'] as String?;
+          if (tls['alpn'] is List) {
+            alpn = (tls['alpn'] as List).map((e) => e.toString()).toList();
+          }
+          allowInsecure = tls['insecure'] == true;
+          if (tls['utls'] is Map) {
+            fingerprint = (tls['utls'] as Map)['fingerprint'] as String?;
+          }
+          if (tls['reality'] is Map) {
+            final reality = tls['reality'] as Map<String, dynamic>;
+            if (reality['enabled'] == true) {
+              security = SecurityType.reality;
+              publicKey = reality['public_key'] as String?;
+              shortId = reality['short_id'] as String?;
+            }
+          }
+        }
+      }
+
+      // Transport
+      NetworkType network = NetworkType.tcp;
+      String? path;
+      String? host;
+      String? serviceName;
+
+      if (map['transport'] is Map) {
+        final trans = map['transport'] as Map<String, dynamic>;
+        final transType = (trans['type'] as String?)?.toLowerCase();
+        switch (transType) {
+          case 'ws':
+            network = NetworkType.ws;
+            path = trans['path'] as String?;
+            if (trans['headers'] is Map) {
+              host = (trans['headers'] as Map)['Host'] as String?;
+            }
+            break;
+          case 'grpc':
+            network = NetworkType.grpc;
+            serviceName = trans['service_name'] as String?;
+            break;
+          case 'http':
+            network = NetworkType.h2;
+            path = trans['path'] as String?;
+            host = trans['host'] is List ? (trans['host'] as List).firstOrNull?.toString() : trans['host'] as String?;
+            break;
+          case 'httpupgrade':
+            network = NetworkType.httpUpgrade;
+            path = trans['path'] as String?;
+            host = trans['host'] as String?;
+            break;
+        }
+      }
+
+      return ProxyNode(
+        id: const Uuid().v4(),
+        name: name,
+        protocol: protocol,
+        address: address,
+        port: port,
+        uuidOrPassword: uuidOrPassword,
+        alterId: alterId,
+        cipher: cipher,
+        network: network,
+        path: path,
+        host: host,
+        serviceName: serviceName,
+        security: security,
+        sni: sni,
+        alpn: alpn,
+        allowInsecure: allowInsecure,
+        fingerprint: fingerprint,
+        publicKey: publicKey,
+        shortId: shortId,
+        flow: flow,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Parses a full Sing-box JSON configuration string
+  static List<ProxyNode> parseSingBoxConfig(String jsonStr) {
+    try {
+      final decoded = jsonDecode(jsonStr);
+      if (decoded is Map<String, dynamic>) {
+        if (decoded['outbounds'] is List) {
+          final nodes = <ProxyNode>[];
+          for (final ob in (decoded['outbounds'] as List)) {
+            if (ob is Map<String, dynamic>) {
+              final node = parseSingBoxOutbound(ob);
+              if (node != null) nodes.add(node);
+            }
+          }
+          return nodes;
+        } else {
+          final node = parseSingBoxOutbound(decoded);
+          if (node != null) return [node];
+        }
+      } else if (decoded is List) {
+        final nodes = <ProxyNode>[];
+        for (final item in decoded) {
+          if (item is Map<String, dynamic>) {
+            final node = parseSingBoxOutbound(item);
+            if (node != null) nodes.add(node);
+          }
+        }
+        return nodes;
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  /// Serializes a ProxyNode into a Sing-box outbound configuration map
+  static Map<String, dynamic> toSingBoxOutbound(ProxyNode node) {
+    final map = <String, dynamic>{
+      'type': node.protocol.name,
+      'tag': node.name,
+      'server': node.address,
+      'server_port': node.port,
+    };
+
+    if (node.protocol == ProtocolType.vless || node.protocol == ProtocolType.vmess) {
+      map['uuid'] = node.uuidOrPassword;
+      if (node.protocol == ProtocolType.vmess && node.alterId > 0) {
+        map['alter_id'] = node.alterId;
+      }
+      if (node.flow != null && node.flow!.isNotEmpty) {
+        map['flow'] = node.flow;
+      }
+    } else if (node.protocol == ProtocolType.trojan) {
+      map['password'] = node.uuidOrPassword;
+    } else if (node.protocol == ProtocolType.shadowsocks) {
+      map['password'] = node.uuidOrPassword;
+      map['method'] = node.cipher ?? 'aes-128-gcm';
+    }
+
+    if (node.security == SecurityType.tls || node.security == SecurityType.reality) {
+      final tls = <String, dynamic>{
+        'enabled': true,
+        'server_name': node.sni ?? node.host ?? node.address,
+      };
+      if (node.allowInsecure) {
+        tls['insecure'] = true;
+      }
+      if (node.alpn != null && node.alpn!.isNotEmpty) {
+        tls['alpn'] = node.alpn;
+      }
+      if (node.fingerprint != null && node.fingerprint!.isNotEmpty) {
+        tls['utls'] = {
+          'enabled': true,
+          'fingerprint': node.fingerprint,
+        };
+      }
+      if (node.security == SecurityType.reality) {
+        tls['reality'] = {
+          'enabled': true,
+          'public_key': node.publicKey ?? '',
+          'short_id': node.shortId ?? '',
+        };
+      }
+      map['tls'] = tls;
+    }
+
+    if (node.network == NetworkType.ws) {
+      final ws = <String, dynamic>{
+        'type': 'ws',
+        'path': node.path ?? '/',
+      };
+      if (node.host != null && node.host!.isNotEmpty) {
+        ws['headers'] = {'Host': node.host};
+      }
+      map['transport'] = ws;
+    } else if (node.network == NetworkType.grpc) {
+      map['transport'] = {
+        'type': 'grpc',
+        'service_name': node.serviceName ?? '',
+      };
+    } else if (node.network == NetworkType.httpUpgrade) {
+      map['transport'] = {
+        'type': 'httpupgrade',
+        'path': node.path ?? '/',
+        if (node.host != null && node.host!.isNotEmpty) 'host': node.host,
+      };
+    }
+
+    return map;
+  }
+
+  /// Generates a complete, runnable Sing-box JSON configuration from a ProxyNode
+  static String generateSingBoxConfig(
+    ProxyNode node, {
+    int inHttpPort = 10809,
+    int inSocksPort = 10808,
+    bool allowLan = false,
+  }) {
+    final bindAddr = allowLan ? '0.0.0.0' : '127.0.0.1';
+    final proxyOutbound = toSingBoxOutbound(node);
+    final config = {
+      'log': {
+        'level': 'info',
+        'timestamp': true,
+      },
+      'inbounds': [
+        {
+          'type': 'mixed',
+          'tag': 'mixed-in',
+          'listen': bindAddr,
+          'listen_port': inHttpPort,
+          'sniff': true,
+        },
+        {
+          'type': 'socks',
+          'tag': 'socks-in',
+          'listen': bindAddr,
+          'listen_port': inSocksPort,
+          'sniff': true,
+        },
+      ],
+      'outbounds': [
+        proxyOutbound,
+        {
+          'type': 'direct',
+          'tag': 'direct',
+        },
+        {
+          'type': 'block',
+          'tag': 'block',
+        },
+      ],
+      'route': {
+        'rules': [
+          {
+            'protocol': 'dns',
+            'outbound': 'direct',
+          },
+          {
+            'ip_is_private': true,
+            'outbound': 'direct',
+          },
+        ],
+        'auto_detect_interface': true,
+      },
+    };
+    return const JsonEncoder.withIndent('  ').convert(config);
   }
 }

@@ -219,7 +219,11 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
     if (_testingNodeIds.contains(node.id)) return;
     setState(() => _testingNodeIds.add(node.id));
 
-    final res = await XrayProcessService.instance.testNodeRealDelay(node);
+    final testMode = ref.read(testModeProvider);
+    final res = await XrayProcessService.instance.testNodeRealDelay(
+      node,
+      isTurbo: testMode == TestMode.turbo,
+    );
     ref.read(nodesProvider.notifier).updateLatency(
       node.id,
       res.latencyMs,
@@ -255,7 +259,9 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
     ref.read(nodesProvider.notifier).clearLatencies(subscriptionId: subId);
 
     int currentIndex = 0;
-    const concurrency = 10;
+    final concurrency = ref.read(testConcurrencyProvider);
+    final testMode = ref.read(testModeProvider);
+    final isTurbo = testMode == TestMode.turbo;
     final testStartTime = DateTime.now();
 
     Future<void> runWorker() async {
@@ -264,7 +270,10 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
         if (nodeIndex >= subNodes.length) break;
         final n = subNodes[nodeIndex];
 
-        final res = await XrayProcessService.instance.testNodeRealDelay(n);
+        final res = await XrayProcessService.instance.testNodeRealDelay(
+          n,
+          isTurbo: isTurbo,
+        );
         if (_cancelSubMap[subId] == true || !mounted) break;
 
         if (mounted) {

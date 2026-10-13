@@ -290,6 +290,48 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
     }
   }
 
+  Widget _buildInfoTooltip(String message) {
+    return Tooltip(
+      message: message,
+      padding: const EdgeInsets.all(10),
+      margin: const EdgeInsets.symmetric(horizontal: 20),
+      preferBelow: true,
+      textStyle: const TextStyle(color: Colors.white, fontSize: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E2230),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppTheme.primaryAccent.withValues(alpha: 0.4)),
+        boxShadow: const [
+          BoxShadow(color: Colors.black38, blurRadius: 6, offset: Offset(0, 2)),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4.0),
+        child: Icon(
+          Icons.info_outline_rounded,
+          size: 17,
+          color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCategoryHeader(IconData icon, String title) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10, top: 8),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: AppTheme.primaryAccent),
+          const SizedBox(width: 8),
+          Text(
+            title,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final locale = ref.watch(currentLocaleProvider);
@@ -307,6 +349,9 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
     final globalAllowInsecure = ref.watch(globalAllowInsecureProvider);
     final globalEnableMux = ref.watch(globalEnableMuxProvider);
     final allowLan = ref.watch(allowLanProvider);
+
+    final testMode = ref.watch(testModeProvider);
+    final testConcurrency = ref.watch(testConcurrencyProvider);
 
     if (!_initialized) {
       final currentCdnList = cdnRanges[_selectedCdnForRanges] ?? _selectedCdnForRanges.defaultCidrs;
@@ -349,15 +394,22 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
               ),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
 
-          // 1. General & Appearance
+          // 1. Appearance & Language
+          _buildCategoryHeader(Icons.palette_rounded, AppStrings.get('settings_cat_appearance', locale: locale)),
           Card(
             child: Column(
               children: [
                 ListTile(
-                  leading: const Icon(Icons.palette_rounded, color: AppTheme.primaryAccent),
-                  title: Text(AppStrings.get('theme_mode', locale: locale)),
+                  leading: const Icon(Icons.brightness_6_rounded, color: AppTheme.primaryAccent),
+                  title: Row(
+                    children: [
+                      Text(AppStrings.get('theme_mode', locale: locale)),
+                      const SizedBox(width: 6),
+                      _buildInfoTooltip(AppStrings.get('tooltip_theme', locale: locale)),
+                    ],
+                  ),
                   trailing: SegmentedButton<ThemeMode>(
                     segments: [
                       ButtonSegment(
@@ -385,7 +437,13 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                 const Divider(height: 1),
                 ListTile(
                   leading: const Icon(Icons.language_rounded, color: AppTheme.secondaryAccent),
-                  title: const Text('Language / زبان'),
+                  title: Row(
+                    children: [
+                      const Text('Language / زبان'),
+                      const SizedBox(width: 6),
+                      _buildInfoTooltip(AppStrings.get('tooltip_language', locale: locale)),
+                    ],
+                  ),
                   subtitle: Text(locale == 'fa' ? 'فارسی' : 'English'),
                   trailing: DropdownButton<String>(
                     value: locale,
@@ -407,17 +465,19 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
           const SizedBox(height: 20),
 
           // 2. Startup & Automation
-          Text(
-            locale == 'fa' ? 'راه‌اندازی و اتصال خودکار' : 'Startup & Automation',
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 12),
+          _buildCategoryHeader(Icons.power_settings_new_rounded, AppStrings.get('settings_cat_startup', locale: locale)),
           Card(
             child: Column(
               children: [
                 SwitchListTile(
                   secondary: const Icon(Icons.power_settings_new_rounded, color: AppTheme.primaryAccent),
-                  title: Text(AppStrings.get('start_on_boot', locale: locale)),
+                  title: Row(
+                    children: [
+                      Text(AppStrings.get('start_on_boot', locale: locale)),
+                      const SizedBox(width: 6),
+                      _buildInfoTooltip(AppStrings.get('tooltip_start_on_boot', locale: locale)),
+                    ],
+                  ),
                   subtitle: Text(AppStrings.get('start_on_boot_desc', locale: locale), style: const TextStyle(fontSize: 12, color: Colors.grey)),
                   value: startOnBoot,
                   onChanged: (val) {
@@ -427,7 +487,13 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                 const Divider(height: 1),
                 SwitchListTile(
                   secondary: const Icon(Icons.flash_on_rounded, color: Colors.amber),
-                  title: Text(AppStrings.get('auto_connect_on_launch', locale: locale)),
+                  title: Row(
+                    children: [
+                      Text(AppStrings.get('auto_connect_on_launch', locale: locale)),
+                      const SizedBox(width: 6),
+                      _buildInfoTooltip(AppStrings.get('tooltip_auto_connect', locale: locale)),
+                    ],
+                  ),
                   subtitle: Text(AppStrings.get('auto_connect_on_launch_desc', locale: locale), style: const TextStyle(fontSize: 12, color: Colors.grey)),
                   value: autoConnectOnLaunch,
                   onChanged: (val) {
@@ -437,7 +503,13 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                 const Divider(height: 1),
                 SwitchListTile(
                   secondary: const Icon(Icons.shield_outlined, color: AppTheme.successColor),
-                  title: Text(AppStrings.get('auto_sysproxy_on_connect', locale: locale)),
+                  title: Row(
+                    children: [
+                      Text(AppStrings.get('auto_sysproxy_on_connect', locale: locale)),
+                      const SizedBox(width: 6),
+                      _buildInfoTooltip(AppStrings.get('tooltip_auto_sysproxy', locale: locale)),
+                    ],
+                  ),
                   subtitle: Text(AppStrings.get('auto_sysproxy_on_connect_desc', locale: locale), style: const TextStyle(fontSize: 12, color: Colors.grey)),
                   value: autoSysProxy,
                   onChanged: (val) {
@@ -447,7 +519,13 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                 const Divider(height: 1),
                 SwitchListTile(
                   secondary: const Icon(Icons.vpn_lock_rounded, color: AppTheme.primaryAccent),
-                  title: Text(AppStrings.get('auto_tun_on_connect', locale: locale)),
+                  title: Row(
+                    children: [
+                      Text(AppStrings.get('auto_tun_on_connect', locale: locale)),
+                      const SizedBox(width: 6),
+                      _buildInfoTooltip(AppStrings.get('tooltip_auto_tun', locale: locale)),
+                    ],
+                  ),
                   subtitle: Text(AppStrings.get('auto_tun_on_connect_desc', locale: locale), style: const TextStyle(fontSize: 12, color: Colors.grey)),
                   value: autoTun,
                   onChanged: (val) {
@@ -455,7 +533,7 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                       showDialog(
                         context: context,
                         builder: (ctx) => AlertDialog(
-                          backgroundColor: const Color(0xFF1E2230),
+                          backgroundColor: Theme.of(context).cardColor,
                           title: Text(AppStrings.get('tun_admin_required_title', locale: locale)),
                           content: Text(AppStrings.get('tun_admin_required_desc', locale: locale)),
                           actions: [
@@ -475,10 +553,25 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                     ref.read(autoEnableTunOnConnectProvider.notifier).toggle(val);
                   },
                 ),
-                const Divider(height: 1),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // 3. Core & Network Settings
+          _buildCategoryHeader(Icons.router_rounded, AppStrings.get('settings_cat_core_net', locale: locale)),
+          Card(
+            child: Column(
+              children: [
                 SwitchListTile(
                   secondary: const Icon(Icons.compare_arrows_rounded, color: Colors.tealAccent),
-                  title: Text(AppStrings.get('enable_udp', locale: locale)),
+                  title: Row(
+                    children: [
+                      Text(AppStrings.get('enable_udp', locale: locale)),
+                      const SizedBox(width: 6),
+                      _buildInfoTooltip(AppStrings.get('tooltip_enable_udp', locale: locale)),
+                    ],
+                  ),
                   subtitle: Text(AppStrings.get('enable_udp_desc', locale: locale), style: const TextStyle(fontSize: 12, color: Colors.grey)),
                   value: enableUdp,
                   onChanged: (val) {
@@ -488,7 +581,13 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                 const Divider(height: 1),
                 SwitchListTile(
                   secondary: const Icon(Icons.security_update_warning_rounded, color: Colors.orangeAccent),
-                  title: Text(AppStrings.get('global_allow_insecure', locale: locale)),
+                  title: Row(
+                    children: [
+                      Text(AppStrings.get('global_allow_insecure', locale: locale)),
+                      const SizedBox(width: 6),
+                      _buildInfoTooltip(AppStrings.get('tooltip_allow_insecure', locale: locale)),
+                    ],
+                  ),
                   subtitle: Text(AppStrings.get('global_allow_insecure_desc', locale: locale), style: const TextStyle(fontSize: 12, color: Colors.grey)),
                   value: globalAllowInsecure,
                   onChanged: (val) {
@@ -501,7 +600,13 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                 const Divider(height: 1),
                 SwitchListTile(
                   secondary: const Icon(Icons.alt_route_rounded, color: Colors.cyanAccent),
-                  title: Text(AppStrings.get('global_enable_mux', locale: locale)),
+                  title: Row(
+                    children: [
+                      Text(AppStrings.get('global_enable_mux', locale: locale)),
+                      const SizedBox(width: 6),
+                      _buildInfoTooltip(AppStrings.get('tooltip_enable_mux', locale: locale)),
+                    ],
+                  ),
                   subtitle: Text(AppStrings.get('global_enable_mux_desc', locale: locale), style: const TextStyle(fontSize: 12, color: Colors.grey)),
                   value: globalEnableMux,
                   onChanged: (val) {
@@ -514,7 +619,13 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                 const Divider(height: 1),
                 SwitchListTile(
                   secondary: const Icon(Icons.lan_rounded, color: Colors.lightGreenAccent),
-                  title: Text(AppStrings.get('allow_lan', locale: locale)),
+                  title: Row(
+                    children: [
+                      Text(AppStrings.get('allow_lan', locale: locale)),
+                      const SizedBox(width: 6),
+                      _buildInfoTooltip(AppStrings.get('tooltip_allow_lan', locale: locale)),
+                    ],
+                  ),
                   subtitle: Text(AppStrings.get('allow_lan_desc', locale: locale), style: const TextStyle(fontSize: 12, color: Colors.grey)),
                   value: allowLan,
                   onChanged: (val) {
@@ -524,252 +635,16 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                     }
                   },
                 ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 20),
-
-          // 3. Updates Center (Accordion with Update All)
-          Card(
-            clipBehavior: Clip.antiAlias,
-            child: ExpansionTile(
-              initiallyExpanded: false,
-              leading: const Icon(Icons.system_update_rounded, color: AppTheme.primaryAccent),
-              title: Text(
-                AppStrings.get('updates', locale: locale),
-                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-              ),
-              subtitle: Text(
-                _updateAllStatusMsg ?? AppStrings.get('updates_desc', locale: locale),
-                style: TextStyle(
-                  fontSize: 12,
-                  color: _updateAllStatusMsg != null ? AppTheme.successColor : Colors.grey,
-                ),
-              ),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  FilledButton.icon(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppTheme.primaryAccent,
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    ),
-                    icon: _updatingAll
-                        ? const SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                          )
-                        : const Icon(Icons.autorenew_rounded, size: 16),
-                    label: Text(
-                      _updatingAll
-                          ? AppStrings.get('updating', locale: locale)
-                          : AppStrings.get('update_all', locale: locale),
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                    ),
-                    onPressed: _updatingAll ? null : _updateAll,
-                  ),
-                  const SizedBox(width: 8),
-                  const Icon(Icons.expand_more_rounded),
-                ],
-              ),
-              children: [
-                if (_updatingAll) ...[
-                  const LinearProgressIndicator(),
-                  const SizedBox(height: 8),
-                ],
                 const Divider(height: 1),
-                // 3.1 Xray Core Update
-                ListTile(
-                  leading: const Icon(Icons.dns_rounded, color: AppTheme.primaryAccent),
-                  title: Text(AppStrings.get('xray_core_update', locale: locale)),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _xrayInfo != null
-                            ? '${AppStrings.get('current_version', locale: locale)}: ${_xrayInfo!.currentVersion}  •  ${AppStrings.get('latest_version', locale: locale)}: ${_xrayInfo!.latestVersion}'
-                            : 'Official GitHub XTLS/Xray-core',
-                        style: const TextStyle(fontSize: 12, color: Colors.grey),
-                      ),
-                      if (_xrayStatusMsg != null)
-                        Text(
-                          _xrayStatusMsg!,
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: _xrayStatusMsg!.contains('success') || _xrayStatusMsg!.contains('Up to date')
-                                ? AppTheme.successColor
-                                : Colors.amber,
-                          ),
-                        ),
-                      if (_xrayUpdating) ...[
-                        const SizedBox(height: 6),
-                        LinearProgressIndicator(value: _xrayProgress > 0 ? _xrayProgress : null),
-                      ],
-                    ],
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (_xrayInfo?.hasUpdate == true && !_xrayUpdating)
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppTheme.successColor,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          ),
-                          icon: const Icon(Icons.file_download_rounded, size: 16),
-                          label: Text(AppStrings.get('update_now', locale: locale), style: const TextStyle(fontSize: 11)),
-                          onPressed: _updateXray,
-                        )
-                      else
-                        OutlinedButton.icon(
-                          icon: _xrayChecking
-                              ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
-                              : const Icon(Icons.refresh_rounded, size: 16),
-                          label: Text(
-                            _xrayChecking ? AppStrings.get('checking', locale: locale) : AppStrings.get('check_update', locale: locale),
-                            style: const TextStyle(fontSize: 11),
-                          ),
-                          onPressed: _xrayChecking || _xrayUpdating ? null : _checkXrayUpdate,
-                        ),
-                    ],
-                  ),
-                ),
-                const Divider(height: 1),
-
-                // 3.2 Geo Files Update
-                ListTile(
-                  leading: const Icon(Icons.public_rounded, color: AppTheme.secondaryAccent),
-                  title: Text(AppStrings.get('geo_files_update', locale: locale)),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _geoInfo != null
-                            ? '${AppStrings.get('current_version', locale: locale)}: ${_geoInfo!.currentVersion}  •  ${AppStrings.get('latest_version', locale: locale)}: ${_geoInfo!.latestVersion}'
-                            : 'Loyalsoldier/v2ray-rules-dat (geoip.dat & geosite.dat)',
-                        style: const TextStyle(fontSize: 12, color: Colors.grey),
-                      ),
-                      if (_geoStatusMsg != null)
-                        Text(
-                          _geoStatusMsg!,
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: _geoStatusMsg!.contains('updated') ? AppTheme.successColor : Colors.amber,
-                          ),
-                        ),
-                      if (_geoUpdating) ...[
-                        const SizedBox(height: 6),
-                        LinearProgressIndicator(value: _geoProgress > 0 ? _geoProgress : null),
-                      ],
-                    ],
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (_geoInfo != null && !_geoUpdating)
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppTheme.primaryAccent,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          ),
-                          icon: const Icon(Icons.download_rounded, size: 16),
-                          label: Text(AppStrings.get('update_now', locale: locale), style: const TextStyle(fontSize: 11)),
-                          onPressed: _updateGeoFiles,
-                        )
-                      else
-                        OutlinedButton.icon(
-                          icon: _geoChecking
-                              ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
-                              : const Icon(Icons.cloud_download_rounded, size: 16),
-                          label: Text(
-                            _geoChecking ? AppStrings.get('checking', locale: locale) : AppStrings.get('check_update', locale: locale),
-                            style: const TextStyle(fontSize: 11),
-                          ),
-                          onPressed: _geoChecking || _geoUpdating ? null : _checkGeoUpdate,
-                        ),
-                    ],
-                  ),
-                ),
-                const Divider(height: 1),
-
-                // 3.3 App Update
-                ListTile(
-                  leading: const Icon(Icons.system_update_rounded, color: Colors.tealAccent),
-                  title: Text(AppStrings.get('app_update', locale: locale)),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '${AppStrings.get('current_version', locale: locale)}: ${UpdateService.currentAppVersion}${_appInfo != null ? ' • ${AppStrings.get('latest_version', locale: locale)}: ${_appInfo!.latestVersion}' : ''}',
-                        style: const TextStyle(fontSize: 12, color: Colors.grey),
-                      ),
-                      if (_appStatusMsg != null)
-                        Text(
-                          _appStatusMsg!,
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: _appStatusMsg!.contains('up to date') || _appStatusMsg!.contains('به‌روز است') || _appStatusMsg!.contains('موفقیت')
-                                ? AppTheme.successColor
-                                : Colors.amber,
-                          ),
-                        ),
-                      if (_appUpdating) ...[
-                        const SizedBox(height: 6),
-                        LinearProgressIndicator(value: _appProgress > 0 ? _appProgress : null),
-                      ],
-                    ],
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (_appInfo?.hasUpdate == true && !_appUpdating)
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppTheme.successColor,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          ),
-                          icon: const Icon(Icons.downloading_rounded, size: 16),
-                          label: Text(
-                            AppStrings.get('update_now', locale: locale),
-                            style: const TextStyle(fontSize: 11),
-                          ),
-                          onPressed: _downloadAppUpdate,
-                        )
-                      else
-                        OutlinedButton.icon(
-                          icon: _appChecking
-                              ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
-                              : const Icon(Icons.refresh_rounded, size: 16),
-                          label: Text(
-                            _appChecking ? AppStrings.get('checking', locale: locale) : AppStrings.get('check_update', locale: locale),
-                            style: const TextStyle(fontSize: 11),
-                          ),
-                          onPressed: _appChecking || _appUpdating ? null : _checkAppUpdate,
-                        ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 20),
-
-          // 4. Ports Settings
-          Text(
-            AppStrings.get('port_settings', locale: locale),
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 12),
-          Card(
-            child: Column(
-              children: [
                 ListTile(
                   leading: const Icon(Icons.settings_ethernet_rounded, color: AppTheme.primaryAccent),
-                  title: Text(AppStrings.get('http_port', locale: locale)),
+                  title: Row(
+                    children: [
+                      Text(AppStrings.get('http_port', locale: locale)),
+                      const SizedBox(width: 6),
+                      _buildInfoTooltip(AppStrings.get('tooltip_http_port', locale: locale)),
+                    ],
+                  ),
                   subtitle: Text('Current: $httpPort  •  (Default: 10888)'),
                   trailing: SizedBox(
                     width: 140,
@@ -810,7 +685,13 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                 const Divider(height: 1),
                 ListTile(
                   leading: const Icon(Icons.swap_calls_rounded, color: AppTheme.secondaryAccent),
-                  title: Text(AppStrings.get('socks_port', locale: locale)),
+                  title: Row(
+                    children: [
+                      Text(AppStrings.get('socks_port', locale: locale)),
+                      const SizedBox(width: 6),
+                      _buildInfoTooltip(AppStrings.get('tooltip_socks_port', locale: locale)),
+                    ],
+                  ),
                   subtitle: Text('Current: $socksPort  •  (Default: 10999)'),
                   trailing: SizedBox(
                     width: 140,
@@ -851,17 +732,23 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
               ],
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 12),
 
-          // 5. DNS Settings Card
+          // DNS Settings Card (Inside Core & Network)
           Card(
             clipBehavior: Clip.antiAlias,
             child: ExpansionTile(
               initiallyExpanded: false,
               leading: const Icon(Icons.dns_rounded, color: AppTheme.primaryAccent),
-              title: Text(
-                AppStrings.get('dns_settings_title', locale: locale),
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              title: Row(
+                children: [
+                  Text(
+                    AppStrings.get('dns_settings_title', locale: locale),
+                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(width: 6),
+                  _buildInfoTooltip(AppStrings.get('tooltip_dns_settings', locale: locale)),
+                ],
               ),
               subtitle: Text(
                 '${dnsSettings.servers.length} servers configured (${dnsSettings.presetId.toUpperCase()})  •  Tap to view / edit',
@@ -945,15 +832,125 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
           ),
           const SizedBox(height: 20),
 
-          // 6. Multi-CDN IP Ranges Card
+          // 4. Config Testing & Concurrency
+          _buildCategoryHeader(Icons.speed_rounded, AppStrings.get('settings_cat_testing', locale: locale)),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8.0),
+              child: Column(
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.tune_rounded, color: AppTheme.primaryAccent),
+                    title: Row(
+                      children: [
+                        Text(AppStrings.get('test_mode', locale: locale)),
+                        const SizedBox(width: 6),
+                        _buildInfoTooltip(AppStrings.get('tooltip_test_mode', locale: locale)),
+                      ],
+                    ),
+                    subtitle: Text(
+                      AppStrings.get('test_mode_desc', locale: locale),
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    trailing: SegmentedButton<TestMode>(
+                      segments: [
+                        ButtonSegment(
+                          value: TestMode.normal,
+                          label: Text(AppStrings.get('test_mode_normal', locale: locale), style: const TextStyle(fontSize: 11)),
+                          icon: const Icon(Icons.check_circle_outline_rounded, size: 16),
+                        ),
+                        ButtonSegment(
+                          value: TestMode.turbo,
+                          label: Text(AppStrings.get('test_mode_turbo', locale: locale), style: const TextStyle(fontSize: 11)),
+                          icon: const Icon(Icons.bolt_rounded, size: 16, color: Colors.amber),
+                        ),
+                      ],
+                      selected: {testMode},
+                      onSelectionChanged: (Set<TestMode> newSelection) {
+                        ref.read(testModeProvider.notifier).setMode(newSelection.first);
+                      },
+                    ),
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.hub_rounded, color: AppTheme.secondaryAccent),
+                    title: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(AppStrings.get('test_concurrency', locale: locale)),
+                        const SizedBox(width: 6),
+                        _buildInfoTooltip(AppStrings.get('tooltip_test_concurrency', locale: locale)),
+                      ],
+                    ),
+                    subtitle: Text(
+                      AppStrings.get('test_concurrency_desc', locale: locale),
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          width: 130,
+                          child: SliderTheme(
+                            data: SliderTheme.of(context).copyWith(
+                              trackHeight: 3.0,
+                              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
+                              overlayShape: const RoundSliderOverlayShape(overlayRadius: 12.0),
+                            ),
+                            child: Slider(
+                              value: testConcurrency.toDouble(),
+                              min: 5.0,
+                              max: 100.0,
+                              divisions: 95,
+                              label: '$testConcurrency',
+                              activeColor: AppTheme.secondaryAccent,
+                              onChanged: (val) {
+                                ref.read(testConcurrencyProvider.notifier).setConcurrency(val.round());
+                              },
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: AppTheme.secondaryAccent.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: AppTheme.secondaryAccent.withValues(alpha: 0.3)),
+                          ),
+                          child: Text(
+                            '$testConcurrency',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: AppTheme.secondaryAccent,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // 5. CDN IP Ranges Card
+          _buildCategoryHeader(Icons.cell_tower_rounded, AppStrings.get('settings_cat_cdn', locale: locale)),
           Card(
             clipBehavior: Clip.antiAlias,
             child: ExpansionTile(
               initiallyExpanded: false,
               leading: const Icon(Icons.network_ping_rounded, color: AppTheme.secondaryAccent),
-              title: Text(
-                AppStrings.get('cdn_ranges_title', locale: locale),
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              title: Row(
+                children: [
+                  Text(
+                    AppStrings.get('cdn_ranges_title', locale: locale),
+                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(width: 6),
+                  _buildInfoTooltip(AppStrings.get('tooltip_cdn_ranges', locale: locale)),
+                ],
               ),
               subtitle: Text(
                 '${cdnRanges[_selectedCdnForRanges]?.length ?? 0} CIDR ranges for ${_selectedCdnForRanges.displayName}  •  Tap to view / edit',
@@ -1048,6 +1045,243 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
               ],
             ),
           ),
+          const SizedBox(height: 20),
+
+          // 6. Updates Center (Accordion with Update All)
+          _buildCategoryHeader(Icons.system_update_rounded, AppStrings.get('settings_cat_updates', locale: locale)),
+          Card(
+            clipBehavior: Clip.antiAlias,
+            child: ExpansionTile(
+              initiallyExpanded: false,
+              leading: const Icon(Icons.system_update_rounded, color: AppTheme.primaryAccent),
+              title: Row(
+                children: [
+                  Text(
+                    AppStrings.get('updates', locale: locale),
+                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(width: 6),
+                  _buildInfoTooltip(AppStrings.get('tooltip_updates', locale: locale)),
+                ],
+              ),
+              subtitle: Text(
+                _updateAllStatusMsg ?? AppStrings.get('updates_desc', locale: locale),
+                style: TextStyle(
+                  fontSize: 12,
+                  color: _updateAllStatusMsg != null ? AppTheme.successColor : Colors.grey,
+                ),
+              ),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppTheme.primaryAccent,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    ),
+                    icon: _updatingAll
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.autorenew_rounded, size: 16),
+                    label: Text(
+                      _updatingAll
+                          ? AppStrings.get('updating', locale: locale)
+                          : AppStrings.get('update_all', locale: locale),
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                    onPressed: _updatingAll ? null : _updateAll,
+                  ),
+                  const SizedBox(width: 8),
+                  const Icon(Icons.expand_more_rounded),
+                ],
+              ),
+              children: [
+                if (_updatingAll) ...[
+                  const LinearProgressIndicator(),
+                  const SizedBox(height: 8),
+                ],
+                const Divider(height: 1),
+                // 6.1 Xray Core Update
+                ListTile(
+                  leading: const Icon(Icons.dns_rounded, color: AppTheme.primaryAccent),
+                  title: Text(AppStrings.get('xray_core_update', locale: locale)),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _xrayInfo != null
+                            ? '${AppStrings.get('current_version', locale: locale)}: ${_xrayInfo!.currentVersion}  •  ${AppStrings.get('latest_version', locale: locale)}: ${_xrayInfo!.latestVersion}'
+                            : 'Official GitHub XTLS/Xray-core',
+                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                      if (_xrayStatusMsg != null)
+                        Text(
+                          _xrayStatusMsg!,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: _xrayStatusMsg!.contains('success') || _xrayStatusMsg!.contains('Up to date')
+                                ? AppTheme.successColor
+                                : Colors.amber,
+                          ),
+                        ),
+                      if (_xrayUpdating) ...[
+                        const SizedBox(height: 6),
+                        LinearProgressIndicator(value: _xrayProgress > 0 ? _xrayProgress : null),
+                      ],
+                    ],
+                  ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_xrayInfo?.hasUpdate == true && !_xrayUpdating)
+                        ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.successColor,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          ),
+                          icon: const Icon(Icons.file_download_rounded, size: 16),
+                          label: Text(AppStrings.get('update_now', locale: locale), style: const TextStyle(fontSize: 11)),
+                          onPressed: _updateXray,
+                        )
+                      else
+                        OutlinedButton.icon(
+                          icon: _xrayChecking
+                              ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                              : const Icon(Icons.refresh_rounded, size: 16),
+                          label: Text(
+                            _xrayChecking ? AppStrings.get('checking', locale: locale) : AppStrings.get('check_update', locale: locale),
+                            style: const TextStyle(fontSize: 11),
+                          ),
+                          onPressed: _xrayChecking || _xrayUpdating ? null : _checkXrayUpdate,
+                        ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+
+                // 6.2 Geo Files Update
+                ListTile(
+                  leading: const Icon(Icons.public_rounded, color: AppTheme.secondaryAccent),
+                  title: Text(AppStrings.get('geo_files_update', locale: locale)),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _geoInfo != null
+                            ? '${AppStrings.get('current_version', locale: locale)}: ${_geoInfo!.currentVersion}  •  ${AppStrings.get('latest_version', locale: locale)}: ${_geoInfo!.latestVersion}'
+                            : 'Loyalsoldier/v2ray-rules-dat (geoip.dat & geosite.dat)',
+                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                      if (_geoStatusMsg != null)
+                        Text(
+                          _geoStatusMsg!,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: _geoStatusMsg!.contains('updated') ? AppTheme.successColor : Colors.amber,
+                          ),
+                        ),
+                      if (_geoUpdating) ...[
+                        const SizedBox(height: 6),
+                        LinearProgressIndicator(value: _geoProgress > 0 ? _geoProgress : null),
+                      ],
+                    ],
+                  ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_geoInfo != null && !_geoUpdating)
+                        ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.primaryAccent,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          ),
+                          icon: const Icon(Icons.download_rounded, size: 16),
+                          label: Text(AppStrings.get('update_now', locale: locale), style: const TextStyle(fontSize: 11)),
+                          onPressed: _updateGeoFiles,
+                        )
+                      else
+                        OutlinedButton.icon(
+                          icon: _geoChecking
+                              ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                              : const Icon(Icons.cloud_download_rounded, size: 16),
+                          label: Text(
+                            _geoChecking ? AppStrings.get('checking', locale: locale) : AppStrings.get('check_update', locale: locale),
+                            style: const TextStyle(fontSize: 11),
+                          ),
+                          onPressed: _geoChecking || _geoUpdating ? null : _checkGeoUpdate,
+                        ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+
+                // 6.3 App Update
+                ListTile(
+                  leading: const Icon(Icons.system_update_rounded, color: Colors.tealAccent),
+                  title: Text(AppStrings.get('app_update', locale: locale)),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${AppStrings.get('current_version', locale: locale)}: ${UpdateService.currentAppVersion}${_appInfo != null ? ' • ${AppStrings.get('latest_version', locale: locale)}: ${_appInfo!.latestVersion}' : ''}',
+                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                      if (_appStatusMsg != null)
+                        Text(
+                          _appStatusMsg!,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: _appStatusMsg!.contains('up to date') || _appStatusMsg!.contains('به‌روز است') || _appStatusMsg!.contains('موفقیت')
+                                ? AppTheme.successColor
+                                : Colors.amber,
+                          ),
+                        ),
+                      if (_appUpdating) ...[
+                        const SizedBox(height: 6),
+                        LinearProgressIndicator(value: _appProgress > 0 ? _appProgress : null),
+                      ],
+                    ],
+                  ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_appInfo?.hasUpdate == true && !_appUpdating)
+                        ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.successColor,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          ),
+                          icon: const Icon(Icons.downloading_rounded, size: 16),
+                          label: Text(
+                            AppStrings.get('update_now', locale: locale),
+                            style: const TextStyle(fontSize: 11),
+                          ),
+                          onPressed: _downloadAppUpdate,
+                        )
+                      else
+                        OutlinedButton.icon(
+                          icon: _appChecking
+                              ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                              : const Icon(Icons.refresh_rounded, size: 16),
+                          label: Text(
+                            _appChecking ? AppStrings.get('checking', locale: locale) : AppStrings.get('check_update', locale: locale),
+                            style: const TextStyle(fontSize: 11),
+                          ),
+                          onPressed: _appChecking || _appUpdating ? null : _checkAppUpdate,
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
         ],
       ),
     );

@@ -416,7 +416,14 @@ class StorageService {
   static const _enableUdpKey = "v2raypro_enable_udp";
   Future<void> saveEnableUdp(bool val) => saveBool(_enableUdpKey, val);
   Future<bool> loadEnableUdp() => loadBool(_enableUdpKey, defaultValue: true);
-
   Future<void> saveThemeMode(String mode) => saveString(_themeModeKey, mode);
   Future<String> loadThemeMode() => loadString(_themeModeKey, defaultValue: "system");
+
+  static const _testModeKey = "v2raypro_test_mode";
+  Future<void> saveTestMode(String mode) => saveString(_testModeKey, mode);
+  Future<String> loadTestMode() => loadString(_testModeKey, defaultValue: "normal");
+
+  static const _testConcurrencyKey = "v2raypro_test_concurrency";
+  Future<void> saveTestConcurrency(int val) => saveInt(_testConcurrencyKey, val);
+  Future<int> loadTestConcurrency() => loadInt(_testConcurrencyKey, defaultValue: 25);
 }

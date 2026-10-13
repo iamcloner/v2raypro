@@ -840,7 +840,7 @@ class ScannerState {
     this.radarHealthyCount = 0,
     this.showRadarTrafficWarning = false,
     this.estimatedRemainingTime,
-  }) : workers = (workers ?? threshold ?? 20).clamp(5, 100);
+  }) : workers = (workers ?? threshold ?? 25).clamp(5, 500);
 
   ScannerState copyWith({
     bool? isScanning,
@@ -1963,8 +1963,12 @@ class FreeConfigsNotifier extends StateNotifier<FreeConfigsState> {
       estimatedRemainingTime: null,
     );
 
+    final concurrency = ref.read(testConcurrencyProvider);
+    final testMode = ref.read(testModeProvider);
+
     await FreeConfigsService.instance.fetchAndScan(
-      concurrency: 10,
+      concurrency: concurrency,
+      testMode: testMode,
       onProgress: (prog) {
         if (!state.isScanning && prog.status != 'completed') return;
         final progressRatio = prog.totalUnique > 0
@@ -1999,6 +2003,57 @@ class FreeConfigsNotifier extends StateNotifier<FreeConfigsState> {
 
 final freeConfigsProvider = StateNotifierProvider<FreeConfigsNotifier, FreeConfigsState>((ref) {
   return FreeConfigsNotifier(ref);
+});
+
+enum TestMode {
+  normal,
+  turbo,
+}
+
+class TestModeNotifier extends StateNotifier<TestMode> {
+  TestModeNotifier() : super(TestMode.normal) {
+    _init();
+  }
+
+  Future<void> _init() async {
+    final str = await StorageService.instance.loadTestMode();
+    if (!mounted) return;
+    state = str == 'turbo' ? TestMode.turbo : TestMode.normal;
+  }
+
+  Future<void> setMode(TestMode mode) async {
+    state = mode;
+    await StorageService.instance.saveTestMode(mode.name);
+  }
+}
+
+final testModeProvider = StateNotifierProvider<TestModeNotifier, TestMode>((ref) {
+  return TestModeNotifier();
+});
+
+class TestConcurrencyNotifier extends StateNotifier<int> {
+  bool _manualOverride = false;
+
+  TestConcurrencyNotifier() : super(25) {
+    _init();
+  }
+
+  Future<void> _init() async {
+    final val = await StorageService.instance.loadTestConcurrency();
+    if (!mounted || _manualOverride) return;
+    state = val.clamp(5, 100);
+  }
+
+  Future<void> setConcurrency(int val) async {
+    _manualOverride = true;
+    final clamped = val.clamp(5, 100);
+    state = clamped;
+    await StorageService.instance.saveTestConcurrency(clamped);
+  }
+}
+
+final testConcurrencyProvider = StateNotifierProvider<TestConcurrencyNotifier, int>((ref) {
+  return TestConcurrencyNotifier();
 });
 
 

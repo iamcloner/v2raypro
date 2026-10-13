@@ -358,7 +358,7 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                       style:
                           const TextStyle(color: Colors.grey, fontSize: 12, height: 1.4),
                     ),
-                    const Divider(height: 16, color: Colors.white12),
+                    Divider(height: 16, color: Theme.of(context).dividerColor),
                     Row(
                       children: [
                         const Icon(Icons.track_changes_rounded,
@@ -453,8 +453,8 @@ class _ScannerViewState extends ConsumerState<ScannerView>
               child: Slider(
                 value: _workers,
                 min: 5.0,
-                max: 100.0,
-                divisions: 19,
+                max: 500.0,
+                divisions: 99,
                 label: '${_workers.round()}',
                 onChanged: state.isScanning
                     ? null
@@ -730,7 +730,10 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                   },
                   child: Text(
                     AppStrings.get('dismiss', locale: locale),
-                    style: TextStyle(color: Colors.grey.shade400, fontSize: 12),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 12,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -775,15 +778,15 @@ class _ScannerViewState extends ConsumerState<ScannerView>
         Card(
           color: hasConnectedIp
               ? AppTheme.primaryAccent.withValues(alpha: 0.12)
-              : const Color(0xFF161B26),
+              : Theme.of(context).cardColor,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
-            side: BorderSide(
-              color: hasConnectedIp
-                  ? AppTheme.primaryAccent
-                  : Colors.grey.shade800,
-              width: hasConnectedIp ? 1.5 : 1.0,
-            ),
+            side: hasConnectedIp
+                ? const BorderSide(
+                    color: AppTheme.primaryAccent,
+                    width: 1.5,
+                  )
+                : BorderSide.none,
           ),
           child: Padding(
             padding: const EdgeInsets.all(22),
@@ -912,7 +915,7 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                       padding: const EdgeInsets.symmetric(
                           horizontal: 8, vertical: 2),
                       decoration: BoxDecoration(
-                        color: Colors.grey.shade800,
+                        color: Theme.of(context).colorScheme.surfaceContainerHighest,
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Text(
@@ -950,14 +953,16 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                             horizontal: 14, vertical: 10),
                         decoration: BoxDecoration(
                           color: index == 0
-                              ? AppTheme.primaryAccent.withValues(alpha: 0.1)
-                              : const Color(0xFF131722),
+                              ? AppTheme.primaryAccent.withValues(alpha: 0.12)
+                              : (Theme.of(context).brightness == Brightness.dark
+                                  ? const Color(0xFF131722)
+                                  : Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5)),
                           borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: index == 0
-                                ? AppTheme.primaryAccent.withValues(alpha: 0.4)
-                                : Colors.grey.shade800,
-                          ),
+                          border: index == 0
+                              ? Border.all(
+                                  color: AppTheme.primaryAccent.withValues(alpha: 0.4),
+                                )
+                              : null,
                         ),
                         child: Row(
                           children: [
@@ -1116,7 +1121,7 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                   hintText: AppStrings.get('filter_ip_hint', locale: locale),
                   prefixIcon: const Icon(Icons.search, size: 20),
                   filled: true,
-                  fillColor: const Color(0xFF171C28),
+                  fillColor: Theme.of(context).cardColor,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: BorderSide.none,
@@ -1131,7 +1136,7 @@ class _ScannerViewState extends ConsumerState<ScannerView>
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               decoration: BoxDecoration(
-                color: const Color(0xFF171C28),
+                color: Theme.of(context).cardColor,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(
@@ -1227,17 +1232,20 @@ class _ScannerViewState extends ConsumerState<ScannerView>
           ? AppTheme.successColor.withValues(alpha: 0.08)
           : (isTop
               ? AppTheme.primaryAccent.withValues(alpha: 0.08)
-              : const Color(0xFF161B26)),
+              : Theme.of(context).cardColor),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: isConnected
-              ? AppTheme.successColor.withValues(alpha: 0.7)
-              : (isTop
-                  ? AppTheme.primaryAccent.withValues(alpha: 0.5)
-                  : Colors.grey.shade800),
-          width: (isConnected || isTop) ? 1.2 : 0.8,
-        ),
+        side: isConnected
+            ? const BorderSide(
+                color: AppTheme.successColor,
+                width: 1.2,
+              )
+            : (isTop
+                ? BorderSide(
+                    color: AppTheme.primaryAccent.withValues(alpha: 0.5),
+                    width: 1.0,
+                  )
+                : BorderSide.none),
       ),
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -1252,7 +1260,7 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                     ? AppTheme.successColor.withValues(alpha: 0.2)
                     : (isTop
                         ? Colors.amber.withValues(alpha: 0.2)
-                        : Colors.grey.shade800),
+                        : Theme.of(context).colorScheme.surfaceContainerHighest),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
@@ -1262,7 +1270,9 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                   fontSize: 12,
                   color: isConnected
                       ? AppTheme.successColor
-                      : (isTop ? Colors.amber : Colors.grey.shade300),
+                      : (isTop
+                          ? Colors.amber
+                          : Theme.of(context).colorScheme.onSurfaceVariant),
                 ),
               ),
             ),
@@ -1460,9 +1470,8 @@ class _ScannerViewState extends ConsumerState<ScannerView>
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-          color: const Color(0xFF161C28),
+          color: Theme.of(context).cardColor,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.white12, width: 0.8),
         ),
         child: Row(
           children: [
@@ -1482,7 +1491,10 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                 children: [
                   Text(
                     label,
-                    style: TextStyle(fontSize: 11, color: Colors.grey.shade400),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -1492,7 +1504,8 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                     style: TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.bold,
-                      color: highlightColor ?? Colors.white,
+                      color: highlightColor ??
+                          Theme.of(context).colorScheme.onSurface,
                     ),
                   ),
                 ],

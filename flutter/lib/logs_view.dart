@@ -1,4 +1,4 @@
-﻿import "package:flutter/material.dart";
+import "package:flutter/material.dart";
 import "package:flutter/services.dart";
 import "package:flutter_riverpod/flutter_riverpod.dart";
 import "core/l10n/translations.dart";
@@ -117,7 +117,6 @@ class _LogsViewState extends ConsumerState<LogsView> {
     });
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F131C),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -137,22 +136,22 @@ class _LogsViewState extends ConsumerState<LogsView> {
                 const SizedBox(width: 12),
                 Text(
                   AppStrings.get("logs", locale: locale),
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                    color: Theme.of(context).colorScheme.onSurface,
                   ),
                 ),
                 const SizedBox(width: 10),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF1E2433),
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
                     "${filteredLogs.length}",
-                    style: const TextStyle(fontSize: 12, color: Colors.white70, fontWeight: FontWeight.bold),
+                    style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant, fontWeight: FontWeight.bold),
                   ),
                 ),
                 const Spacer(),
@@ -170,7 +169,7 @@ class _LogsViewState extends ConsumerState<LogsView> {
                     decoration: BoxDecoration(
                       color: _autoScroll
                           ? AppTheme.primaryAccent.withValues(alpha: 0.2)
-                          : const Color(0xFF1E2433),
+                          : Theme.of(context).colorScheme.surfaceContainerHighest,
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(
                         color: _autoScroll ? AppTheme.primaryAccent : Colors.transparent,
@@ -183,7 +182,7 @@ class _LogsViewState extends ConsumerState<LogsView> {
                         Icon(
                           Icons.arrow_downward_rounded,
                           size: 16,
-                          color: _autoScroll ? AppTheme.primaryAccent : Colors.white60,
+                          color: _autoScroll ? AppTheme.primaryAccent : Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
                         const SizedBox(width: 6),
                         Text(
@@ -191,7 +190,7 @@ class _LogsViewState extends ConsumerState<LogsView> {
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
-                            color: _autoScroll ? AppTheme.primaryAccent : Colors.white60,
+                            color: _autoScroll ? AppTheme.primaryAccent : Theme.of(context).colorScheme.onSurfaceVariant,
                           ),
                         ),
                       ],
@@ -202,9 +201,9 @@ class _LogsViewState extends ConsumerState<LogsView> {
                 // Copy all button
                 IconButton(
                   tooltip: AppStrings.get("copy_logs", locale: locale),
-                  icon: const Icon(Icons.copy_rounded, size: 19, color: Colors.white70),
+                  icon: Icon(Icons.copy_rounded, size: 19, color: Theme.of(context).colorScheme.onSurfaceVariant),
                   style: IconButton.styleFrom(
-                    backgroundColor: const Color(0xFF1E2433),
+                    backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
                   onPressed: filteredLogs.isEmpty ? null : () => _copyAllLogs(filteredLogs, locale),
@@ -215,7 +214,7 @@ class _LogsViewState extends ConsumerState<LogsView> {
                   tooltip: AppStrings.get("clear_logs", locale: locale),
                   icon: const Icon(Icons.delete_outline_rounded, size: 19, color: Colors.redAccent),
                   style: IconButton.styleFrom(
-                    backgroundColor: const Color(0xFF1E2433),
+                    backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
                   onPressed: allLogs.isEmpty
@@ -240,27 +239,27 @@ class _LogsViewState extends ConsumerState<LogsView> {
                   height: 38,
                   child: TextField(
                     controller: _searchController,
-                    style: const TextStyle(fontSize: 13, color: Colors.white),
+                    style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurface),
                     decoration: InputDecoration(
                       hintText: AppStrings.get("search_logs", locale: locale),
-                      hintStyle: const TextStyle(fontSize: 12, color: Colors.white38),
-                      prefixIcon: const Icon(Icons.search_rounded, size: 18, color: Colors.white38),
+                      hintStyle: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.6)),
+                      prefixIcon: Icon(Icons.search_rounded, size: 18, color: Theme.of(context).colorScheme.onSurfaceVariant),
                       suffixIcon: _searchQuery.isNotEmpty
                           ? IconButton(
-                              icon: const Icon(Icons.clear_rounded, size: 16, color: Colors.white38),
+                              icon: Icon(Icons.clear_rounded, size: 16, color: Theme.of(context).colorScheme.onSurfaceVariant),
                               onPressed: () => _searchController.clear(),
                             )
                           : null,
                       contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
                       filled: true,
-                      fillColor: const Color(0xFF161C28),
+                      fillColor: Theme.of(context).cardColor,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
-                        borderSide: const BorderSide(color: Color(0xFF263044)),
+                        borderSide: BorderSide(color: Theme.of(context).dividerColor),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
-                        borderSide: const BorderSide(color: Color(0xFF263044)),
+                        borderSide: BorderSide(color: Theme.of(context).dividerColor),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
@@ -312,9 +311,10 @@ class _LogsViewState extends ConsumerState<LogsView> {
             Expanded(
               child: Container(
                 decoration: BoxDecoration(
-                  color: const Color(0xFF090D14),
+                  color: Theme.of(context).brightness == Brightness.dark
+                      ? const Color(0xFF090D14)
+                      : Theme.of(context).cardColor,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFF1E2638), width: 1),
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(12),
@@ -328,14 +328,17 @@ class _LogsViewState extends ConsumerState<LogsView> {
                                     ? Icons.search_off_rounded
                                     : Icons.receipt_long_rounded,
                                 size: 48,
-                                color: Colors.white24,
+                                color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.38),
                               ),
                               const SizedBox(height: 12),
                               Text(
                                 _searchQuery.isNotEmpty || _selectedLevel != null
                                     ? AppStrings.get("no_matching_logs", locale: locale)
                                     : AppStrings.get("no_logs", locale: locale),
-                                style: const TextStyle(color: Colors.white54, fontSize: 14),
+                                style: TextStyle(
+                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                  fontSize: 14,
+                                ),
                               ),
                             ],
                           ),
@@ -350,6 +353,7 @@ class _LogsViewState extends ConsumerState<LogsView> {
                             itemBuilder: (context, index) {
                               final entry = filteredLogs[index];
                               final lvlColor = _levelColor(entry.level);
+                              final isDark = Theme.of(context).brightness == Brightness.dark;
                               return Padding(
                                 padding: const EdgeInsets.symmetric(vertical: 3),
                                 child: SelectableText.rich(
@@ -363,13 +367,15 @@ class _LogsViewState extends ConsumerState<LogsView> {
                                       // Timestamp
                                       TextSpan(
                                         text: "${entry.formattedTime()} ",
-                                        style: const TextStyle(color: Color(0xFF64748B)),
+                                        style: TextStyle(
+                                          color: isDark ? const Color(0xFF64748B) : Colors.blueGrey.shade600,
+                                        ),
                                       ),
                                       // Source tag
                                       TextSpan(
                                         text: "[${entry.source.toUpperCase()}] ",
-                                        style: const TextStyle(
-                                          color: Color(0xFF94A3B8),
+                                        style: TextStyle(
+                                          color: isDark ? const Color(0xFF94A3B8) : Colors.blueGrey.shade700,
                                           fontWeight: FontWeight.w600,
                                         ),
                                       ),
@@ -386,10 +392,10 @@ class _LogsViewState extends ConsumerState<LogsView> {
                                         text: entry.message,
                                         style: TextStyle(
                                           color: entry.level == LogLevel.error
-                                              ? const Color(0xFFFFA198)
+                                              ? (isDark ? const Color(0xFFFFA198) : Colors.red.shade700)
                                               : (entry.level == LogLevel.warning
-                                                  ? const Color(0xFFFFE08A)
-                                                  : Colors.white),
+                                                  ? (isDark ? const Color(0xFFFFE08A) : Colors.amber.shade900)
+                                                  : (isDark ? Colors.white : Theme.of(context).colorScheme.onSurface)),
                                         ),
                                       ),
                                     ],
@@ -414,16 +420,19 @@ class _LogsViewState extends ConsumerState<LogsView> {
     required Color color,
     required VoidCallback onSelected,
   }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return InkWell(
       onTap: onSelected,
       borderRadius: BorderRadius.circular(6),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: isSelected ? color.withValues(alpha: 0.18) : const Color(0xFF161C28),
+          color: isSelected
+              ? color.withValues(alpha: 0.18)
+              : (isDark ? const Color(0xFF161C28) : Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5)),
           borderRadius: BorderRadius.circular(6),
           border: Border.all(
-            color: isSelected ? color : const Color(0xFF263044),
+            color: isSelected ? color : Theme.of(context).dividerColor,
             width: 1,
           ),
         ),
@@ -432,7 +441,7 @@ class _LogsViewState extends ConsumerState<LogsView> {
           style: TextStyle(
             fontSize: 11.5,
             fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-            color: isSelected ? color : Colors.white70,
+            color: isSelected ? color : Theme.of(context).colorScheme.onSurfaceVariant,
           ),
         ),
       ),

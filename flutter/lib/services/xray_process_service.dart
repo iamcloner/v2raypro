@@ -126,9 +126,6 @@ class XrayProcessService {
       final tls = <String, dynamic>{
         "serverName": node.sni ?? node.host ?? node.address,
       };
-      if (node.allowInsecure || globalAllowInsecure) {
-        tls["allowInsecure"] = true;
-      }
       if (node.fingerprint != null && node.fingerprint!.isNotEmpty) {
         tls["fingerprint"] = node.fingerprint;
       }
@@ -143,6 +140,7 @@ class XrayProcessService {
       }
       if (node.certificatePinning != null && node.certificatePinning!.trim().isNotEmpty) {
         tls["pinnedPeerCertificatePublicKeySha256"] = node.certificatePinning!.trim();
+        tls["pinnedPeerCertSha256"] = node.certificatePinning!.trim();
       }
       streamSettings["tlsSettings"] = tls;
     } else if (node.security == SecurityType.reality) {
@@ -938,16 +936,46 @@ class XrayProcessService {
     }
   }
 
+  /// Fast TCP probe: attempts up to [count] quick TCP handshakes to host:port.
+  /// Returns elapsed milliseconds on first responsive probe, or null if all fail.
+  Future<int?> tcpPing(
+    String host,
+    int port, {
+    int count = 3,
+    Duration timeout = const Duration(milliseconds: 650),
+  }) async {
+    for (int i = 0; i < count; i++) {
+      try {
+        final sw = Stopwatch()..start();
+        final s = await Socket.connect(host, port, timeout: timeout);
+        sw.stop();
+        s.destroy();
+        return sw.elapsedMilliseconds;
+      } catch (_) {}
+    }
+    return null;
+  }
+
   /// Real Latency & Outbound Country Test:
   /// Performs an end-to-end transport and protocol test to measure true round-trip response time,
   /// as well as the authentic outbound exit IP and country.
+  /// In Turbo mode (isTurbo == true): 3 rapid TCP pings are sent first. If unresponsive, it returns null immediately.
   /// 1. For currently connected active node: queries cdn-cgi/trace or ip-api via the running local proxy.
   /// 2. If Xray core is available and node is supported: tests genuine proxy delay & exit IP via ephemeral Xray test process.
   /// 3. Fallback: performs direct transport protocol handshake test to the destination server.
   Future<NodeTestResult> testNodeRealDelay(
     ProxyNode node, {
     Duration timeout = const Duration(milliseconds: 2800),
+    bool isTurbo = false,
   }) async {
+    // Turbo Mode: filter responsive nodes using 3 rapid TCP pings first
+    if (isTurbo) {
+      final tcp = await tcpPing(node.address, node.port, count: 3);
+      if (tcp == null) {
+        return const NodeTestResult(latencyMs: null);
+      }
+    }
+
     // 1. If this node is currently connected and active in Xray, test real end-to-end internet ping via local proxy
     if (_state == EngineState.running && _activeRunningNode?.id == node.id) {
       final activeRes = await _testHttpViaLocalProxy(timeout);

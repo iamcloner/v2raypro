@@ -323,7 +323,7 @@ class _MainShellState extends ConsumerState<MainShell> {
               selectedIndex: _selectedIndex,
               onDestinationSelected: (idx) => setState(() => _selectedIndex = idx),
               labelType: NavigationRailLabelType.all,
-              backgroundColor: const Color(0xFF0F131C),
+              backgroundColor: Theme.of(context).cardColor,
               leading: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 8),
                 child: Column(
@@ -356,13 +356,13 @@ class _MainShellState extends ConsumerState<MainShell> {
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Text(
+                        Text(
                           "V2Ray",
                           style: TextStyle(
                             fontWeight: FontWeight.w900,
                             fontSize: 12,
                             letterSpacing: 0.5,
-                            color: Colors.white,
+                            color: Theme.of(context).colorScheme.onSurface,
                           ),
                         ),
                         const SizedBox(width: 3),
@@ -426,7 +426,7 @@ class _MainShellState extends ConsumerState<MainShell> {
                 ),
               ],
             ),
-            const VerticalDivider(thickness: 1, width: 1, color: Color(0xFF1E2433)),
+            VerticalDivider(thickness: 1, width: 1, color: Theme.of(context).dividerColor),
             Expanded(child: pages[_selectedIndex]),
           ],
         ),
@@ -840,14 +840,8 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
       decoration: BoxDecoration(
-        color: const Color(0xFF131722),
+        color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isConnected
-              ? const Color(0xFF00D2FF).withValues(alpha: 0.35)
-              : const Color(0xFF222938),
-          width: 1.2,
-        ),
         boxShadow: [
           if (isConnected)
             BoxShadow(
@@ -889,13 +883,13 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                 children: [
                   Row(
                     children: [
-                      const Text(
+                      Text(
                         "V2Ray",
                         style: TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.w900,
                           letterSpacing: 0.6,
-                          color: Colors.white,
+                          color: Theme.of(context).colorScheme.onSurface,
                         ),
                       ),
                       const SizedBox(width: 6),
@@ -1019,10 +1013,6 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
     return Card(
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(
-          color: isConnected ? AppTheme.successColor.withValues(alpha: 0.4) : const Color(0xFF1E2638),
-          width: 1.2,
-        ),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 22, horizontal: 20),
@@ -1051,7 +1041,7 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                         )
                       : Icon(
                           isConnected ? Icons.power_settings_new_rounded : Icons.play_arrow_rounded,
-                          color: isConnected ? AppTheme.successColor : Colors.white,
+                          color: isConnected ? AppTheme.successColor : (Theme.of(context).brightness == Brightness.dark ? Colors.white : AppTheme.primaryAccent),
                         ),
                   onPressed: nodes.isEmpty || isConnecting
                       ? null
@@ -1128,13 +1118,8 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
     required bool showFullIp,
   }) {
     return Card(
-      color: const Color(0xFF131824),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(
-          color: isConnected ? AppTheme.primaryAccent.withValues(alpha: 0.35) : const Color(0xFF1E2638),
-          width: 1.2,
-        ),
       ),
       child: Padding(
         padding: const EdgeInsets.all(18),
@@ -1186,10 +1171,10 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                                             : (outbound.isLoading
                                                 ? AppStrings.get('fetching_ip', locale: locale)
                                                 : AppStrings.get('unknown_location', locale: locale)))),
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 14,
                                   fontWeight: FontWeight.bold,
-                                  color: Colors.white,
+                                  color: Theme.of(context).colorScheme.onSurface,
                                 ),
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -1219,7 +1204,7 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                   icon: Icon(
                     showFullIp ? Icons.visibility_off_rounded : Icons.visibility_rounded,
                     size: 19,
-                    color: showFullIp ? AppTheme.primaryAccent : Colors.white70,
+                    color: showFullIp ? AppTheme.primaryAccent : Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
                   onPressed: () {
                     ref.read(showFullIpProvider.notifier).state = !showFullIp;
@@ -1237,7 +1222,7 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                       : Icon(
                           Icons.refresh_rounded,
                           size: 18,
-                          color: isConnected ? Colors.white70 : Colors.grey.shade600,
+                          color: isConnected ? Theme.of(context).colorScheme.onSurfaceVariant : Colors.grey.shade600,
                         ),
                   onPressed: (!isConnected || outbound.isLoading)
                       ? null
@@ -1245,7 +1230,7 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                 ),
               ],
             ),
-            const Divider(height: 20, color: Colors.white12),
+            Divider(height: 20, color: Theme.of(context).dividerColor),
 
             // 4-Item Grid: 2 rows of 2 columns
             Row(
@@ -1322,9 +1307,10 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFF192030),
+        color: Theme.of(context).brightness == Brightness.dark
+            ? const Color(0xFF192030)
+            : Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFF263248), width: 1),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1349,9 +1335,9 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                       SnackBar(content: Text('$textToCopy copied'), duration: const Duration(seconds: 1)),
                     );
                   },
-                  child: const Padding(
-                    padding: EdgeInsets.all(2.0),
-                    child: Icon(Icons.copy_rounded, size: 13, color: Colors.white54),
+                  child: Padding(
+                    padding: const EdgeInsets.all(2.0),
+                    child: Icon(Icons.copy_rounded, size: 13, color: Theme.of(context).colorScheme.onSurfaceVariant),
                   ),
                 ),
             ],
@@ -1383,9 +1369,10 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFF192030),
+        color: Theme.of(context).brightness == Brightness.dark
+            ? const Color(0xFF192030)
+            : Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFF263248), width: 1),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1410,9 +1397,9 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                           height: 12,
                           child: CircularProgressIndicator(strokeWidth: 1.5, color: AppTheme.primaryAccent),
                         )
-                      : const Padding(
-                          padding: EdgeInsets.all(2.0),
-                          child: Icon(Icons.refresh_rounded, size: 13, color: Colors.white54),
+                      : Padding(
+                          padding: const EdgeInsets.all(2.0),
+                          child: Icon(Icons.refresh_rounded, size: 13, color: Theme.of(context).colorScheme.onSurfaceVariant),
                         ),
                 ),
             ],

@@ -67,7 +67,7 @@ class _RoutingViewState extends ConsumerState<RoutingView> with SingleTickerProv
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
-          backgroundColor: const Color(0xFF1E2230),
+          backgroundColor: Theme.of(context).cardColor,
           title: Row(
             children: [
               Icon(
@@ -456,10 +456,10 @@ class _RoutingViewState extends ConsumerState<RoutingView> with SingleTickerProv
                                       padding: const EdgeInsets.only(bottom: 4),
                                       child: Text(
                                         rule.remark!,
-                                        style: const TextStyle(
+                                        style: TextStyle(
                                           fontWeight: FontWeight.bold,
                                           fontSize: 13,
-                                          color: Colors.white,
+                                          color: Theme.of(context).colorScheme.onSurface,
                                         ),
                                       ),
                                     ),
@@ -470,15 +470,17 @@ class _RoutingViewState extends ConsumerState<RoutingView> with SingleTickerProv
                                       return Container(
                                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                         decoration: BoxDecoration(
-                                          color: Colors.white.withValues(alpha: 0.06),
+                                          color: Theme.of(context).brightness == Brightness.dark
+                                              ? Colors.white.withValues(alpha: 0.06)
+                                              : Colors.black.withValues(alpha: 0.05),
                                           borderRadius: BorderRadius.circular(4),
                                         ),
                                         child: Text(
                                           v,
-                                          style: const TextStyle(
+                                          style: TextStyle(
                                             fontFamily: 'monospace',
                                             fontSize: 11,
-                                            color: Colors.white70,
+                                            color: Theme.of(context).colorScheme.onSurfaceVariant,
                                           ),
                                         ),
                                       );

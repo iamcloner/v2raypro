@@ -172,9 +172,8 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF161C2C),
+                  color: Theme.of(context).cardColor,
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.amber.withValues(alpha: 0.4), width: 1),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -391,10 +390,6 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
                                       decoration: BoxDecoration(
                                         color: AppTheme.successColor.withValues(alpha: 0.15),
                                         borderRadius: BorderRadius.circular(6),
-                                        border: Border.all(
-                                          color: AppTheme.successColor.withValues(alpha: 0.3),
-                                          width: 0.8,
-                                        ),
                                       ),
                                       child: Text(
                                         '${node.latencyMs} ms',
@@ -501,9 +496,8 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          color: const Color(0xFF161C28),
+          color: Theme.of(context).cardColor,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.white12, width: 0.8),
         ),
         child: Row(
           children: [
@@ -533,7 +527,7 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
                     style: TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.bold,
-                      color: highlightColor ?? Colors.white,
+                      color: highlightColor ?? Theme.of(context).colorScheme.onSurface,
                     ),
                   ),
                 ],

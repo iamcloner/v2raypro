@@ -125,7 +125,11 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
       _testingNodeIds.add(node.id);
     });
 
-    final res = await XrayProcessService.instance.testNodeRealDelay(node);
+    final testMode = ref.read(testModeProvider);
+    final res = await XrayProcessService.instance.testNodeRealDelay(
+      node,
+      isTurbo: testMode == TestMode.turbo,
+    );
     ref.read(nodesProvider.notifier).updateLatency(
       node.id,
       res.latencyMs,
@@ -161,7 +165,9 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
     ref.read(nodesProvider.notifier).clearLatencies(onlyCustom: true);
 
     int currentIndex = 0;
-    const concurrency = 10;
+    final concurrency = ref.read(testConcurrencyProvider);
+    final testMode = ref.read(testModeProvider);
+    final isTurbo = testMode == TestMode.turbo;
     final testStartTime = DateTime.now();
 
     Future<void> runWorker() async {
@@ -170,7 +176,10 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
         if (nodeIndex >= nodes.length) break;
         final n = nodes[nodeIndex];
 
-        final res = await XrayProcessService.instance.testNodeRealDelay(n);
+        final res = await XrayProcessService.instance.testNodeRealDelay(
+          n,
+          isTurbo: isTurbo,
+        );
         if (_cancelTestingAll || !mounted) break;
 
         if (mounted) {

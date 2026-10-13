@@ -241,7 +241,7 @@ loc=XX
       expect(CountryService.resolveSync(nodeNl), equals('NL'));
     });
 
-    test('XrayProcessService.generateXrayConfig includes allowInsecure in tlsSettings when enabled', () {
+    test('XrayProcessService.generateXrayConfig safely omits allowInsecure from tlsSettings (migrated in Xray)', () {
       final nodeInsecure = ProxyNode(
         id: 'node-insecure-1',
         name: 'Insecure Node',
@@ -259,7 +259,7 @@ loc=XX
       final proxyOut = outbounds.firstWhere((o) => o['tag'] == 'proxy') as Map<String, dynamic>;
       final tlsSettings = proxyOut['streamSettings']['tlsSettings'] as Map<String, dynamic>;
 
-      expect(tlsSettings['allowInsecure'], isTrue);
+      expect(tlsSettings.containsKey('allowInsecure'), isFalse);
       expect(tlsSettings['serverName'], equals('ssl.fastly.com'));
     });
 
@@ -520,10 +520,10 @@ loc=XX
       expect(proxyOut['mux'], isNotNull);
       expect(proxyOut['mux']['enabled'], isTrue);
 
-      // Global Allow Insecure should be active in TLS streamSettings
+      // Global Allow Insecure is applied to direct protocol socket probes while omitted from Xray JSON to prevent crash
       final streamSettings = proxyOut['streamSettings'] as Map<String, dynamic>;
       final tlsSettings = streamSettings['tlsSettings'] as Map<String, dynamic>;
-      expect(tlsSettings['allowInsecure'], isTrue);
+      expect(tlsSettings.containsKey('allowInsecure'), isFalse);
 
       // Reset
       XrayProcessService.instance.globalAllowInsecure = false;
