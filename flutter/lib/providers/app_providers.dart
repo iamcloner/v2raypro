@@ -840,7 +840,7 @@ class ScannerState {
     this.radarHealthyCount = 0,
     this.showRadarTrafficWarning = false,
     this.estimatedRemainingTime,
-  }) : workers = (workers ?? threshold ?? 25).clamp(5, 500);
+  }) : workers = (workers ?? threshold ?? 25).clamp(5, 100);
 
   ScannerState copyWith({
     bool? isScanning,
@@ -916,7 +916,11 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
   void cancelScan() {
     _isCancelled = true;
     CloudflareScannerService.instance.cancel();
-    state = state.copyWith(isScanning: false, statusMessage: "Stopped");
+    state = state.copyWith(
+      isScanning: false,
+      statusMessage: "Stopped",
+      showRadarTrafficWarning: false,
+    );
   }
 
   void dismissRadarWarning() {

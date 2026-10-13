@@ -6,7 +6,6 @@ import 'core/theme/app_theme.dart';
 import 'models/scan_result.dart';
 import 'providers/app_providers.dart';
 import 'services/cdn_scanner_service.dart';
-import 'services/cloudflare_scanner_service.dart';
 import 'widgets/country_flag_badge.dart';
 
 class ScannerView extends ConsumerStatefulWidget {
@@ -21,7 +20,7 @@ class _ScannerViewState extends ConsumerState<ScannerView>
   double _workers = 20.0;
   double _targetTotal = 500.0;
   String _searchQuery = '';
-  bool _showStrategyInfo = false;
+  int _activeAccordion = 0;
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
 
@@ -91,39 +90,66 @@ class _ScannerViewState extends ConsumerState<ScannerView>
 
     return Scaffold(
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // 1. Target Node Info Header with Reset & Restore Buttons
-            _buildNodeHeaderCard(activeNode, currentCdn, detectedCdn, locale),
-            const SizedBox(height: 16),
+            // 1. Header with Title & Action buttons (no config name/ip under title)
+            _buildNodeHeaderCard(activeNode, currentCdn, locale),
+            const SizedBox(height: 12),
 
-            // Metrics / Stats Dashboard Card
-            _buildScannerStatsDashboard(state, locale),
-            const SizedBox(height: 16),
+            // 2. Top Half: 50% Metric Cards + Progress Bar & 50% Strategy + Controls (Equal Height 280px)
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: _buildTopLeftDashboard(state, locale),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: _buildStrategyAndControlsCard(
+                      state, activeNode, locale),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
 
-            // 2. Strategy Switcher with Info Guide Button
-            _buildStrategySelector(state, locale),
-            const SizedBox(height: 16),
+            // 3. Bottom Half: 50% Connected IP Card & 50% Dual Accordion Card (Equal Height 280px)
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: _buildConnectedIpDisplayCard(
+                      state, activeNode, locale),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: _buildDualAccordionCard(state, locale),
+                ),
+              ],
+            ),
 
-            // 3. Scan Concurrency Slider & Action Controls
-            _buildControlsCard(state, activeNode, locale),
-            const SizedBox(height: 16),
-
-            // 4. Progress Indicator (only while active scanning)
-            if (state.isScanning) ...[
-              _buildProgressCard(state, locale),
-              const SizedBox(height: 16),
-            ],
-
-            // 5. Strategy Specific View (Radar or Target)
-            if (state.strategy == ScannerStrategy.radar)
-              _buildRadarView(state, activeNode, locale)
-            else
-              _buildTargetView(state, activeNode, locale),
+            // 4. Bottom padding
+            const SizedBox(height: 12),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildTopLeftDashboard(ScannerState state, String locale) {
+    return SizedBox(
+      height: 280,
+      child: Column(
+        children: [
+          Expanded(
+            child: _buildScannerStatsDashboard(state, locale),
+          ),
+          if (state.isScanning) ...[
+            const SizedBox(height: 8),
+            _buildProgressCard(state, locale),
+          ],
+        ],
       ),
     );
   }
@@ -131,305 +157,168 @@ class _ScannerViewState extends ConsumerState<ScannerView>
   Widget _buildNodeHeaderCard(
     dynamic activeNode,
     CdnProvider currentCdn,
-    CdnProvider? detectedCdn,
     String locale,
   ) {
-    final origAddr = activeNode?.originalAddress ?? activeNode?.address;
-    final isDomain = origAddr != null &&
-        !origAddr.toString().contains(RegExp(r'^\d+\.\d+\.\d+\.\d+$'));
-
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  children: [
-                    const Icon(Icons.speed_rounded,
-                        color: AppTheme.primaryAccent, size: 22),
-                    const SizedBox(width: 8),
-                    Text(
-                      locale == 'fa' ? 'اسکنر ${currentCdn.displayNameFa}' : '${currentCdn.displayName} Scanner',
-                      style: const TextStyle(
-                          fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                  ],
-                ),
-                Row(
-                  children: [
-                    // Reset Scan Button
-                    OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.grey.shade300,
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 8),
-                      ),
-                      icon: const Icon(Icons.restart_alt_rounded, size: 16),
-                      label: Text(
-                        AppStrings.get('reset_scan', locale: locale),
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                      onPressed: () {
-                        ref.read(scannerProvider.notifier).resetScan();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                                AppStrings.get('scan_reset_done', locale: locale)),
-                          ),
-                        );
-                      },
-                    ),
-                    if (activeNode?.originalAddress != null) ...[
-                      const SizedBox(width: 8),
-                      OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 8),
-                        ),
-                        icon: const Icon(Icons.restore_rounded, size: 16),
-                        label: Text(
-                          AppStrings.get('restore_original', locale: locale),
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                        onPressed: () {
-                          ref
-                              .read(nodesProvider.notifier)
-                              .restoreAddress(activeNode!.id);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                                content: Text(AppStrings.get('original_restored',
-                                    locale: locale))),
-                          );
-                        },
-                      ),
-                    ],
-                  ],
+                const Icon(Icons.speed_rounded,
+                    color: AppTheme.primaryAccent, size: 22),
+                const SizedBox(width: 8),
+                Text(
+                  locale == 'fa'
+                      ? 'اسکنر ${currentCdn.displayNameFa}'
+                      : '${currentCdn.displayName} Scanner',
+                  style: const TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.bold),
                 ),
               ],
             ),
-            const SizedBox(height: 10),
             Row(
               children: [
-                Flexible(
-                  child: Text(
-                    activeNode == null
-                        ? AppStrings.get('no_nodes', locale: locale)
-                        : (activeNode.originalAddress != null
-                            ? '${activeNode.name} • ${activeNode.originalAddress} -> ${activeNode.address}'
-                            : (isDomain
-                                ? '${activeNode.name} (${activeNode.address})'
-                                : '${activeNode.name} (${activeNode.address})')),
-                    style: const TextStyle(color: Colors.grey, fontSize: 13),
-                    overflow: TextOverflow.ellipsis,
+                // Reset Scan Button
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor:
+                        Theme.of(context).colorScheme.onSurfaceVariant,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 8),
                   ),
+                  icon: const Icon(Icons.restart_alt_rounded, size: 16),
+                  label: Text(
+                    AppStrings.get('reset_scan', locale: locale),
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  onPressed: () {
+                    ref.read(scannerProvider.notifier).resetScan();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                            AppStrings.get('scan_reset_done', locale: locale)),
+                      ),
+                    );
+                  },
                 ),
-                if (detectedCdn != null) ...[
+                if (activeNode?.originalAddress != null) ...[
                   const SizedBox(width: 8),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.greenAccent.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: Colors.greenAccent, width: 0.8),
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
                     ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.check_circle_outline_rounded,
-                            size: 12, color: Colors.greenAccent),
-                        const SizedBox(width: 3),
-                        Text(
-                          detectedCdn.displayName,
-                          style: const TextStyle(
-                            color: Colors.greenAccent,
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
+                    icon: const Icon(Icons.restore_rounded, size: 16),
+                    label: Text(
+                      AppStrings.get('restore_original', locale: locale),
+                      style: const TextStyle(fontSize: 12),
                     ),
+                    onPressed: () {
+                      ref
+                          .read(nodesProvider.notifier)
+                          .restoreAddress(activeNode!.id);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                            content: Text(AppStrings.get('original_restored',
+                                locale: locale))),
+                      );
+                    },
                   ),
                 ],
               ],
             ),
-            if (activeNode != null && isDomain) ...[
-              const SizedBox(height: 8),
-              Text(
-                '${AppStrings.get('domain_detected', locale: locale)}: ${currentCdn.displayName} (SNI & Host preserved)',
-                style: const TextStyle(color: Colors.cyanAccent, fontSize: 11),
-              ),
-            ],
           ],
         ),
       ),
     );
   }
 
-  Widget _buildStrategySelector(ScannerState state, String locale) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          children: [
+  Widget _buildStrategyAndControlsCard(
+    ScannerState state,
+    dynamic activeNode,
+    String locale,
+  ) {
+    final isRadar = state.strategy == ScannerStrategy.radar;
+
+    return SizedBox(
+      height: 280,
+      child: Card(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+            // Strategy Selection: Radar and Target side-by-side with separate info icons
             Row(
               children: [
                 Expanded(
-                  child: SegmentedButton<ScannerStrategy>(
-                    segments: [
-                      ButtonSegment<ScannerStrategy>(
-                        value: ScannerStrategy.radar,
-                        icon: const Icon(Icons.radar_rounded),
-                        label: Text(
-                          AppStrings.get('radar', locale: locale),
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                      ButtonSegment<ScannerStrategy>(
-                        value: ScannerStrategy.target,
-                        icon: const Icon(Icons.track_changes_rounded),
-                        label: Text(
-                          AppStrings.get('target', locale: locale),
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    ],
-                    selected: {state.strategy},
-                    onSelectionChanged: state.isScanning
-                        ? null
-                        : (selection) {
-                            ref
-                                .read(scannerProvider.notifier)
-                                .setStrategy(selection.first);
-                          },
+                  child: _buildStrategyButton(
+                    strategy: ScannerStrategy.radar,
+                    isSelected: isRadar,
+                    title: AppStrings.get('radar', locale: locale),
+                    icon: Icons.radar_rounded,
+                    tooltipDesc:
+                        AppStrings.get('radar_full_desc', locale: locale),
+                    isScanning: state.isScanning,
+                    onTap: () {
+                      ref
+                          .read(scannerProvider.notifier)
+                          .setStrategy(ScannerStrategy.radar);
+                      setState(() => _activeAccordion = 0);
+                    },
                   ),
                 ),
                 const SizedBox(width: 10),
-                // Strategy Explanation Guide Button
-                IconButton.filledTonal(
-                  icon: Icon(
-                    _showStrategyInfo
-                        ? Icons.info_rounded
-                        : Icons.info_outline_rounded,
-                    color: AppTheme.primaryAccent,
+                Expanded(
+                  child: _buildStrategyButton(
+                    strategy: ScannerStrategy.target,
+                    isSelected: !isRadar,
+                    title: AppStrings.get('target', locale: locale),
+                    icon: Icons.track_changes_rounded,
+                    tooltipDesc:
+                        AppStrings.get('target_full_desc', locale: locale),
+                    isScanning: state.isScanning,
+                    onTap: () {
+                      ref
+                          .read(scannerProvider.notifier)
+                          .setStrategy(ScannerStrategy.target);
+                      setState(() => _activeAccordion = 1);
+                    },
                   ),
-                  tooltip: AppStrings.get('strategy_info_tooltip', locale: locale),
-                  onPressed: () {
-                    setState(() => _showStrategyInfo = !_showStrategyInfo);
-                  },
                 ),
               ],
             ),
-            // Expandable Strategy Explanation Box
-            if (_showStrategyInfo) ...[
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: AppTheme.primaryAccent.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                      color: AppTheme.primaryAccent.withValues(alpha: 0.3)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.radar_rounded,
-                            size: 18, color: AppTheme.primaryAccent),
-                        const SizedBox(width: 6),
-                        Text(
-                          AppStrings.get('radar_how_it_works', locale: locale),
-                          style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13,
-                              color: AppTheme.primaryAccent),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      AppStrings.get('radar_full_desc', locale: locale),
-                      style:
-                          const TextStyle(color: Colors.grey, fontSize: 12, height: 1.4),
-                    ),
-                    Divider(height: 16, color: Theme.of(context).dividerColor),
-                    Row(
-                      children: [
-                        const Icon(Icons.track_changes_rounded,
-                            size: 18, color: Colors.amber),
-                        const SizedBox(width: 6),
-                        Text(
-                          AppStrings.get('target_how_it_works', locale: locale),
-                          style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13,
-                              color: Colors.amber),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      AppStrings.get('target_full_desc', locale: locale),
-                      style:
-                          const TextStyle(color: Colors.grey, fontSize: 12, height: 1.4),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
+            const SizedBox(height: 12),
 
-  Widget _buildControlsCard(
-      ScannerState state, dynamic activeNode, String locale) {
-    final isRadar = state.strategy == ScannerStrategy.radar;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+            // Concurrency Slider (تعداد تست همزمان)
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                Row(
                   children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.tune_rounded,
-                            size: 18, color: Colors.grey),
-                        const SizedBox(width: 6),
-                        Text(
-                          AppStrings.get('concurrent_workers', locale: locale),
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 2),
+                    const Icon(Icons.tune_rounded,
+                        size: 16, color: Colors.grey),
+                    const SizedBox(width: 6),
                     Text(
-                      AppStrings.get('concurrent_workers_hint', locale: locale),
-                      style: const TextStyle(fontSize: 11, color: Colors.grey),
+                      AppStrings.get('concurrent_workers', locale: locale),
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w600, fontSize: 13),
                     ),
                   ],
                 ),
                 Container(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
                     color: AppTheme.primaryAccent.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                        color: AppTheme.primaryAccent.withValues(alpha: 0.4)),
+                    borderRadius: BorderRadius.circular(10),
                   ),
                   child: Text(
                     '${_workers.round()} Threads',
@@ -437,24 +326,27 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                       fontFamily: 'monospace',
                       fontWeight: FontWeight.bold,
                       color: AppTheme.primaryAccent,
-                      fontSize: 13,
+                      fontSize: 12,
                     ),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 6),
             SliderTheme(
               data: SliderTheme.of(context).copyWith(
+                trackHeight: 3.0,
+                thumbShape:
+                    const RoundSliderThumbShape(enabledThumbRadius: 6.0),
+                overlayShape:
+                    const RoundSliderOverlayShape(overlayRadius: 12.0),
                 activeTrackColor: AppTheme.primaryAccent,
                 thumbColor: AppTheme.primaryAccent,
-                overlayColor: AppTheme.primaryAccent.withValues(alpha: 0.2),
               ),
               child: Slider(
-                value: _workers,
+                value: _workers.clamp(5.0, 100.0),
                 min: 5.0,
-                max: 500.0,
-                divisions: 99,
+                max: 100.0,
+                divisions: 95,
                 label: '${_workers.round()}',
                 onChanged: state.isScanning
                     ? null
@@ -466,41 +358,31 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                       },
               ),
             ),
-            // Target Mode: Total Candidates Slider (200 to 10,000)
+
+            // Target Mode only: Total Candidates Slider (تعداد آیپی ها برای تست - فقط در حالت تارگت)
             if (!isRadar) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: 6),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  Row(
                     children: [
-                      Row(
-                        children: [
-                          const Icon(Icons.hub_rounded,
-                              size: 18, color: Colors.amber),
-                          const SizedBox(width: 6),
-                          Text(
-                            AppStrings.get('target_total_count', locale: locale),
-                            style: const TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 2),
+                      const Icon(Icons.hub_rounded,
+                          size: 16, color: Colors.amber),
+                      const SizedBox(width: 6),
                       Text(
-                        AppStrings.get('target_total_hint', locale: locale),
-                        style: const TextStyle(fontSize: 11, color: Colors.grey),
+                        AppStrings.get('target_total_count', locale: locale),
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w600, fontSize: 13),
                       ),
                     ],
                   ),
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 2),
                     decoration: BoxDecoration(
                       color: Colors.amber.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                          color: Colors.amber.withValues(alpha: 0.4)),
+                      borderRadius: BorderRadius.circular(10),
                     ),
                     child: Text(
                       '${_targetTotal.round()} IPs',
@@ -508,18 +390,21 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                         fontFamily: 'monospace',
                         fontWeight: FontWeight.bold,
                         color: Colors.amber,
-                        fontSize: 13,
+                        fontSize: 12,
                       ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 6),
               SliderTheme(
                 data: SliderTheme.of(context).copyWith(
+                  trackHeight: 3.0,
+                  thumbShape:
+                      const RoundSliderThumbShape(enabledThumbRadius: 6.0),
+                  overlayShape:
+                      const RoundSliderOverlayShape(overlayRadius: 12.0),
                   activeTrackColor: Colors.amber,
                   thumbColor: Colors.amber,
-                  overlayColor: Colors.amber.withValues(alpha: 0.2),
                 ),
                 child: Slider(
                   value: _targetTotal,
@@ -537,77 +422,149 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                         },
                 ),
               ),
-            ] else ...[
-              const SizedBox(height: 10),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: AppTheme.primaryAccent.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                      color: AppTheme.primaryAccent.withValues(alpha: 0.25)),
+            ],
+
+            const SizedBox(height: 10),
+            // Start / Stop scan button (دکمه شروع اسکن)
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: state.isScanning
+                    ? AppTheme.errorColor
+                    : AppTheme.primaryAccent,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.all_inclusive_rounded,
-                        size: 18, color: AppTheme.primaryAccent),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        AppStrings.get('radar_infinite_notice', locale: locale),
-                        style: const TextStyle(fontSize: 11, color: Colors.grey),
-                      ),
+              ),
+              icon: Icon(
+                state.isScanning
+                    ? Icons.stop_circle_rounded
+                    : (isRadar
+                        ? Icons.radar_rounded
+                        : Icons.search_rounded),
+                size: 18,
+              ),
+              label: Text(
+                state.isScanning
+                    ? (isRadar
+                        ? AppStrings.get('stop_radar', locale: locale)
+                        : AppStrings.get('stop_target', locale: locale))
+                    : (isRadar
+                        ? AppStrings.get('start_radar', locale: locale)
+                        : AppStrings.get('start_target', locale: locale)),
+                style: const TextStyle(
+                    fontSize: 14, fontWeight: FontWeight.bold),
+              ),
+              onPressed: (activeNode == null)
+                  ? null
+                  : () {
+                      if (state.isScanning) {
+                        ref.read(scannerProvider.notifier).cancelScan();
+                      } else {
+                        ref.read(scannerProvider.notifier).startScan();
+                      }
+                    },
+            ),
+          ],
+        ),
+      ),
+    ),
+    );
+  }
+
+  Widget _buildStrategyButton({
+    required ScannerStrategy strategy,
+    required bool isSelected,
+    required String title,
+    required IconData icon,
+    required String tooltipDesc,
+    required bool isScanning,
+    required VoidCallback onTap,
+  }) {
+    final primaryColor = strategy == ScannerStrategy.radar
+        ? AppTheme.primaryAccent
+        : Colors.amber;
+
+    return Material(
+      color: isSelected
+          ? primaryColor.withValues(alpha: 0.12)
+          : Theme.of(context).cardColor,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: isScanning ? null : onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: isSelected
+                  ? primaryColor
+                  : Theme.of(context).dividerColor.withValues(alpha: 0.4),
+              width: isSelected ? 1.5 : 1.0,
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    icon,
+                    size: 18,
+                    color: isSelected ? primaryColor : Colors.grey,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      color: isSelected
+                          ? primaryColor
+                          : Theme.of(context).colorScheme.onSurface,
                     ),
+                  ),
+                ],
+              ),
+              Tooltip(
+                message: tooltipDesc,
+                padding: const EdgeInsets.all(12),
+                margin: const EdgeInsets.symmetric(horizontal: 20),
+                preferBelow: true,
+                textStyle: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  height: 1.4,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E2230),
+                  borderRadius: BorderRadius.circular(8),
+                  border:
+                      Border.all(color: primaryColor.withValues(alpha: 0.4)),
+                  boxShadow: const [
+                    BoxShadow(
+                        color: Colors.black45,
+                        blurRadius: 8,
+                        offset: Offset(0, 3)),
                   ],
+                ),
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.help,
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Icon(
+                      Icons.info_outline_rounded,
+                      size: 16,
+                      color: isSelected ? primaryColor : Colors.grey,
+                    ),
+                  ),
                 ),
               ),
             ],
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: state.isScanning
-                          ? AppTheme.errorColor
-                          : AppTheme.primaryAccent,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10)),
-                    ),
-                    icon: Icon(
-                      state.isScanning
-                          ? Icons.stop_circle_rounded
-                          : (isRadar
-                              ? Icons.radar_rounded
-                              : Icons.search_rounded),
-                    ),
-                    label: Text(
-                      state.isScanning
-                          ? (isRadar
-                              ? AppStrings.get('stop_radar', locale: locale)
-                              : AppStrings.get('stop_target', locale: locale))
-                          : (isRadar
-                              ? AppStrings.get('start_radar', locale: locale)
-                              : AppStrings.get('start_target', locale: locale)),
-                      style: const TextStyle(
-                          fontSize: 15, fontWeight: FontWeight.bold),
-                    ),
-                    onPressed: (activeNode == null)
-                        ? null
-                        : () {
-                            if (state.isScanning) {
-                              ref.read(scannerProvider.notifier).cancelScan();
-                            } else {
-                              ref.read(scannerProvider.notifier).startScan();
-                            }
-                          },
-                  ),
-                ),
-              ],
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -621,49 +578,54 @@ class _ScannerViewState extends ConsumerState<ScannerView>
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      isRadar
-                          ? '${AppStrings.get(state.isScanning ? 'scanning' : 'scan_finished', locale: locale)} (${AppStrings.get('scanned_count_label', locale: locale)}: ${state.scanned})'
-                          : '${AppStrings.get(state.isScanning ? 'scanning' : 'scan_finished', locale: locale)} (${state.scanned} / ${state.total})',
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    if (!isRadar && state.isScanning && state.estimatedRemainingTime != null) ...[
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: AppTheme.primaryAccent.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: AppTheme.primaryAccent.withValues(alpha: 0.4)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.timer_outlined, size: 12, color: AppTheme.primaryAccent),
-                            const SizedBox(width: 4),
-                            Text(
-                              '${AppStrings.get('estimated_remaining_time', locale: locale)}: ${state.estimatedRemainingTime}',
-                              style: const TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                color: AppTheme.primaryAccent,
-                              ),
-                            ),
-                          ],
+                Expanded(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          isRadar
+                              ? '${AppStrings.get(state.isScanning ? 'scanning' : 'scan_finished', locale: locale)} (${state.scanned})'
+                              : '${AppStrings.get(state.isScanning ? 'scanning' : 'scan_finished', locale: locale)} (${state.scanned} / ${state.total})',
+                          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
+                      if (!isRadar && state.isScanning && state.estimatedRemainingTime != null) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppTheme.primaryAccent.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: AppTheme.primaryAccent.withValues(alpha: 0.4)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.timer_outlined, size: 10, color: AppTheme.primaryAccent),
+                              const SizedBox(width: 3),
+                              Text(
+                                state.estimatedRemainingTime!,
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppTheme.primaryAccent,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
                 if (state.currentIp.isNotEmpty)
                   Text(
@@ -672,16 +634,17 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                       color: AppTheme.primaryAccent,
                       fontFamily: 'monospace',
                       fontWeight: FontWeight.bold,
+                      fontSize: 12,
                     ),
                   ),
               ],
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             ClipRRect(
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: BorderRadius.circular(4),
               child: LinearProgressIndicator(
                 value: progress,
-                minHeight: 8,
+                minHeight: 6,
                 backgroundColor: Colors.grey.shade800,
                 valueColor: const AlwaysStoppedAnimation(AppTheme.primaryAccent),
               ),
@@ -692,69 +655,346 @@ class _ScannerViewState extends ConsumerState<ScannerView>
     );
   }
 
-  Widget _buildRadarTrafficWarningCard(BuildContext context, String locale) {
-    return Card(
-      color: Colors.amber.shade900.withValues(alpha: 0.2),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: const BorderSide(color: Colors.amber, width: 1.2),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 22),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    AppStrings.get('radar_traffic_warning', locale: locale),
-                    style: const TextStyle(
-                      color: Colors.amber,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
+  Widget _buildConnectedIpDisplayCard(
+    ScannerState state,
+    dynamic activeNode,
+    String locale,
+  ) {
+    final hasConnectedIp =
+        state.connectedIp != null && state.currentBestLatency != null;
+    final showTrafficNotice =
+        state.isScanning && state.showRadarTrafficWarning;
+
+    return SizedBox(
+      height: 280,
+      child: Card(
+        color: hasConnectedIp
+            ? AppTheme.primaryAccent.withValues(alpha: 0.08)
+            : Theme.of(context).cardColor,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Column(
+            children: [
+              if (showTrafficNotice) ...[
+                Container(
+                  margin: const EdgeInsets.only(bottom: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.shade900.withValues(alpha: 0.22),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.amber.shade700, width: 1.0),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.warning_amber_rounded,
+                          color: Colors.amber, size: 16),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          AppStrings.get('radar_traffic_warning', locale: locale),
+                          style: const TextStyle(
+                            color: Colors.amber,
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w600,
+                            height: 1.25,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      InkWell(
+                        onTap: () {
+                          ref.read(scannerProvider.notifier).dismissRadarWarning();
+                        },
+                        borderRadius: BorderRadius.circular(12),
+                        child: Padding(
+                          padding: const EdgeInsets.all(3),
+                          child: Icon(
+                            Icons.close_rounded,
+                            size: 14,
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
-            ),
-            const SizedBox(height: 10),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton(
-                  onPressed: () {
-                    ref.read(scannerProvider.notifier).dismissRadarWarning();
-                  },
-                  child: Text(
-                    AppStrings.get('dismiss', locale: locale),
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      fontSize: 12,
+              const Spacer(),
+              // Radar Pulse Icon
+              ScaleTransition(
+                scale: (state.isScanning &&
+                        state.strategy == ScannerStrategy.radar)
+                    ? _pulseAnimation
+                    : const AlwaysStoppedAnimation(1.0),
+                child: Container(
+                  padding: EdgeInsets.all(showTrafficNotice ? 8 : 12),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: (hasConnectedIp
+                            ? AppTheme.successColor
+                            : (state.isScanning
+                                ? AppTheme.primaryAccent
+                                : Colors.grey))
+                        .withValues(alpha: 0.15),
+                    border: Border.all(
+                      color: (hasConnectedIp
+                              ? AppTheme.successColor
+                              : (state.isScanning
+                                  ? AppTheme.primaryAccent
+                                  : Colors.grey))
+                          .withValues(alpha: 0.4),
+                      width: 1.5,
                     ),
                   ),
+                  child: Icon(
+                    Icons.radar_rounded,
+                    size: showTrafficNotice ? 26 : 34,
+                    color: hasConnectedIp
+                        ? AppTheme.successColor
+                        : (state.isScanning
+                            ? AppTheme.primaryAccent
+                            : Colors.grey),
+                  ),
                 ),
-                const SizedBox(width: 8),
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.amber.shade700,
-                    foregroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              ),
+              SizedBox(height: showTrafficNotice ? 6 : 10),
+
+              if (hasConnectedIp) ...[
+                Text(
+                  AppStrings.get('current_active_ip', locale: locale),
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                SelectableText(
+                  state.connectedIp!,
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 19,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.1,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: AppTheme.successColor.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppTheme.successColor),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.bolt_rounded,
+                          color: AppTheme.successColor, size: 14),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${state.currentBestLatency} ms  •  ${AppStrings.get('connected', locale: locale)}',
+                        style: const TextStyle(
+                          color: AppTheme.successColor,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 6),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     visualDensity: VisualDensity.compact,
                   ),
-                  icon: const Icon(Icons.stop_rounded, size: 16),
+                  icon: const Icon(Icons.copy_rounded, size: 12),
                   label: Text(
-                    AppStrings.get('stop_radar', locale: locale),
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                    AppStrings.get('copy_ip', locale: locale),
+                    style: const TextStyle(fontSize: 11),
                   ),
                   onPressed: () {
-                    ref.read(scannerProvider.notifier).cancelScan();
-                    ref.read(scannerProvider.notifier).dismissRadarWarning();
+                    Clipboard.setData(ClipboardData(text: state.connectedIp!));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(AppStrings.get('ip_copied', locale: locale))),
+                    );
                   },
                 ),
+              ] else ...[
+                Text(
+                  state.isScanning
+                      ? AppStrings.get('searching_clean_ip', locale: locale)
+                      : AppStrings.get('radar_ready', locale: locale),
+                  style: TextStyle(
+                    color: state.isScanning
+                        ? AppTheme.primaryAccent
+                        : Theme.of(context).colorScheme.onSurface,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  child: Text(
+                    state.isScanning
+                        ? AppStrings.get('radar_first_connect_hint', locale: locale)
+                        : AppStrings.get('radar_start_prompt', locale: locale),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 11,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
               ],
+              const Spacer(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDualAccordionCard(ScannerState state, String locale) {
+    return SizedBox(
+      height: 280,
+      child: Card(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Accordion 1 Header: Radar Latency Improvements History
+              _buildAccordionHeader(
+                index: 0,
+                icon: Icons.history_rounded,
+                iconColor: AppTheme.primaryAccent,
+                title: AppStrings.get('radar_history', locale: locale),
+                badgeCount: state.radarLogs.length,
+                isOpen: _activeAccordion == 0,
+                onTap: () {
+                  setState(() {
+                    _activeAccordion = 0;
+                  });
+                },
+              ),
+
+              // Expanded Panel for Accordion 0
+              if (_activeAccordion == 0) ...[
+                const SizedBox(height: 6),
+                Expanded(
+                  child: _buildRadarHistoryContent(state, locale),
+                ),
+                const SizedBox(height: 6),
+              ] else ...[
+                const SizedBox(height: 6),
+              ],
+
+              // Accordion 2 Header: Discovered Clean IPs
+              _buildAccordionHeader(
+                index: 1,
+                icon: Icons.dns_rounded,
+                iconColor: AppTheme.successColor,
+                title: AppStrings.get('discovered_clean_ips', locale: locale),
+                badgeCount: state.results.length,
+                isOpen: _activeAccordion == 1,
+                onTap: () {
+                  setState(() {
+                    _activeAccordion = 1;
+                  });
+                },
+              ),
+
+              // Expanded Panel for Accordion 1
+              if (_activeAccordion == 1) ...[
+                const SizedBox(height: 6),
+                Expanded(
+                  child: _buildCleanIpsContent(state, locale),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAccordionHeader({
+    required int index,
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required int badgeCount,
+    required bool isOpen,
+    required VoidCallback onTap,
+  }) {
+    final theme = Theme.of(context);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: isOpen
+              ? iconColor.withValues(alpha: 0.12)
+              : (theme.brightness == Brightness.dark
+                  ? const Color(0xFF161A26)
+                  : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5)),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isOpen
+                ? iconColor.withValues(alpha: 0.4)
+                : Colors.transparent,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 18, color: isOpen ? iconColor : theme.colorScheme.onSurfaceVariant),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                title,
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                  color: isOpen ? iconColor : theme.colorScheme.onSurface,
+                ),
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
+              decoration: BoxDecoration(
+                color: isOpen
+                    ? iconColor.withValues(alpha: 0.2)
+                    : theme.colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                '$badgeCount',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: isOpen ? iconColor : theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Icon(
+              isOpen ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+              size: 18,
+              color: isOpen ? iconColor : theme.colorScheme.onSurfaceVariant,
             ),
           ],
         ),
@@ -762,435 +1002,161 @@ class _ScannerViewState extends ConsumerState<ScannerView>
     );
   }
 
-  Widget _buildRadarView(
-      ScannerState state, dynamic activeNode, String locale) {
-    final hasConnectedIp =
-        state.connectedIp != null && state.currentBestLatency != null;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (state.showRadarTrafficWarning) ...[
-          _buildRadarTrafficWarningCard(context, locale),
-          const SizedBox(height: 14),
-        ],
-        // Live Radar Active Display Card
-        Card(
-          color: hasConnectedIp
-              ? AppTheme.primaryAccent.withValues(alpha: 0.12)
-              : Theme.of(context).cardColor,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: hasConnectedIp
-                ? const BorderSide(
-                    color: AppTheme.primaryAccent,
-                    width: 1.5,
-                  )
-                : BorderSide.none,
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(22),
-            child: Column(
-              children: [
-                ScaleTransition(
-                  scale: (state.isScanning &&
-                          state.strategy == ScannerStrategy.radar)
-                      ? _pulseAnimation
-                      : const AlwaysStoppedAnimation(1.0),
-                  child: Container(
-                    padding: const EdgeInsets.all(18),
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: (hasConnectedIp
-                              ? AppTheme.successColor
-                              : (state.isScanning
-                                  ? AppTheme.primaryAccent
-                                  : Colors.grey))
-                          .withValues(alpha: 0.2),
-                    ),
-                    child: Icon(
-                      Icons.radar_rounded,
-                      size: 50,
-                      color: hasConnectedIp
-                          ? AppTheme.successColor
-                          : (state.isScanning
-                              ? AppTheme.primaryAccent
-                              : Colors.grey),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                if (hasConnectedIp) ...[
-                  Text(
-                    AppStrings.get('current_active_ip', locale: locale),
-                    style: const TextStyle(color: Colors.grey, fontSize: 13),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    state.connectedIp!,
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.1,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                    decoration: BoxDecoration(
-                      color: AppTheme.successColor.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: AppTheme.successColor),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.bolt_rounded,
-                            color: AppTheme.successColor, size: 16),
-                        const SizedBox(width: 4),
-                        Text(
-                          '${state.currentBestLatency} ms  •  ${AppStrings.get('connected', locale: locale)}',
-                          style: const TextStyle(
-                            color: AppTheme.successColor,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ] else ...[
-                  Text(
-                    state.isScanning
-                        ? AppStrings.get('searching_clean_ip', locale: locale)
-                        : AppStrings.get('radar_ready', locale: locale),
-                    style: TextStyle(
-                      color: state.isScanning
-                          ? AppTheme.primaryAccent
-                          : Colors.grey,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 15,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    state.isScanning
-                        ? AppStrings.get('radar_first_connect_hint', locale: locale)
-                        : AppStrings.get('radar_start_prompt', locale: locale),
-                    style: const TextStyle(color: Colors.grey, fontSize: 12),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ],
+  Widget _buildRadarHistoryContent(ScannerState state, String locale) {
+    if (state.radarLogs.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Text(
+            state.isScanning
+                ? AppStrings.get('scanning_subnets', locale: locale)
+                : AppStrings.get('no_improvements_yet', locale: locale),
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontSize: 12,
             ),
+            textAlign: TextAlign.center,
           ),
         ),
-        const SizedBox(height: 20),
+      );
+    }
 
-        // Radar Improvement Timeline Card
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return ListView.separated(
+      itemCount: state.radarLogs.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 6),
+      itemBuilder: (context, index) {
+        final log = state.radarLogs[index];
+        final isFirst = index == state.radarLogs.length - 1;
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: index == 0
+                ? AppTheme.primaryAccent.withValues(alpha: 0.12)
+                : (Theme.of(context).brightness == Brightness.dark
+                    ? const Color(0xFF131722)
+                    : Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5)),
+            borderRadius: BorderRadius.circular(8),
+            border: index == 0
+                ? Border.all(
+                    color: AppTheme.primaryAccent.withValues(alpha: 0.4),
+                  )
+                : null,
+          ),
+          child: Row(
+            children: [
+              Icon(
+                index == 0 ? Icons.star_rounded : Icons.trending_down_rounded,
+                color: index == 0 ? Colors.amber : AppTheme.successColor,
+                size: 16,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.history_rounded,
-                            size: 20, color: AppTheme.primaryAccent),
-                        const SizedBox(width: 8),
-                        Text(
-                          AppStrings.get('radar_history', locale: locale),
-                          style: const TextStyle(
-                              fontWeight: FontWeight.bold, fontSize: 15),
-                        ),
-                      ],
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                        borderRadius: BorderRadius.circular(10),
+                    Text(
+                      log.ip,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
                       ),
-                      child: Text(
-                        '${state.radarLogs.length}',
-                        style: const TextStyle(
-                            fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                    Text(
+                      isFirst
+                          ? AppStrings.get('initial_connection', locale: locale)
+                          : (log.improvementMs != null
+                              ? '${log.improvementMs} ms ${AppStrings.get('latency_improved', locale: locale)}'
+                              : AppStrings.get('latency_improved', locale: locale)),
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: index == 0
+                            ? AppTheme.primaryAccent
+                            : Colors.grey,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 14),
-                if (state.radarLogs.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 20),
-                    child: Center(
-                      child: Text(
-                        state.isScanning
-                            ? AppStrings.get('scanning_subnets', locale: locale)
-                            : AppStrings.get('no_improvements_yet', locale: locale),
-                        style: const TextStyle(color: Colors.grey),
-                      ),
-                    ),
-                  )
-                else
-                  ListView.separated(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: state.radarLogs.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 8),
-                    itemBuilder: (context, index) {
-                      final log = state.radarLogs[index];
-                      final isFirst = index == state.radarLogs.length - 1;
-                      return Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 10),
-                        decoration: BoxDecoration(
-                          color: index == 0
-                              ? AppTheme.primaryAccent.withValues(alpha: 0.12)
-                              : (Theme.of(context).brightness == Brightness.dark
-                                  ? const Color(0xFF131722)
-                                  : Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5)),
-                          borderRadius: BorderRadius.circular(10),
-                          border: index == 0
-                              ? Border.all(
-                                  color: AppTheme.primaryAccent.withValues(alpha: 0.4),
-                                )
-                              : null,
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              index == 0
-                                  ? Icons.star_rounded
-                                  : Icons.trending_down_rounded,
-                              color: index == 0
-                                  ? Colors.amber
-                                  : AppTheme.successColor,
-                              size: 20,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    log.ip,
-                                    style: const TextStyle(
-                                      fontFamily: 'monospace',
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    isFirst
-                                        ? AppStrings.get('initial_connection',
-                                            locale: locale)
-                                        : (log.improvementMs != null
-                                            ? '${log.improvementMs} ms ${AppStrings.get('latency_improved', locale: locale)}'
-                                            : AppStrings.get('latency_improved',
-                                                locale: locale)),
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: index == 0
-                                          ? AppTheme.primaryAccent
-                                          : Colors.grey,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color:
-                                    AppTheme.successColor.withValues(alpha: 0.2),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                '${log.latencyMs} ms',
-                                style: const TextStyle(
-                                  fontFamily: 'monospace',
-                                  fontWeight: FontWeight.bold,
-                                  color: AppTheme.successColor,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 20),
-
-        // Discovered Responsive IPs in Radar Mode (Collapsible Accordion)
-        Card(
-          clipBehavior: Clip.antiAlias,
-          child: ExpansionTile(
-            initiallyExpanded: state.results.isNotEmpty && state.results.length <= 15,
-            leading: const Icon(Icons.dns_rounded, size: 20, color: AppTheme.successColor),
-            title: Text(
-              AppStrings.get('radar_discovered_ips', locale: locale),
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-            ),
-            subtitle: Text(
-              AppStrings.get('radar_discovered_ips_hint', locale: locale),
-              style: const TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-            trailing: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: AppTheme.successColor.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: AppTheme.successColor.withValues(alpha: 0.4)),
               ),
-              child: Text(
-                '${state.results.length}',
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: AppTheme.successColor,
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppTheme.successColor.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  '${log.latencyMs} ms',
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontWeight: FontWeight.bold,
+                    color: AppTheme.successColor,
+                    fontSize: 11,
+                  ),
                 ),
               ),
-            ),
-            childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            children: [
-              if (state.results.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 20),
-                  child: Center(
-                    child: Text(
-                      state.isScanning
-                          ? AppStrings.get('scanning_subnets', locale: locale)
-                          : AppStrings.get('no_responsive_ips', locale: locale),
-                      style: const TextStyle(color: Colors.grey),
-                    ),
-                  ),
-                )
-              else
-                ListView.separated(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: state.results.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
-                  itemBuilder: (context, index) {
-                    final res = state.results[index];
-                    return _buildTargetResultCard(
-                      res,
-                      index,
-                      locale,
-                      connectedIp: state.connectedIp,
-                    );
-                  },
-                ),
             ],
           ),
-        ),
-      ],
+        );
+      },
     );
   }
 
-  Widget _buildTargetView(
-      ScannerState state, dynamic activeNode, String locale) {
+  Widget _buildCleanIpsContent(ScannerState state, String locale) {
     final filtered = state.results.where((r) {
       if (_searchQuery.isNotEmpty && !r.ip.contains(_searchQuery)) return false;
       return true;
     }).toList();
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: TextField(
-                decoration: InputDecoration(
-                  hintText: AppStrings.get('filter_ip_hint', locale: locale),
-                  prefixIcon: const Icon(Icons.search, size: 20),
-                  filled: true,
-                  fillColor: Theme.of(context).cardColor,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                ),
-                onChanged: (val) => setState(() => _searchQuery = val),
+        SizedBox(
+          height: 32,
+          child: TextField(
+            style: const TextStyle(fontSize: 12),
+            decoration: InputDecoration(
+              hintText: AppStrings.get('filter_ip_hint', locale: locale),
+              prefixIcon: const Icon(Icons.search, size: 16),
+              suffixIcon: _searchQuery.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear, size: 14),
+                      onPressed: () => setState(() => _searchQuery = ''),
+                      padding: EdgeInsets.zero,
+                    )
+                  : null,
+              filled: true,
+              fillColor: Theme.of(context).brightness == Brightness.dark
+                  ? const Color(0xFF131722)
+                  : Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(6),
+                borderSide: BorderSide.none,
               ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
             ),
-            const SizedBox(width: 12),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: BoxDecoration(
-                color: Theme.of(context).cardColor,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                '${filtered.length} ${AppStrings.get('responsive_count', locale: locale)}',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-              ),
-            ),
-          ],
+            onChanged: (val) => setState(() => _searchQuery = val),
+          ),
         ),
-        Card(
-          clipBehavior: Clip.antiAlias,
-          child: ExpansionTile(
-            initiallyExpanded: true,
-            leading: const Icon(Icons.dns_rounded, size: 20, color: AppTheme.primaryAccent),
-            title: Text(
-              AppStrings.get('discovered_clean_ips', locale: locale),
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-            ),
-            trailing: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: AppTheme.primaryAccent.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: AppTheme.primaryAccent.withValues(alpha: 0.4)),
-              ),
-              child: Text(
-                '${filtered.length}',
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: AppTheme.primaryAccent,
-                ),
-              ),
-            ),
-            childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            children: [
-              if (filtered.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 40),
-                  child: Center(
+        const SizedBox(height: 6),
+        Expanded(
+          child: filtered.isEmpty
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
                     child: Text(
                       state.isScanning
                           ? AppStrings.get('target_active', locale: locale)
                           : AppStrings.get('no_responsive_ips', locale: locale),
-                      style: const TextStyle(color: Colors.grey),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        fontSize: 12,
+                      ),
+                      textAlign: TextAlign.center,
                     ),
                   ),
                 )
-              else
-                ListView.separated(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
+              : ListView.separated(
                   itemCount: filtered.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 10),
+                  separatorBuilder: (_, __) => const SizedBox(height: 6),
                   itemBuilder: (context, index) {
                     final res = filtered[index];
                     return _buildTargetResultCard(
@@ -1201,8 +1167,6 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                     );
                   },
                 ),
-            ],
-          ),
         ),
       ],
     );
@@ -1248,7 +1212,7 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                 : BorderSide.none),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
         child: Row(
           children: [
             Container(
@@ -1402,6 +1366,7 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                   await ref
                       .read(scannerProvider.notifier)
                       .connectToCandidateIp(res.ip, lat);
+                  if (!mounted) return;
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(
@@ -1419,41 +1384,57 @@ class _ScannerViewState extends ConsumerState<ScannerView>
   Widget _buildScannerStatsDashboard(ScannerState state, String locale) {
     final scannedCount = state.scanned;
     final responsiveCount = state.results.length;
-    final successRate = scannedCount > 0 ? ((responsiveCount / scannedCount) * 100).toStringAsFixed(1) : '0.0';
+    final successRate = scannedCount > 0
+        ? ((responsiveCount / scannedCount) * 100).toStringAsFixed(1)
+        : '0.0';
     final bestPing = state.bestIp?.latencyMs != null
         ? '${state.bestIp!.latencyMs} ms'
-        : (state.currentBestLatency != null ? '${state.currentBestLatency} ms' : '--');
+        : (state.currentBestLatency != null
+            ? '${state.currentBestLatency} ms'
+            : '--');
 
-    return Row(
+    return Column(
       children: [
-        _buildScannerMetricCard(
-          icon: Icons.search_rounded,
-          iconColor: Colors.blueAccent,
-          label: AppStrings.get('tested_ips', locale: locale),
-          value: '$scannedCount',
+        Expanded(
+          child: Row(
+            children: [
+              _buildScannerMetricCard(
+                icon: Icons.search_rounded,
+                iconColor: Colors.blueAccent,
+                label: AppStrings.get('tested_ips', locale: locale),
+                value: '$scannedCount',
+              ),
+              const SizedBox(width: 10),
+              _buildScannerMetricCard(
+                icon: Icons.dns_rounded,
+                iconColor: AppTheme.successColor,
+                label: AppStrings.get('responsive_ips', locale: locale),
+                value: '$responsiveCount',
+                highlightColor: AppTheme.successColor,
+              ),
+            ],
+          ),
         ),
-        const SizedBox(width: 10),
-        _buildScannerMetricCard(
-          icon: Icons.dns_rounded,
-          iconColor: AppTheme.successColor,
-          label: AppStrings.get('responsive_ips', locale: locale),
-          value: '$responsiveCount',
-          highlightColor: AppTheme.successColor,
-        ),
-        const SizedBox(width: 10),
-        _buildScannerMetricCard(
-          icon: Icons.percent_rounded,
-          iconColor: Colors.amber,
-          label: AppStrings.get('success_rate', locale: locale),
-          value: '$successRate%',
-        ),
-        const SizedBox(width: 10),
-        _buildScannerMetricCard(
-          icon: Icons.bolt_rounded,
-          iconColor: AppTheme.primaryAccent,
-          label: AppStrings.get('best_ping', locale: locale),
-          value: bestPing,
-          highlightColor: bestPing != '--' ? AppTheme.primaryAccent : null,
+        const SizedBox(height: 10),
+        Expanded(
+          child: Row(
+            children: [
+              _buildScannerMetricCard(
+                icon: Icons.percent_rounded,
+                iconColor: Colors.amber,
+                label: AppStrings.get('success_rate', locale: locale),
+                value: '$successRate%',
+              ),
+              const SizedBox(width: 10),
+              _buildScannerMetricCard(
+                icon: Icons.bolt_rounded,
+                iconColor: AppTheme.primaryAccent,
+                label: AppStrings.get('best_ping', locale: locale),
+                value: bestPing,
+                highlightColor: bestPing != '--' ? AppTheme.primaryAccent : null,
+              ),
+            ],
+          ),
         ),
       ],
     );
@@ -1468,10 +1449,11 @@ class _ScannerViewState extends ConsumerState<ScannerView>
   }) {
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        height: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
           color: Theme.of(context).cardColor,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(12),
         ),
         child: Row(
           children: [

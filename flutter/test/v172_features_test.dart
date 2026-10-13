@@ -241,15 +241,15 @@ void main() {
       expect(TestMode.turbo.name, 'turbo');
     });
 
-    test('ScannerState clamps workers concurrency up to 500', () {
+    test('ScannerState clamps workers concurrency up to 100', () {
       final state1 = ScannerState(workers: 1000);
-      expect(state1.workers, 500);
+      expect(state1.workers, 100);
 
       final state2 = ScannerState(workers: 2);
       expect(state2.workers, 5);
 
-      final state3 = ScannerState(workers: 250);
-      expect(state3.workers, 250);
+      final state3 = ScannerState(workers: 50);
+      expect(state3.workers, 50);
     });
 
     test('TestConcurrencyNotifier clamps concurrency between 5 and 100', () async {

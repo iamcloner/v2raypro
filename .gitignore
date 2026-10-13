@@ -9,6 +9,7 @@ build/macos/
 build/web/
 dist/
 *.zip
+xray/
 
 flutter/build/
 flutter/.dart_tool/

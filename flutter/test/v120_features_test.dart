@@ -31,8 +31,8 @@ void main() {
       expect(UpdateService.defaultAppTestUrl, 'https://github.com/iamcloner/v2raypro/releases');
     });
 
-    test('UpdateService currentAppVersion is v1.7.2', () {
-      expect(UpdateService.currentAppVersion, 'v1.7.2');
+    test('UpdateService currentAppVersion is v1.7.3', () {
+      expect(UpdateService.currentAppVersion, 'v1.7.3');
     });
 
     test('UpdateService semver isVersionNewer accurately detects newer releases', () {
