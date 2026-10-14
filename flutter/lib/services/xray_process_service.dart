@@ -140,13 +140,21 @@ class XrayProcessService {
     }
   }
 
-  Future<bool> startAndroidVpn(String configName) async {
+  Future<bool> startAndroidVpn(
+    String configName, {
+    bool isTun = true,
+    String? notificationTitle,
+    String? disconnectText,
+  }) async {
     if (!Platform.isAndroid) return false;
     try {
       const channel = MethodChannel('com.v2raypro.app/native');
       final res = await channel.invokeMethod<bool>('startVpnService', {
         'configName': configName,
         'httpPort': httpPort,
+        'isTun': isTun,
+        'notificationTitle': notificationTitle ?? 'V2RayPro - متصل',
+        'disconnectText': disconnectText ?? 'قطع اتصال',
       });
       return res ?? false;
     } catch (e) {
@@ -614,7 +622,15 @@ class XrayProcessService {
     return await _isPortAvailable(port);
   }
 
-  Future<bool> start(ProxyNode node, {bool enableTun = false, bool setSysProxy = false, bool enableUdp = true, bool allowLan = false}) async {
+  Future<bool> start(
+    ProxyNode node, {
+    bool enableTun = false,
+    bool setSysProxy = false,
+    bool enableUdp = true,
+    bool allowLan = false,
+    String? notificationTitle,
+    String? disconnectText,
+  }) async {
     // Always stop and cleanup any existing process
     await stop();
 
@@ -715,7 +731,12 @@ class XrayProcessService {
       }
 
       if (Platform.isAndroid) {
-        await startAndroidVpn(node.name);
+        await startAndroidVpn(
+          node.name,
+          isTun: enableTun,
+          notificationTitle: notificationTitle,
+          disconnectText: disconnectText,
+        );
       }
 
       _state = EngineState.running;

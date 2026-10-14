@@ -38,6 +38,7 @@ class ProxyNode {
   String? originalAddress;
   String? countryCode;
   String? country;
+  final bool isFree;
 
   /// Whether this node has been tested and failed (timed out / no ping response)
   bool get hasTimedOut => lastTestedAt != null && (latencyMs == null || latencyMs! <= 0);
@@ -84,6 +85,7 @@ class ProxyNode {
     this.originalAddress,
     this.countryCode,
     this.country,
+    this.isFree = false,
   });
 
   Map<String, dynamic> toJson() => {
@@ -122,6 +124,7 @@ class ProxyNode {
     "original_address": originalAddress,
     "country_code": countryCode,
     "country": country,
+    "is_free": isFree,
   };
 
   factory ProxyNode.fromJson(Map<String, dynamic> json) {
@@ -170,6 +173,7 @@ class ProxyNode {
       originalAddress: json["original_address"],
       countryCode: json["country_code"],
       country: json["country"],
+      isFree: json["is_free"] == true,
     );
   }
 
@@ -214,6 +218,7 @@ class ProxyNode {
     bool clearCountry = false,
     String? countryCode,
     String? country,
+    bool? isFree,
   }) {
     final int? resolvedLatency = clearLatency
         ? null
@@ -255,6 +260,7 @@ class ProxyNode {
       originalAddress: clearOriginalAddress ? null : (originalAddress ?? this.originalAddress),
       countryCode: clearCountry ? null : (countryCode ?? this.countryCode),
       country: clearCountry ? null : (country ?? this.country),
+      isFree: isFree ?? this.isFree,
     );
   }
 

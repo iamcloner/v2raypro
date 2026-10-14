@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 import '../core/l10n/translations.dart';
@@ -241,7 +242,7 @@ class ConfigFormTabsState extends State<ConfigFormTabs> with SingleTickerProvide
     final loc = widget.locale;
 
     return SizedBox(
-      width: 580,
+      width: Platform.isAndroid ? double.infinity : 580,
       height: 490,
       child: Column(
         children: [
@@ -252,12 +253,21 @@ class ConfigFormTabsState extends State<ConfigFormTabs> with SingleTickerProvide
             ),
             child: TabBar(
               controller: tabController,
+              isScrollable: Platform.isAndroid,
+              tabAlignment: Platform.isAndroid ? TabAlignment.start : null,
               labelColor: AppTheme.primaryAccent,
-              unselectedLabelColor: Colors.grey,
+              unselectedLabelColor: Colors.grey.shade400,
               indicatorColor: AppTheme.primaryAccent,
               indicatorSize: TabBarIndicatorSize.tab,
-              labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-              unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.normal, fontSize: 13),
+              labelPadding: EdgeInsets.symmetric(horizontal: Platform.isAndroid ? 12 : 16),
+              labelStyle: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: Platform.isAndroid ? 12.5 : 13,
+              ),
+              unselectedLabelStyle: TextStyle(
+                fontWeight: FontWeight.normal,
+                fontSize: Platform.isAndroid ? 12 : 13,
+              ),
               tabs: [
                 Tab(
                   icon: const Icon(Icons.info_outline_rounded, size: 18),

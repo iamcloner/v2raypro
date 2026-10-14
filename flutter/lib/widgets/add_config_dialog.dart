@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/l10n/translations.dart';
@@ -170,8 +171,17 @@ class _AddConfigDialogState extends ConsumerState<AddConfigDialog> with SingleTi
           TabBar(
             controller: _tabController,
             labelColor: AppTheme.primaryAccent,
-            unselectedLabelColor: Colors.grey,
+            unselectedLabelColor: Colors.grey.shade400,
             indicatorColor: AppTheme.primaryAccent,
+            indicatorSize: TabBarIndicatorSize.tab,
+            labelStyle: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: Platform.isAndroid ? 12 : 13,
+            ),
+            unselectedLabelStyle: TextStyle(
+              fontWeight: FontWeight.normal,
+              fontSize: Platform.isAndroid ? 11.5 : 13,
+            ),
             tabs: [
               Tab(
                 icon: const Icon(Icons.tune_rounded, size: 18),
@@ -190,8 +200,8 @@ class _AddConfigDialogState extends ConsumerState<AddConfigDialog> with SingleTi
         ],
       ),
       content: SizedBox(
-        width: 580,
-        height: 520,
+        width: Platform.isAndroid ? MediaQuery.of(context).size.width * 0.95 : 580,
+        height: Platform.isAndroid ? MediaQuery.of(context).size.height * 0.75 : 520,
         child: TabBarView(
           controller: _tabController,
           children: [

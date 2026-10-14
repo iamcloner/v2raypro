@@ -27,7 +27,13 @@ enum ConnectionStateEnum { disconnected, connecting, connected, disconnecting, e
 
 class ConnectionStatusNotifier extends StateNotifier<ConnectionStateEnum> {
   final Ref ref;
-  ConnectionStatusNotifier(this.ref) : super(ConnectionStateEnum.disconnected);
+  ConnectionStatusNotifier(this.ref) : super(ConnectionStateEnum.disconnected) {
+    if (Platform.isAndroid) {
+      XrayProcessService.instance.onAndroidNotificationDisconnect = () {
+        setDisconnected();
+      };
+    }
+  }
 
   void setConnected() {
     ref.read(connectedAtProvider.notifier).state = DateTime.now();
@@ -39,7 +45,7 @@ class ConnectionStatusNotifier extends StateNotifier<ConnectionStateEnum> {
     if (ref.read(autoEnableSysProxyOnConnectProvider) && !ref.read(isSystemProxyEnabledProvider)) {
       ref.read(isSystemProxyEnabledProvider.notifier).toggle(true);
     }
-    if (ref.read(autoEnableTunOnConnectProvider) && !ref.read(isTunEnabledProvider)) {
+    if (Platform.isWindows && ref.read(autoEnableTunOnConnectProvider) && !ref.read(isTunEnabledProvider)) {
       ref.read(isTunEnabledProvider.notifier).toggle(true);
     }
   }
@@ -86,10 +92,15 @@ class ConnectionStatusNotifier extends StateNotifier<ConnectionStateEnum> {
     }
 
     final activeNode = targetNode ?? nodes.firstWhere((n) => n.isActive, orElse: () => nodes.first);
-    final isTun = ref.read(isTunEnabledProvider) || ref.read(autoEnableTunOnConnectProvider);
+    final isTun = Platform.isAndroid
+        ? ref.read(isTunEnabledProvider)
+        : (ref.read(isTunEnabledProvider) || ref.read(autoEnableTunOnConnectProvider));
     final isSysProxy = ref.read(isSystemProxyEnabledProvider) || ref.read(autoEnableSysProxyOnConnectProvider);
     final enableUdp = ref.read(enableUdpProvider);
     final allowLan = ref.read(allowLanProvider);
+    final locale = ref.read(currentLocaleProvider);
+    final notificationTitle = locale == 'fa' ? 'وی‌تو‌ری پرو - متصل شد' : 'V2Ray Pro - Connected';
+    final disconnectText = locale == 'fa' ? 'قطع اتصال' : 'Disconnect';
 
     if (isTun && !XrayProcessService.instance.isRunningAsAdmin()) {
       LogService.instance.add("TUN Mode requires Administrator privileges on Windows. Please restart application as Administrator.", level: LogLevel.warning, source: "system");
@@ -104,6 +115,8 @@ class ConnectionStatusNotifier extends StateNotifier<ConnectionStateEnum> {
       setSysProxy: isSysProxy,
       enableUdp: enableUdp,
       allowLan: allowLan,
+      notificationTitle: notificationTitle,
+      disconnectText: disconnectText,
     );
     if (ok) {
       setConnected();
@@ -331,6 +344,7 @@ class NodesNotifier extends StateNotifier<List<ProxyNode>> {
     final nodeWithMeta = freeNode.copyWith(
       countryCode: countryCode,
       country: countryName,
+      isFree: true,
     );
     final existingIdx = state.indexWhere((n) => n.id == freeNode.id);
     if (existingIdx != -1) {
@@ -414,6 +428,15 @@ class NodesNotifier extends StateNotifier<List<ProxyNode>> {
     _save();
   }
 
+  void clearCustomNodes() {
+    state = state.where((n) => n.subscriptionId != null || n.isFree).toList();
+    if (state.isNotEmpty && !state.any((n) => n.isActive)) {
+      state[0].isActive = true;
+      state = [...state];
+    }
+    _save();
+  }
+
   void removeNodesBySubscription(String subId) {
     state = state.where((n) => n.subscriptionId != subId).toList();
     if (state.isNotEmpty && !state.any((n) => n.isActive)) {
@@ -430,7 +453,7 @@ class NodesNotifier extends StateNotifier<List<ProxyNode>> {
   }) {
     final toRemove = <String>{};
     for (final n in state) {
-      if (onlyCustom && n.subscriptionId != null) continue;
+      if (onlyCustom && (n.subscriptionId != null || n.isFree)) continue;
       if (subscriptionId != null && n.subscriptionId != subscriptionId) continue;
       final isDead = includeUntested ? !n.hasValidPing : n.hasTimedOut;
       if (isDead) {

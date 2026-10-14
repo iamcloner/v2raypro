@@ -300,11 +300,18 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
                               child: CircularProgressIndicator(strokeWidth: 2.2, color: Colors.amber),
                             ),
                             const SizedBox(width: 10),
-                            Text(
-                              freeState.status == 'fetching'
-                                  ? AppStrings.get('scanning_free_subs', locale: locale)
-                                  : AppStrings.get('testing_real_delay_batch', locale: locale),
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                            Flexible(
+                              child: Text(
+                                Platform.isAndroid
+                                    ? (freeState.status == 'fetching'
+                                        ? (locale == 'fa' ? 'درحال دریافت...' : 'Fetching...')
+                                        : (locale == 'fa' ? 'درحال تست...' : 'Testing...'))
+                                    : (freeState.status == 'fetching'
+                                        ? AppStrings.get('scanning_free_subs', locale: locale)
+                                        : AppStrings.get('testing_real_delay_batch', locale: locale)),
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
                           ],
                         ),

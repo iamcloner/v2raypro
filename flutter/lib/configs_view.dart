@@ -292,7 +292,7 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
   }
 
   Future<void> _deleteAllNodes(String locale) async {
-    final nodes = ref.read(nodesProvider).where((n) => n.subscriptionId == null).toList();
+    final nodes = ref.read(nodesProvider).where((n) => n.subscriptionId == null && !n.isFree).toList();
     if (nodes.isEmpty) return;
 
     final confirmed = await showDialog<bool>(
@@ -307,8 +307,8 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
         ),
         content: Text(
           locale == 'fa'
-              ? 'آیا از حذف تمامی ${nodes.length} کانفیگ اطمینان دارید؟'
-              : 'Are you sure you want to delete all ${nodes.length} configs?',
+              ? 'آیا از حذف تمامی ${nodes.length} کانفیگ این بخش اطمینان دارید؟'
+              : 'Are you sure you want to delete all ${nodes.length} configs in this section?',
         ),
         actions: [
           TextButton(
@@ -325,10 +325,10 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
     );
 
     if (confirmed == true && mounted) {
-      ref.read(nodesProvider.notifier).clearAllNodes();
+      ref.read(nodesProvider.notifier).clearCustomNodes();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(locale == 'fa' ? 'تمامی کانفیگ‌ها حذف شدند.' : 'All configs deleted.'),
+          content: Text(locale == 'fa' ? 'تمامی کانفیگ‌های این بخش حذف شدند.' : 'All section configs deleted.'),
         ),
       );
     }
@@ -532,7 +532,7 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
   @override
   Widget build(BuildContext context) {
     final allNodes = ref.watch(nodesProvider);
-    final nodes = allNodes.where((n) => n.subscriptionId == null).toList();
+    final nodes = allNodes.where((n) => n.subscriptionId == null && !n.isFree).toList();
     // Sort by status: working nodes first (lowest ping to highest), then untested, then timed-out last
     nodes.sort((a, b) {
       if (a.hasValidPing && b.hasValidPing) {

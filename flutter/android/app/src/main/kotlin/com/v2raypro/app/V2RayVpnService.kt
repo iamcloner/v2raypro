@@ -4,8 +4,10 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.net.ProxyInfo
 import android.net.VpnService
 import android.os.Build
@@ -29,9 +31,23 @@ class V2RayVpnService : VpnService() {
 
     private var vpnInterface: ParcelFileDescriptor? = null
 
+    private val disconnectReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            stopVpn()
+            onDisconnectListener?.invoke()
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+
+        val filter = IntentFilter(ACTION_DISCONNECT)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(disconnectReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(disconnectReceiver, filter)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -47,8 +63,11 @@ class V2RayVpnService : VpnService() {
         if (action == ACTION_START) {
             val configName = intent.getStringExtra("configName") ?: "V2RayPro"
             val httpPort = intent.getIntExtra("httpPort", 10888)
+            val isTun = intent.getBooleanExtra("isTun", true)
+            val notificationTitle = intent.getStringExtra("notificationTitle") ?: "V2RayPro - متصل"
+            val disconnectText = intent.getStringExtra("disconnectText") ?: "قطع اتصال"
 
-            startVpn(configName, httpPort)
+            startVpn(configName, httpPort, isTun, notificationTitle, disconnectText)
             return START_STICKY
         }
 
@@ -69,7 +88,11 @@ class V2RayVpnService : VpnService() {
         }
     }
 
-    private fun createNotification(configName: String): Notification {
+    private fun createNotification(
+        configName: String,
+        notificationTitle: String,
+        disconnectText: String
+    ): Notification {
         val mainIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
@@ -78,23 +101,21 @@ class V2RayVpnService : VpnService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val disconnectIntent = Intent(this, V2RayVpnService::class.java).apply {
-            action = ACTION_DISCONNECT
-        }
-        val disconnectPendingIntent = PendingIntent.getService(
+        val disconnectIntent = Intent(ACTION_DISCONNECT).setPackage(packageName)
+        val disconnectPendingIntent = PendingIntent.getBroadcast(
             this, 1, disconnectIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("V2RayPro - متصل")
+            .setContentTitle(notificationTitle)
             .setContentText(configName)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setOngoing(true) // User cannot swipe away until disconnected
             .setContentIntent(mainPendingIntent)
             .addAction(
                 android.R.drawable.ic_menu_close_clear_cancel,
-                "قطع اتصال (Disconnect)",
+                disconnectText,
                 disconnectPendingIntent
             )
             .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -102,34 +123,46 @@ class V2RayVpnService : VpnService() {
             .build()
     }
 
-    private fun startVpn(configName: String, httpPort: Int) {
-        val notification = createNotification(configName)
+    private fun startVpn(
+        configName: String,
+        httpPort: Int,
+        isTun: Boolean,
+        notificationTitle: String,
+        disconnectText: String
+    ) {
+        val notification = createNotification(configName, notificationTitle, disconnectText)
         startForeground(NOTIFICATION_ID, notification)
 
-        try {
-            val builder = Builder()
-                .setSession("V2RayPro: $configName")
-                .addAddress("26.26.26.1", 24)
-                .addRoute("0.0.0.0", 0)
-                .addDnsServer("1.1.1.1")
-                .addDnsServer("8.8.8.8")
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                try {
-                    builder.setHttpProxy(ProxyInfo.buildDirectProxy("127.0.0.1", httpPort))
-                } catch (_: Exception) {}
-            }
-
-            // Exclude our own package so Xray loopback doesn't cause recursion
+        if (isTun) {
             try {
-                builder.addDisallowedApplication(packageName)
-            } catch (_: Exception) {}
+                val builder = Builder()
+                    .setSession("V2RayPro: $configName")
+                    .addAddress("26.26.26.1", 24)
+                    .addRoute("0.0.0.0", 0)
+                    .addDnsServer("1.1.1.1")
+                    .addDnsServer("8.8.8.8")
 
-            vpnInterface = builder.establish()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    try {
+                        builder.setHttpProxy(ProxyInfo.buildDirectProxy("127.0.0.1", httpPort))
+                    } catch (_: Exception) {}
+                }
+
+                // Exclude our own package so Xray loopback doesn't cause recursion
+                try {
+                    builder.addDisallowedApplication(packageName)
+                } catch (_: Exception) {}
+
+                vpnInterface = builder.establish()
+                isRunning = true
+            } catch (e: Exception) {
+                e.printStackTrace()
+                stopVpn()
+            }
+        } else {
+            // Proxy Mode: No VPN tunnel is established; VPN key icon does NOT appear!
+            vpnInterface = null
             isRunning = true
-        } catch (e: Exception) {
-            e.printStackTrace()
-            stopVpn()
         }
     }
 
@@ -150,6 +183,9 @@ class V2RayVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        try {
+            unregisterReceiver(disconnectReceiver)
+        } catch (_: Exception) {}
         stopVpn()
         super.onDestroy()
     }

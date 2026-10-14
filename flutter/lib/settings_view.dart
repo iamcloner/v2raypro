@@ -443,6 +443,318 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
     );
   }
 
+  Widget _buildAndroidProxyPortsSection(String locale, int httpPort, int socksPort) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: AppTheme.primaryAccent.withValues(alpha: 0.25),
+          width: 1.0,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.tune_rounded, size: 16, color: AppTheme.primaryAccent),
+              const SizedBox(width: 6),
+              Text(
+                locale == 'fa' ? 'تعیین پورت‌های ورودی محلی (Proxy)' : 'Local Inbound Ports (Proxy)',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppTheme.primaryAccent),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          // HTTP Port row
+          Row(
+            children: [
+              const Icon(Icons.settings_ethernet_rounded, size: 16, color: AppTheme.primaryAccent),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      AppStrings.get('http_port', locale: locale),
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                    ),
+                    Text(
+                      '127.0.0.1:$httpPort (Default: 10888)',
+                      style: const TextStyle(fontSize: 10, color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(
+                width: 75,
+                height: 32,
+                child: TextField(
+                  controller: _httpPortController,
+                  keyboardType: TextInputType.number,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                  ),
+                  onSubmitted: (val) {
+                    final p = int.tryParse(val.trim());
+                    if (p != null && p > 0 && p < 65536) {
+                      ref.read(httpPortProvider.notifier).setPort(p);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(locale == 'fa' ? 'پورت HTTP ذخیره شد: $p' : 'HTTP port saved: $p')),
+                      );
+                    }
+                  },
+                ),
+              ),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.check_circle_rounded, size: 20, color: AppTheme.successColor),
+                tooltip: locale == 'fa' ? 'ذخیره پورت' : 'Save Port',
+                onPressed: () {
+                  final p = int.tryParse(_httpPortController.text.trim());
+                  if (p != null && p > 0 && p < 65536) {
+                    ref.read(httpPortProvider.notifier).setPort(p);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(locale == 'fa' ? 'پورت HTTP ذخیره شد: $p' : 'HTTP port saved: $p')),
+                    );
+                  }
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Divider(height: 1),
+          const SizedBox(height: 8),
+          // SOCKS Port row
+          Row(
+            children: [
+              const Icon(Icons.swap_calls_rounded, size: 16, color: AppTheme.secondaryAccent),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      AppStrings.get('socks_port', locale: locale),
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                    ),
+                    Text(
+                      '127.0.0.1:$socksPort (Default: 10999)',
+                      style: const TextStyle(fontSize: 10, color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(
+                width: 75,
+                height: 32,
+                child: TextField(
+                  controller: _socksPortController,
+                  keyboardType: TextInputType.number,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                  ),
+                  onSubmitted: (val) {
+                    final p = int.tryParse(val.trim());
+                    if (p != null && p > 0 && p < 65536) {
+                      ref.read(socksPortProvider.notifier).setPort(p);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(locale == 'fa' ? 'پورت SOCKS ذخیره شد: $p' : 'SOCKS port saved: $p')),
+                      );
+                    }
+                  },
+                ),
+              ),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.check_circle_rounded, size: 20, color: AppTheme.successColor),
+                tooltip: locale == 'fa' ? 'ذخیره پورت' : 'Save Port',
+                onPressed: () {
+                  final p = int.tryParse(_socksPortController.text.trim());
+                  if (p != null && p > 0 && p < 65536) {
+                    ref.read(socksPortProvider.notifier).setPort(p);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(locale == 'fa' ? 'پورت SOCKS ذخیره شد: $p' : 'SOCKS port saved: $p')),
+                    );
+                  }
+                },
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAndroidTestModeSection(String locale, TestMode testMode) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.tune_rounded, color: AppTheme.primaryAccent, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  AppStrings.get('test_mode', locale: locale),
+                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                ),
+              ),
+              _buildInfoTooltip(AppStrings.get('tooltip_test_mode', locale: locale)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: _buildAndroidTestModeChip(
+                  label: AppStrings.get('test_mode_normal', locale: locale),
+                  icon: Icons.check_circle_outline_rounded,
+                  iconColor: AppTheme.primaryAccent,
+                  isSelected: testMode == TestMode.normal,
+                  onTap: () => ref.read(testModeProvider.notifier).setMode(TestMode.normal),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildAndroidTestModeChip(
+                  label: AppStrings.get('test_mode_turbo', locale: locale),
+                  icon: Icons.bolt_rounded,
+                  iconColor: Colors.amber,
+                  isSelected: testMode == TestMode.turbo,
+                  onTap: () => ref.read(testModeProvider.notifier).setMode(TestMode.turbo),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAndroidTestModeChip({
+    required String label,
+    required IconData icon,
+    required Color iconColor,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? AppTheme.primaryAccent.withValues(alpha: 0.18)
+              : Theme.of(context).cardColor,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isSelected ? AppTheme.primaryAccent : Colors.grey.withValues(alpha: 0.25),
+            width: isSelected ? 1.6 : 1.0,
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 16, color: isSelected ? iconColor : Colors.grey),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                  color: isSelected ? AppTheme.primaryAccent : Theme.of(context).colorScheme.onSurface,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAndroidConcurrencySection(String locale, int testConcurrency) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.hub_rounded, color: AppTheme.secondaryAccent, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  AppStrings.get('test_concurrency', locale: locale),
+                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                ),
+              ),
+              _buildInfoTooltip(AppStrings.get('tooltip_test_concurrency', locale: locale)),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppTheme.secondaryAccent.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppTheme.secondaryAccent.withValues(alpha: 0.3)),
+                ),
+                child: Text(
+                  '$testConcurrency',
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.bold,
+                    color: AppTheme.secondaryAccent,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            AppStrings.get('test_concurrency_desc', locale: locale),
+            style: const TextStyle(fontSize: 10.5, color: Colors.grey),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              trackHeight: 3.0,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 12.0),
+            ),
+            child: Slider(
+              value: testConcurrency.toDouble(),
+              min: 5.0,
+              max: 100.0,
+              divisions: 95,
+              label: '$testConcurrency',
+              activeColor: AppTheme.secondaryAccent,
+              onChanged: (val) {
+                ref.read(testConcurrencyProvider.notifier).setConcurrency(val.round());
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final locale = ref.watch(currentLocaleProvider);
@@ -531,7 +843,7 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
             )
           : null,
       body: ListView(
-        padding: const EdgeInsets.all(24),
+        padding: EdgeInsets.all(Platform.isAndroid ? 10 : 24),
         children: [
           if (!Platform.isAndroid) ...[
             Row(
@@ -716,14 +1028,20 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                   secondary: const Icon(Icons.flash_on_rounded, color: Colors.amber),
                   title: Row(
                     children: [
-                      Text(AppStrings.get('auto_connect_on_launch', locale: locale)),
+                      Flexible(
+                        child: Text(
+                          AppStrings.get('auto_connect_on_launch', locale: locale),
+                          style: TextStyle(fontSize: Platform.isAndroid ? 13 : 14),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
                       const SizedBox(width: 6),
                       _buildInfoTooltip(AppStrings.get('tooltip_auto_connect', locale: locale)),
                     ],
                   ),
                   subtitle: Text(
                     AppStrings.get('auto_connect_on_launch_desc', locale: locale),
-                    style: TextStyle(fontSize: Platform.isAndroid ? 11 : 12, color: Colors.grey),
+                    style: TextStyle(fontSize: Platform.isAndroid ? 10.5 : 12, color: Colors.grey),
                     maxLines: Platform.isAndroid ? 2 : null,
                     overflow: Platform.isAndroid ? TextOverflow.ellipsis : null,
                   ),
@@ -849,6 +1167,10 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                             ),
                           ],
                         ),
+                        if (!isTun) ...[
+                          const SizedBox(height: 10),
+                          _buildAndroidProxyPortsSection(locale, httpPort, socksPort),
+                        ],
                       ],
                     ),
                   ),
@@ -858,14 +1180,20 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                   secondary: const Icon(Icons.compare_arrows_rounded, color: Colors.tealAccent),
                   title: Row(
                     children: [
-                      Text(AppStrings.get('enable_udp', locale: locale)),
+                      Flexible(
+                        child: Text(
+                          AppStrings.get('enable_udp', locale: locale),
+                          style: TextStyle(fontSize: Platform.isAndroid ? 13 : 14),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
                       const SizedBox(width: 6),
                       _buildInfoTooltip(AppStrings.get('tooltip_enable_udp', locale: locale)),
                     ],
                   ),
                   subtitle: Text(
                     AppStrings.get('enable_udp_desc', locale: locale),
-                    style: TextStyle(fontSize: Platform.isAndroid ? 11 : 12, color: Colors.grey),
+                    style: TextStyle(fontSize: Platform.isAndroid ? 10.5 : 12, color: Colors.grey),
                     maxLines: Platform.isAndroid ? 2 : null,
                     overflow: Platform.isAndroid ? TextOverflow.ellipsis : null,
                   ),
@@ -879,14 +1207,20 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                   secondary: const Icon(Icons.security_update_warning_rounded, color: Colors.orangeAccent),
                   title: Row(
                     children: [
-                      Text(AppStrings.get('global_allow_insecure', locale: locale)),
+                      Flexible(
+                        child: Text(
+                          AppStrings.get('global_allow_insecure', locale: locale),
+                          style: TextStyle(fontSize: Platform.isAndroid ? 13 : 14),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
                       const SizedBox(width: 6),
                       _buildInfoTooltip(AppStrings.get('tooltip_allow_insecure', locale: locale)),
                     ],
                   ),
                   subtitle: Text(
                     AppStrings.get('global_allow_insecure_desc', locale: locale),
-                    style: TextStyle(fontSize: Platform.isAndroid ? 11 : 12, color: Colors.grey),
+                    style: TextStyle(fontSize: Platform.isAndroid ? 10.5 : 12, color: Colors.grey),
                     maxLines: Platform.isAndroid ? 2 : null,
                     overflow: Platform.isAndroid ? TextOverflow.ellipsis : null,
                   ),
@@ -903,14 +1237,20 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                   secondary: const Icon(Icons.alt_route_rounded, color: Colors.cyanAccent),
                   title: Row(
                     children: [
-                      Text(AppStrings.get('global_enable_mux', locale: locale)),
+                      Flexible(
+                        child: Text(
+                          AppStrings.get('global_enable_mux', locale: locale),
+                          style: TextStyle(fontSize: Platform.isAndroid ? 13 : 14),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
                       const SizedBox(width: 6),
                       _buildInfoTooltip(AppStrings.get('tooltip_enable_mux', locale: locale)),
                     ],
                   ),
                   subtitle: Text(
                     AppStrings.get('global_enable_mux_desc', locale: locale),
-                    style: TextStyle(fontSize: Platform.isAndroid ? 11 : 12, color: Colors.grey),
+                    style: TextStyle(fontSize: Platform.isAndroid ? 10.5 : 12, color: Colors.grey),
                     maxLines: Platform.isAndroid ? 2 : null,
                     overflow: Platform.isAndroid ? TextOverflow.ellipsis : null,
                   ),
@@ -927,14 +1267,20 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                   secondary: const Icon(Icons.lan_rounded, color: Colors.lightGreenAccent),
                   title: Row(
                     children: [
-                      Text(AppStrings.get('allow_lan', locale: locale)),
+                      Flexible(
+                        child: Text(
+                          AppStrings.get('allow_lan', locale: locale),
+                          style: TextStyle(fontSize: Platform.isAndroid ? 13 : 14),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
                       const SizedBox(width: 6),
                       _buildInfoTooltip(AppStrings.get('tooltip_allow_lan', locale: locale)),
                     ],
                   ),
                   subtitle: Text(
                     AppStrings.get('allow_lan_desc', locale: locale),
-                    style: TextStyle(fontSize: Platform.isAndroid ? 11 : 12, color: Colors.grey),
+                    style: TextStyle(fontSize: Platform.isAndroid ? 10.5 : 12, color: Colors.grey),
                     maxLines: Platform.isAndroid ? 2 : null,
                     overflow: Platform.isAndroid ? TextOverflow.ellipsis : null,
                   ),
@@ -946,7 +1292,7 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                     }
                   },
                 ),
-                if (!Platform.isAndroid || !isTun) ...[
+                if (!Platform.isAndroid) ...[
                   const Divider(height: 1),
                   ListTile(
                     leading: const Icon(Icons.settings_ethernet_rounded, color: AppTheme.primaryAccent),
@@ -1158,96 +1504,102 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
               padding: const EdgeInsets.symmetric(vertical: 8.0),
               child: Column(
                 children: [
-                  ListTile(
-                    leading: const Icon(Icons.tune_rounded, color: AppTheme.primaryAccent),
-                    title: Row(
-                      children: [
-                        Text(AppStrings.get('test_mode', locale: locale)),
-                        const SizedBox(width: 6),
-                        _buildInfoTooltip(AppStrings.get('tooltip_test_mode', locale: locale)),
-                      ],
-                    ),
-                    subtitle: Text(
-                      AppStrings.get('test_mode_desc', locale: locale),
-                      style: const TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
-                    trailing: SegmentedButton<TestMode>(
-                      segments: [
-                        ButtonSegment(
-                          value: TestMode.normal,
-                          label: Text(AppStrings.get('test_mode_normal', locale: locale), style: const TextStyle(fontSize: 11)),
-                          icon: const Icon(Icons.check_circle_outline_rounded, size: 16),
-                        ),
-                        ButtonSegment(
-                          value: TestMode.turbo,
-                          label: Text(AppStrings.get('test_mode_turbo', locale: locale), style: const TextStyle(fontSize: 11)),
-                          icon: const Icon(Icons.bolt_rounded, size: 16, color: Colors.amber),
-                        ),
-                      ],
-                      selected: {testMode},
-                      onSelectionChanged: (Set<TestMode> newSelection) {
-                        ref.read(testModeProvider.notifier).setMode(newSelection.first);
-                      },
-                    ),
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.hub_rounded, color: AppTheme.secondaryAccent),
-                    title: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(AppStrings.get('test_concurrency', locale: locale)),
-                        const SizedBox(width: 6),
-                        _buildInfoTooltip(AppStrings.get('tooltip_test_concurrency', locale: locale)),
-                      ],
-                    ),
-                    subtitle: Text(
-                      AppStrings.get('test_concurrency_desc', locale: locale),
-                      style: const TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        SizedBox(
-                          width: 130,
-                          child: SliderTheme(
-                            data: SliderTheme.of(context).copyWith(
-                              trackHeight: 3.0,
-                              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
-                              overlayShape: const RoundSliderOverlayShape(overlayRadius: 12.0),
-                            ),
-                            child: Slider(
-                              value: testConcurrency.toDouble(),
-                              min: 5.0,
-                              max: 100.0,
-                              divisions: 95,
-                              label: '$testConcurrency',
-                              activeColor: AppTheme.secondaryAccent,
-                              onChanged: (val) {
-                                ref.read(testConcurrencyProvider.notifier).setConcurrency(val.round());
-                              },
-                            ),
+                  if (Platform.isAndroid) ...[
+                    _buildAndroidTestModeSection(locale, testMode),
+                    const Divider(height: 1),
+                    _buildAndroidConcurrencySection(locale, testConcurrency),
+                  ] else ...[
+                    ListTile(
+                      leading: const Icon(Icons.tune_rounded, color: AppTheme.primaryAccent),
+                      title: Row(
+                        children: [
+                          Text(AppStrings.get('test_mode', locale: locale)),
+                          const SizedBox(width: 6),
+                          _buildInfoTooltip(AppStrings.get('tooltip_test_mode', locale: locale)),
+                        ],
+                      ),
+                      subtitle: Text(
+                        AppStrings.get('test_mode_desc', locale: locale),
+                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                      trailing: SegmentedButton<TestMode>(
+                        segments: [
+                          ButtonSegment(
+                            value: TestMode.normal,
+                            label: Text(AppStrings.get('test_mode_normal', locale: locale), style: const TextStyle(fontSize: 11)),
+                            icon: const Icon(Icons.check_circle_outline_rounded, size: 16),
                           ),
-                        ),
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: AppTheme.secondaryAccent.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: AppTheme.secondaryAccent.withValues(alpha: 0.3)),
+                          ButtonSegment(
+                            value: TestMode.turbo,
+                            label: Text(AppStrings.get('test_mode_turbo', locale: locale), style: const TextStyle(fontSize: 11)),
+                            icon: const Icon(Icons.bolt_rounded, size: 16, color: Colors.amber),
                           ),
-                          child: Text(
-                            '$testConcurrency',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: AppTheme.secondaryAccent,
+                        ],
+                        selected: {testMode},
+                        onSelectionChanged: (Set<TestMode> newSelection) {
+                          ref.read(testModeProvider.notifier).setMode(newSelection.first);
+                        },
+                      ),
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.hub_rounded, color: AppTheme.secondaryAccent),
+                      title: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(AppStrings.get('test_concurrency', locale: locale)),
+                          const SizedBox(width: 6),
+                          _buildInfoTooltip(AppStrings.get('tooltip_test_concurrency', locale: locale)),
+                        ],
+                      ),
+                      subtitle: Text(
+                        AppStrings.get('test_concurrency_desc', locale: locale),
+                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: 130,
+                            child: SliderTheme(
+                              data: SliderTheme.of(context).copyWith(
+                                trackHeight: 3.0,
+                                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
+                                overlayShape: const RoundSliderOverlayShape(overlayRadius: 12.0),
+                              ),
+                              child: Slider(
+                                value: testConcurrency.toDouble(),
+                                min: 5.0,
+                                max: 100.0,
+                                divisions: 95,
+                                label: '$testConcurrency',
+                                activeColor: AppTheme.secondaryAccent,
+                                onChanged: (val) {
+                                  ref.read(testConcurrencyProvider.notifier).setConcurrency(val.round());
+                                },
+                              ),
                             ),
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: AppTheme.secondaryAccent.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: AppTheme.secondaryAccent.withValues(alpha: 0.3)),
+                            ),
+                            child: Text(
+                              '$testConcurrency',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: AppTheme.secondaryAccent,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),
@@ -1320,44 +1672,84 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          OutlinedButton.icon(
-                            icon: const Icon(Icons.restore_rounded, size: 16),
-                            label: Text(AppStrings.get('reset_default', locale: locale)),
-                            onPressed: () {
-                              ref.read(cdnRangesProvider.notifier).resetToDefault(_selectedCdnForRanges);
-                              setState(() {
-                                _cdnRangesController.text = _selectedCdnForRanges.defaultCidrs.join('\n');
-                              });
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text(AppStrings.get('ranges_reset', locale: locale))),
-                              );
-                            },
-                          ),
-                          const SizedBox(width: 12),
-                          ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppTheme.primaryAccent,
-                              foregroundColor: Colors.white,
+                      Platform.isAndroid
+                          ? Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              alignment: WrapAlignment.end,
+                              children: [
+                                OutlinedButton.icon(
+                                  icon: const Icon(Icons.restore_rounded, size: 16),
+                                  label: Text(AppStrings.get('reset_default', locale: locale), style: const TextStyle(fontSize: 12)),
+                                  onPressed: () {
+                                    ref.read(cdnRangesProvider.notifier).resetToDefault(_selectedCdnForRanges);
+                                    setState(() {
+                                      _cdnRangesController.text = _selectedCdnForRanges.defaultCidrs.join('\n');
+                                    });
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text(AppStrings.get('ranges_reset', locale: locale))),
+                                    );
+                                  },
+                                ),
+                                ElevatedButton.icon(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: AppTheme.primaryAccent,
+                                    foregroundColor: Colors.white,
+                                  ),
+                                  icon: const Icon(Icons.save_rounded, size: 16),
+                                  label: Text(AppStrings.get('save_ranges', locale: locale), style: const TextStyle(fontSize: 12)),
+                                  onPressed: () {
+                                    final lines = _cdnRangesController.text
+                                        .split('\n')
+                                        .map((l) => l.trim())
+                                        .where((l) => l.isNotEmpty && !l.startsWith('#'))
+                                        .toList();
+                                    ref.read(cdnRangesProvider.notifier).updateRanges(_selectedCdnForRanges, lines);
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text(AppStrings.get('ranges_saved', locale: locale))),
+                                    );
+                                  },
+                                ),
+                              ],
+                            )
+                          : Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                OutlinedButton.icon(
+                                  icon: const Icon(Icons.restore_rounded, size: 16),
+                                  label: Text(AppStrings.get('reset_default', locale: locale)),
+                                  onPressed: () {
+                                    ref.read(cdnRangesProvider.notifier).resetToDefault(_selectedCdnForRanges);
+                                    setState(() {
+                                      _cdnRangesController.text = _selectedCdnForRanges.defaultCidrs.join('\n');
+                                    });
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text(AppStrings.get('ranges_reset', locale: locale))),
+                                    );
+                                  },
+                                ),
+                                const SizedBox(width: 12),
+                                ElevatedButton.icon(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: AppTheme.primaryAccent,
+                                    foregroundColor: Colors.white,
+                                  ),
+                                  icon: const Icon(Icons.save_rounded, size: 16),
+                                  label: Text(AppStrings.get('save_ranges', locale: locale)),
+                                  onPressed: () {
+                                    final lines = _cdnRangesController.text
+                                        .split('\n')
+                                        .map((l) => l.trim())
+                                        .where((l) => l.isNotEmpty && !l.startsWith('#'))
+                                        .toList();
+                                    ref.read(cdnRangesProvider.notifier).updateRanges(_selectedCdnForRanges, lines);
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text(AppStrings.get('ranges_saved', locale: locale))),
+                                    );
+                                  },
+                                ),
+                              ],
                             ),
-                            icon: const Icon(Icons.save_rounded, size: 16),
-                            label: Text(AppStrings.get('save_ranges', locale: locale)),
-                            onPressed: () {
-                              final lines = _cdnRangesController.text
-                                  .split('\n')
-                                  .map((l) => l.trim())
-                                  .where((l) => l.isNotEmpty && !l.startsWith('#'))
-                                  .toList();
-                              ref.read(cdnRangesProvider.notifier).updateRanges(_selectedCdnForRanges, lines);
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text(AppStrings.get('ranges_saved', locale: locale))),
-                              );
-                            },
-                          ),
-                        ],
-                      ),
                     ],
                   ),
                 ),
@@ -1393,26 +1785,40 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  FilledButton.icon(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppTheme.primaryAccent,
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    ),
-                    icon: _updatingAll
-                        ? const SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                          )
-                        : const Icon(Icons.autorenew_rounded, size: 16),
-                    label: Text(
-                      _updatingAll
-                          ? AppStrings.get('updating', locale: locale)
-                          : AppStrings.get('update_all', locale: locale),
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                    ),
-                    onPressed: _updatingAll ? null : _updateAll,
-                  ),
+                  Platform.isAndroid
+                      ? IconButton(
+                          tooltip: _updatingAll
+                              ? AppStrings.get('updating', locale: locale)
+                              : AppStrings.get('update_all', locale: locale),
+                          icon: _updatingAll
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primaryAccent),
+                                )
+                              : const Icon(Icons.autorenew_rounded, color: AppTheme.primaryAccent),
+                          onPressed: _updatingAll ? null : _updateAll,
+                        )
+                      : FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppTheme.primaryAccent,
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          ),
+                          icon: _updatingAll
+                              ? const SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                )
+                              : const Icon(Icons.autorenew_rounded, size: 16),
+                          label: Text(
+                            _updatingAll
+                                ? AppStrings.get('updating', locale: locale)
+                                : AppStrings.get('update_all', locale: locale),
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                          ),
+                          onPressed: _updatingAll ? null : _updateAll,
+                        ),
                   const SizedBox(width: 8),
                   const Icon(Icons.expand_more_rounded),
                 ],
@@ -1452,33 +1858,47 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                       ],
                     ],
                   ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (_xrayInfo?.hasUpdate == true && !_xrayUpdating)
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppTheme.successColor,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          ),
-                          icon: const Icon(Icons.file_download_rounded, size: 16),
-                          label: Text(AppStrings.get('update_now', locale: locale), style: const TextStyle(fontSize: 11)),
-                          onPressed: _updateXray,
-                        )
-                      else
-                        OutlinedButton.icon(
-                          icon: _xrayChecking
-                              ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
-                              : const Icon(Icons.refresh_rounded, size: 16),
-                          label: Text(
-                            _xrayChecking ? AppStrings.get('checking', locale: locale) : AppStrings.get('check_update', locale: locale),
-                            style: const TextStyle(fontSize: 11),
-                          ),
-                          onPressed: _xrayChecking || _xrayUpdating ? null : _checkXrayUpdate,
+                  trailing: Platform.isAndroid
+                      ? (_xrayInfo?.hasUpdate == true && !_xrayUpdating
+                          ? IconButton(
+                              tooltip: AppStrings.get('update_now', locale: locale),
+                              icon: const Icon(Icons.file_download_rounded, color: AppTheme.successColor),
+                              onPressed: _updateXray,
+                            )
+                          : IconButton(
+                              tooltip: AppStrings.get('check_update', locale: locale),
+                              icon: _xrayChecking
+                                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                                  : const Icon(Icons.refresh_rounded),
+                              onPressed: _xrayChecking || _xrayUpdating ? null : _checkXrayUpdate,
+                            ))
+                      : Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (_xrayInfo?.hasUpdate == true && !_xrayUpdating)
+                              ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppTheme.successColor,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                ),
+                                icon: const Icon(Icons.file_download_rounded, size: 16),
+                                label: Text(AppStrings.get('update_now', locale: locale), style: const TextStyle(fontSize: 11)),
+                                onPressed: _updateXray,
+                              )
+                            else
+                              OutlinedButton.icon(
+                                icon: _xrayChecking
+                                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                                    : const Icon(Icons.refresh_rounded, size: 16),
+                                label: Text(
+                                  _xrayChecking ? AppStrings.get('checking', locale: locale) : AppStrings.get('check_update', locale: locale),
+                                  style: const TextStyle(fontSize: 11),
+                                ),
+                                onPressed: _xrayChecking || _xrayUpdating ? null : _checkXrayUpdate,
+                              ),
+                          ],
                         ),
-                    ],
-                  ),
                 ),
                 const Divider(height: 1),
 
@@ -1509,33 +1929,47 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                       ],
                     ],
                   ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (_geoInfo != null && !_geoUpdating)
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppTheme.primaryAccent,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          ),
-                          icon: const Icon(Icons.download_rounded, size: 16),
-                          label: Text(AppStrings.get('update_now', locale: locale), style: const TextStyle(fontSize: 11)),
-                          onPressed: _updateGeoFiles,
-                        )
-                      else
-                        OutlinedButton.icon(
-                          icon: _geoChecking
-                              ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
-                              : const Icon(Icons.cloud_download_rounded, size: 16),
-                          label: Text(
-                            _geoChecking ? AppStrings.get('checking', locale: locale) : AppStrings.get('check_update', locale: locale),
-                            style: const TextStyle(fontSize: 11),
-                          ),
-                          onPressed: _geoChecking || _geoUpdating ? null : _checkGeoUpdate,
+                  trailing: Platform.isAndroid
+                      ? (_geoInfo != null && !_geoUpdating
+                          ? IconButton(
+                              tooltip: AppStrings.get('update_now', locale: locale),
+                              icon: const Icon(Icons.download_rounded, color: AppTheme.primaryAccent),
+                              onPressed: _updateGeoFiles,
+                            )
+                          : IconButton(
+                              tooltip: AppStrings.get('check_update', locale: locale),
+                              icon: _geoChecking
+                                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                                  : const Icon(Icons.cloud_download_rounded),
+                              onPressed: _geoChecking || _geoUpdating ? null : _checkGeoUpdate,
+                            ))
+                      : Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (_geoInfo != null && !_geoUpdating)
+                              ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppTheme.primaryAccent,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                ),
+                                icon: const Icon(Icons.download_rounded, size: 16),
+                                label: Text(AppStrings.get('update_now', locale: locale), style: const TextStyle(fontSize: 11)),
+                                onPressed: _updateGeoFiles,
+                              )
+                            else
+                              OutlinedButton.icon(
+                                icon: _geoChecking
+                                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                                    : const Icon(Icons.cloud_download_rounded, size: 16),
+                                label: Text(
+                                  _geoChecking ? AppStrings.get('checking', locale: locale) : AppStrings.get('check_update', locale: locale),
+                                  style: const TextStyle(fontSize: 11),
+                                ),
+                                onPressed: _geoChecking || _geoUpdating ? null : _checkGeoUpdate,
+                              ),
+                          ],
                         ),
-                    ],
-                  ),
                 ),
                 const Divider(height: 1),
 
@@ -1566,36 +2000,50 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                       ],
                     ],
                   ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (_appInfo?.hasUpdate == true && !_appUpdating)
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppTheme.successColor,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          ),
-                          icon: const Icon(Icons.downloading_rounded, size: 16),
-                          label: Text(
-                            AppStrings.get('update_now', locale: locale),
-                            style: const TextStyle(fontSize: 11),
-                          ),
-                          onPressed: _downloadAppUpdate,
-                        )
-                      else
-                        OutlinedButton.icon(
-                          icon: _appChecking
-                              ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
-                              : const Icon(Icons.refresh_rounded, size: 16),
-                          label: Text(
-                            _appChecking ? AppStrings.get('checking', locale: locale) : AppStrings.get('check_update', locale: locale),
-                            style: const TextStyle(fontSize: 11),
-                          ),
-                          onPressed: _appChecking || _appUpdating ? null : _checkAppUpdate,
+                  trailing: Platform.isAndroid
+                      ? (_appInfo?.hasUpdate == true && !_appUpdating
+                          ? IconButton(
+                              tooltip: AppStrings.get('update_now', locale: locale),
+                              icon: const Icon(Icons.downloading_rounded, color: AppTheme.successColor),
+                              onPressed: _downloadAppUpdate,
+                            )
+                          : IconButton(
+                              tooltip: AppStrings.get('check_update', locale: locale),
+                              icon: _appChecking
+                                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                                  : const Icon(Icons.refresh_rounded),
+                              onPressed: _appChecking || _appUpdating ? null : _checkAppUpdate,
+                            ))
+                      : Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (_appInfo?.hasUpdate == true && !_appUpdating)
+                              ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppTheme.successColor,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                ),
+                                icon: const Icon(Icons.downloading_rounded, size: 16),
+                                label: Text(
+                                  AppStrings.get('update_now', locale: locale),
+                                  style: const TextStyle(fontSize: 11),
+                                ),
+                                onPressed: _downloadAppUpdate,
+                              )
+                            else
+                              OutlinedButton.icon(
+                                icon: _appChecking
+                                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                                    : const Icon(Icons.refresh_rounded, size: 16),
+                                label: Text(
+                                  _appChecking ? AppStrings.get('checking', locale: locale) : AppStrings.get('check_update', locale: locale),
+                                  style: const TextStyle(fontSize: 11),
+                                ),
+                                onPressed: _appChecking || _appUpdating ? null : _checkAppUpdate,
+                              ),
+                          ],
                         ),
-                    ],
-                  ),
                 ),
               ],
             ),

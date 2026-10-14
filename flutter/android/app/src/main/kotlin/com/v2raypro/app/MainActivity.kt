@@ -19,6 +19,10 @@ class MainActivity : FlutterActivity() {
     private var pendingConfigName: String = "V2RayPro"
     private var pendingHttpPort: Int = 10888
 
+    private var pendingIsTun: Boolean = true
+    private var pendingNotificationTitle: String = "V2RayPro - متصل"
+    private var pendingDisconnectText: String = "قطع اتصال"
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
@@ -74,14 +78,27 @@ class MainActivity : FlutterActivity() {
                 "startVpnService" -> {
                     val configName = call.argument<String>("configName") ?: "V2RayPro"
                     val httpPort = call.argument<Int>("httpPort") ?: 10888
-                    val prepareIntent = VpnService.prepare(this)
-                    if (prepareIntent != null) {
-                        pendingVpnResult = result
-                        pendingConfigName = configName
-                        pendingHttpPort = httpPort
-                        startActivityForResult(prepareIntent, VPN_REQUEST_CODE)
+                    val isTun = call.argument<Boolean>("isTun") ?: true
+                    val notificationTitle = call.argument<String>("notificationTitle") ?: "V2RayPro - متصل"
+                    val disconnectText = call.argument<String>("disconnectText") ?: "قطع اتصال"
+
+                    if (isTun) {
+                        val prepareIntent = VpnService.prepare(this)
+                        if (prepareIntent != null) {
+                            pendingVpnResult = result
+                            pendingConfigName = configName
+                            pendingHttpPort = httpPort
+                            pendingIsTun = isTun
+                            pendingNotificationTitle = notificationTitle
+                            pendingDisconnectText = disconnectText
+                            startActivityForResult(prepareIntent, VPN_REQUEST_CODE)
+                        } else {
+                            launchVpnService(configName, httpPort, isTun, notificationTitle, disconnectText)
+                            result.success(true)
+                        }
                     } else {
-                        launchVpnService(configName, httpPort)
+                        // Proxy Mode: No VPN interface needed, start purely as foreground service
+                        launchVpnService(configName, httpPort, false, notificationTitle, disconnectText)
                         result.success(true)
                     }
                 }
@@ -122,11 +139,20 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun launchVpnService(configName: String, httpPort: Int) {
+    private fun launchVpnService(
+        configName: String,
+        httpPort: Int,
+        isTun: Boolean,
+        notificationTitle: String,
+        disconnectText: String
+    ) {
         val startIntent = Intent(this, V2RayVpnService::class.java).apply {
             action = V2RayVpnService.ACTION_START
             putExtra("configName", configName)
             putExtra("httpPort", httpPort)
+            putExtra("isTun", isTun)
+            putExtra("notificationTitle", notificationTitle)
+            putExtra("disconnectText", disconnectText)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(startIntent)
@@ -139,7 +165,13 @@ class MainActivity : FlutterActivity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == VPN_REQUEST_CODE) {
             if (resultCode == RESULT_OK) {
-                launchVpnService(pendingConfigName, pendingHttpPort)
+                launchVpnService(
+                    pendingConfigName,
+                    pendingHttpPort,
+                    pendingIsTun,
+                    pendingNotificationTitle,
+                    pendingDisconnectText
+                )
                 pendingVpnResult?.success(true)
             } else {
                 pendingVpnResult?.success(false)

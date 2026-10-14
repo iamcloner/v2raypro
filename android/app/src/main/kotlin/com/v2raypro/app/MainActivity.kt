@@ -1,59 +1,182 @@
 package com.v2raypro.app
 
-import android.app.Activity
+import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.VpnService
+import android.os.Build
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
 
-class MainActivity: FlutterActivity() {
-    private val CHANNEL = "com.v2raypro.app/vpn"
-    private val VPN_REQUEST_CODE = 2001
-    private var pendingResult: MethodChannel.Result? = null
+class MainActivity : FlutterActivity() {
+    private val CHANNEL = "com.v2raypro.app/native"
+    private val VPN_REQUEST_CODE = 2026
+    private var methodChannel: MethodChannel? = null
+    private var pendingVpnResult: MethodChannel.Result? = null
+    private var pendingConfigName: String = "V2RayPro"
+    private var pendingHttpPort: Int = 10888
+
+    private var pendingIsTun: Boolean = true
+    private var pendingNotificationTitle: String = "V2RayPro - متصل"
+    private var pendingDisconnectText: String = "قطع اتصال"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
+        methodChannel = channel
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
+        V2RayVpnService.onDisconnectListener = {
+            runOnUiThread {
+                channel.invokeMethod("onDisconnectedFromNotification", null)
+            }
+        }
+
+        channel.setMethodCallHandler { call, result ->
             when (call.method) {
-                "startVpn" -> {
-                    val intent = VpnService.prepare(this)
-                    if (intent != null) {
-                        pendingResult = result
-                        startActivityForResult(intent, VPN_REQUEST_CODE)
+                "getNativeLibraryDir" -> {
+                    result.success(applicationInfo.nativeLibraryDir)
+                }
+                "getXrayBinary" -> {
+                    val libDir = applicationInfo.nativeLibraryDir
+                    val xrayLib = File(libDir, "libxray.so")
+                    if (xrayLib.exists()) {
+                        result.success(xrayLib.absolutePath)
                     } else {
-                        startVpnService()
+                        val fallback = File(applicationInfo.dataDir, "lib/libxray.so")
+                        if (fallback.exists()) {
+                            result.success(fallback.absolutePath)
+                        } else {
+                            result.success(null)
+                        }
+                    }
+                }
+                "isAnotherVpnActive" -> {
+                    val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+                    var hasOtherVpn = false
+                    if (!V2RayVpnService.isRunning) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            val activeNetwork = cm.activeNetwork
+                            val caps = cm.getNetworkCapabilities(activeNetwork)
+                            if (caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) {
+                                hasOtherVpn = true
+                            }
+                        } else {
+                            for (net in cm.allNetworks) {
+                                val caps = cm.getNetworkCapabilities(net) ?: continue
+                                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) {
+                                    hasOtherVpn = true
+                                    break
+                                }
+                            }
+                        }
+                    }
+                    result.success(hasOtherVpn)
+                }
+                "startVpnService" -> {
+                    val configName = call.argument<String>("configName") ?: "V2RayPro"
+                    val httpPort = call.argument<Int>("httpPort") ?: 10888
+                    val isTun = call.argument<Boolean>("isTun") ?: true
+                    val notificationTitle = call.argument<String>("notificationTitle") ?: "V2RayPro - متصل"
+                    val disconnectText = call.argument<String>("disconnectText") ?: "قطع اتصال"
+
+                    if (isTun) {
+                        val prepareIntent = VpnService.prepare(this)
+                        if (prepareIntent != null) {
+                            pendingVpnResult = result
+                            pendingConfigName = configName
+                            pendingHttpPort = httpPort
+                            pendingIsTun = isTun
+                            pendingNotificationTitle = notificationTitle
+                            pendingDisconnectText = disconnectText
+                            startActivityForResult(prepareIntent, VPN_REQUEST_CODE)
+                        } else {
+                            launchVpnService(configName, httpPort, isTun, notificationTitle, disconnectText)
+                            result.success(true)
+                        }
+                    } else {
+                        // Proxy Mode: No VPN interface needed, start purely as foreground service
+                        launchVpnService(configName, httpPort, false, notificationTitle, disconnectText)
                         result.success(true)
                     }
                 }
-                "stopVpn" -> {
-                    val intent = Intent(this, V2RayVpnService::class.java).apply {
-                        action = "STOP"
+                "stopVpnService" -> {
+                    val stopIntent = Intent(this, V2RayVpnService::class.java).apply {
+                        action = V2RayVpnService.ACTION_STOP
                     }
-                    startService(intent)
+                    startService(stopIntent)
                     result.success(true)
+                }
+                "getInstalledApps" -> {
+                    Thread {
+                        try {
+                            val pm = packageManager
+                            val intent = Intent(Intent.ACTION_MAIN, null).apply {
+                                addCategory(Intent.CATEGORY_LAUNCHER)
+                            }
+                            val resolveInfos = pm.queryIntentActivities(intent, 0)
+                            val apps = ArrayList<Map<String, String>>()
+                            val seen = HashSet<String>()
+                            for (ri in resolveInfos) {
+                                val pkg = ri.activityInfo.packageName
+                                if (pkg != packageName && !seen.contains(pkg)) {
+                                    seen.add(pkg)
+                                    val label = ri.loadLabel(pm)?.toString() ?: pkg
+                                    apps.add(mapOf("name" to label, "packageName" to pkg))
+                                }
+                            }
+                            apps.sortBy { (it["name"] ?: "").lowercase() }
+                            runOnUiThread { result.success(apps) }
+                        } catch (e: Exception) {
+                            runOnUiThread { result.error("ERROR", e.message, null) }
+                        }
+                    }.start()
                 }
                 else -> result.notImplemented()
             }
         }
     }
 
-    private fun startVpnService() {
-        val intent = Intent(this, V2RayVpnService::class.java)
-        startService(intent)
+    private fun launchVpnService(
+        configName: String,
+        httpPort: Int,
+        isTun: Boolean,
+        notificationTitle: String,
+        disconnectText: String
+    ) {
+        val startIntent = Intent(this, V2RayVpnService::class.java).apply {
+            action = V2RayVpnService.ACTION_START
+            putExtra("configName", configName)
+            putExtra("httpPort", httpPort)
+            putExtra("isTun", isTun)
+            putExtra("notificationTitle", notificationTitle)
+            putExtra("disconnectText", disconnectText)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(startIntent)
+        } else {
+            startService(startIntent)
+        }
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == VPN_REQUEST_CODE) {
-            if (resultCode == Activity.RESULT_OK) {
-                startVpnService()
-                pendingResult?.success(true)
+            if (resultCode == RESULT_OK) {
+                launchVpnService(
+                    pendingConfigName,
+                    pendingHttpPort,
+                    pendingIsTun,
+                    pendingNotificationTitle,
+                    pendingDisconnectText
+                )
+                pendingVpnResult?.success(true)
             } else {
-                pendingResult?.error("PERMISSION_DENIED", "User denied VPN permission", null)
+                pendingVpnResult?.success(false)
             }
-            pendingResult = null
+            pendingVpnResult = null
         }
     }
 }
