@@ -1129,13 +1129,29 @@ class XrayProcessService {
   }) async {
     int? lowestPing;
     for (int attempt = 0; attempt < count; attempt++) {
+      // 1. Primary: http://www.google.com/generate_204 gives authentic pure proxy roundtrip time (matching v2rayNG)
       final sw = Stopwatch()..start();
       try {
-        final r = await client.getUrl(Uri.parse('https://www.google.com/generate_204')).timeout(timeout);
+        final r = await client.getUrl(Uri.parse('http://www.google.com/generate_204')).timeout(timeout);
         final resp = await r.close().timeout(timeout);
         sw.stop();
         if (resp.statusCode == 204 || resp.statusCode == 200) {
           final lat = sw.elapsedMilliseconds;
+          if (lowestPing == null || lat < lowestPing) {
+            lowestPing = lat;
+          }
+          continue;
+        }
+      } catch (_) {}
+
+      // 2. Fallback: https://www.google.com/generate_204 (google.com:443)
+      final swHttps = Stopwatch()..start();
+      try {
+        final r = await client.getUrl(Uri.parse('https://www.google.com/generate_204')).timeout(timeout);
+        final resp = await r.close().timeout(timeout);
+        swHttps.stop();
+        if (resp.statusCode == 204 || resp.statusCode == 200) {
+          final lat = swHttps.elapsedMilliseconds;
           if (lowestPing == null || lat < lowestPing) {
             lowestPing = lat;
           }
@@ -1146,60 +1162,36 @@ class XrayProcessService {
   }
 
   /// Real Latency & Outbound Country Test:
-  /// Performs an end-to-end transport and protocol test to measure true round-trip response time,
-  /// as well as the authentic outbound exit IP and country.
-  /// In Turbo mode (isTurbo == true): 3 rapid TCP pings are sent first. If unresponsive, it returns null immediately.
-  /// 1. For currently connected active node: queries cdn-cgi/trace or ip-api via the running local proxy.
-  /// 2. If Xray core is available and node is supported: tests genuine proxy delay & exit IP via ephemeral Xray test process.
-  /// 3. Fallback: performs direct transport protocol handshake test to the destination server.
+  /// Performs an authentic 3-probe handshake test (matching v2rayNG & v2box TCPing and TLS ping)
+  /// or end-to-end proxy test if the node is currently connected and active.
   Future<NodeTestResult> testNodeRealDelay(
     ProxyNode node, {
     Duration timeout = const Duration(milliseconds: 2800),
     bool isTurbo = false,
   }) async {
-    // Turbo Mode: filter responsive nodes using 3 rapid TCP pings first
-    if (isTurbo) {
-      final tcp = await tcpPing(node.address, node.port, count: 3);
-      if (tcp == null) {
-        return const NodeTestResult(latencyMs: null);
-      }
-    }
-
-    // 1. If this node is currently connected and active in Xray, test real end-to-end internet ping via local proxy
+    // 1. If this node is currently connected and active in Xray, test real end-to-end internet ping via running local proxy
     if (_state == EngineState.running && _activeRunningNode?.id == node.id) {
       final activeRes = await _testHttpViaLocalProxy(timeout);
       if (activeRes != null && activeRes.isSuccess) {
-        if (activeRes.countryCode != null) {
-          return activeRes;
-        }
         final cCode = CountryService.extractCountryCodeFromName(node.name) ?? node.countryCode;
         return NodeTestResult(
           latencyMs: activeRes.latencyMs,
-          countryCode: cCode,
-          country: cCode != null ? CountryService.getCountryName(cCode) : node.country,
+          countryCode: activeRes.countryCode ?? cCode,
+          country: activeRes.country ?? (cCode != null ? CountryService.getCountryName(cCode) : node.country),
           exitIp: activeRes.exitIp,
         );
       }
     }
 
-    // 2. Try genuine proxy delay test through an ephemeral Xray test process
-    if (isNodeConfigSupported(node) && _findXrayBinary() != null) {
-      try {
-        final batchResult = await testNodesBatchRealProxy([node], timeout: timeout);
-        if (batchResult.containsKey(node.id) && batchResult[node.id] != null && batchResult[node.id]!.isSuccess) {
-          return batchResult[node.id]!;
-        }
-      } catch (_) {}
-    }
-
-    // 3. Fallback protocol handshake test (strictly respecting TLS certificate validity):
-    final handshakeLat = await _testNodeRealProtocolDelay(node, timeout: timeout);
+    // 2. Direct protocol probe (TCP/TLS handshake to node.address:node.port, 3 probes, taking lowest):
+    // Exactly matches v2rayNG and v2box latency!
+    final handshakeLat = await _testNodeRealProtocolDelay(node, timeout: timeout, count: 3);
     if (handshakeLat != null && handshakeLat > 0) {
-      // Direct handshake tests connectivity, but outbound exit country is unknown
+      final cCode = CountryService.extractCountryCodeFromName(node.name) ?? node.countryCode;
       return NodeTestResult(
         latencyMs: handshakeLat,
-        countryCode: null,
-        country: null,
+        countryCode: cCode,
+        country: cCode != null ? CountryService.getCountryName(cCode) : node.country,
       );
     }
 
@@ -1263,9 +1255,9 @@ class XrayProcessService {
     return null;
   }
 
-  Future<int?> _testNodeRealProtocolDelay(ProxyNode node, {Duration timeout = const Duration(milliseconds: 2800)}) async {
-    final effectiveTimeout = timeout > const Duration(milliseconds: 1000)
-        ? const Duration(milliseconds: 800)
+  Future<int?> _singleProtocolProbe(ProxyNode node, Duration timeout) async {
+    final effectiveTimeout = timeout > const Duration(milliseconds: 1500)
+        ? const Duration(milliseconds: 1200)
         : timeout;
     final sw = Stopwatch()..start();
     Socket? rawSocket;
@@ -1359,13 +1351,13 @@ class XrayProcessService {
                   responseStr.contains('<HTML') ||
                   responseStr.contains('<title>');
 
-              // Accept any HTTP response indicating genuine backend:
-              // 101 Switching Protocols, 204 No Content, or standard V2Ray WS response without CDN error
-              final isAcceptableStatus = firstLine.startsWith('HTTP/') &&
-                  !isCdnError &&
-                  !firstLine.contains('502') &&
-                  !firstLine.contains('503') &&
-                  !firstLine.contains('504');
+              // Authentic 101 Switching Protocols, 200/204, or non-HTML 400 (standard raw Xray/V2Ray origin response):
+              // Reject 403, 404, 301, 302, 5xx, or CDN HTML error pages
+              final isAcceptableStatus = (firstLine.contains(' 101 ') ||
+                      firstLine.contains(' 200 ') ||
+                      firstLine.contains(' 204 ') ||
+                      firstLine.contains(' 400 ')) &&
+                  !isCdnError;
 
               if (isAcceptableStatus) {
                 completer.complete(sw.elapsedMilliseconds);
@@ -1428,6 +1420,36 @@ class XrayProcessService {
       } catch (_) {}
       return null;
     }
+  }
+
+  Future<int?> _testNodeRealProtocolDelay(
+    ProxyNode node, {
+    Duration timeout = const Duration(milliseconds: 2800),
+    int count = 3,
+  }) async {
+    final swTotal = Stopwatch()..start();
+    int? lowest;
+    final perProbeTimeout = count > 1 && timeout.inMilliseconds > 1000
+        ? Duration(milliseconds: (timeout.inMilliseconds / count).round())
+        : timeout;
+
+    for (int i = 0; i < count; i++) {
+      final remaining = timeout - swTotal.elapsed;
+      if (remaining <= Duration.zero) break;
+      final curTimeout = remaining < perProbeTimeout ? remaining : perProbeTimeout;
+
+      final res = await _singleProtocolProbe(node, curTimeout);
+      if (res != null && res > 0) {
+        if (lowest == null || res < lowest) {
+          lowest = res;
+        }
+      } else {
+        // If the first probe failed completely (cannot connect or handshake failed),
+        // the host is unreachable or rejected. Don't waste time on remaining probes.
+        if (i == 0) break;
+      }
+    }
+    return lowest;
   }
 
   /// Check if the process is running with Administrator privileges on Windows

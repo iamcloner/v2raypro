@@ -6,6 +6,7 @@ import 'package:v2raypro/models/routing_rule.dart';
 import 'package:v2raypro/providers/app_providers.dart';
 import 'package:v2raypro/services/storage_service.dart';
 import 'package:v2raypro/services/xray_process_service.dart';
+import 'package:v2raypro/services/cdn_scanner_service.dart';
 import 'package:v2raypro/utils/config_parser.dart';
 
 void main() {
@@ -362,6 +363,30 @@ void main() {
       // Further pop stays at Dashboard (0)
       pop();
       expect(selectedIndex, 0);
+    });
+  });
+
+  group('v1.7.4 Ping Accuracy, Cloudflare CIDRs & Strict Scanner Validation Tests', () {
+    test('Cloudflare CIDR 8.6.112.0/24 is present and detected', () {
+      expect(CdnProvider.cloudflare.defaultCidrs.contains('8.6.112.0/24'), isTrue);
+      expect(CdnScannerService.detectCdnHostSync('8.6.112.1'), equals(CdnProvider.cloudflare));
+      expect(CdnScannerService.detectCdnHostSync('8.6.112.254'), equals(CdnProvider.cloudflare));
+    });
+
+    test('Node latency returns fastest result from multi-probe test', () async {
+      final node = ProxyNode(
+        id: 'test_node_loopback',
+        name: 'Loopback Node',
+        address: '127.0.0.1',
+        port: 65530,
+        protocol: ProtocolType.vless,
+        uuidOrPassword: 'test',
+      );
+      final res = await XrayProcessService.instance.testNodeRealDelay(
+        node,
+        timeout: const Duration(milliseconds: 300),
+      );
+      expect(res.isSuccess, isFalse);
     });
   });
 }

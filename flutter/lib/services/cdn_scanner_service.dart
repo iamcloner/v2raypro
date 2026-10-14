@@ -78,6 +78,7 @@ enum CdnProvider {
           "162.159.0.0/16",
           "1.0.0.0/24",
           "1.1.1.0/24",
+          "8.6.112.0/24",
         ];
       case CdnProvider.fastly:
         return const [

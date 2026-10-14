@@ -582,42 +582,141 @@ class _MainShellState extends ConsumerState<MainShell> {
                 ),
               ),
         body: pages[_selectedIndex],
-        bottomNavigationBar: NavigationBar(
-          selectedIndex: bottomNavIndex,
-          onDestinationSelected: (idx) {
-            if (idx == 0) {
-              _navigateToTab(0);
-            } else if (idx == 1) {
-              _navigateToTab(1);
-            } else if (idx == 2) {
-              _navigateToTab(Platform.isAndroid ? 2 : 3);
-            } else if (idx == 3) {
-              _scaffoldKey.currentState?.openDrawer();
-            }
-          },
-          destinations: [
-            NavigationDestination(
-              icon: const Icon(Icons.dashboard_rounded),
-              label: AppStrings.get('dashboard', locale: locale),
+        bottomNavigationBar: _buildBottomNavBar(context, bottomNavIndex, locale),
+      ),
+    );
+  }
+
+  Widget _buildBottomNavBar(BuildContext context, int bottomNavIndex, String locale) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final primaryColor = theme.colorScheme.primary;
+
+    final items = [
+      (
+        activeIcon: Icons.dashboard_rounded,
+        inactiveIcon: Icons.dashboard_outlined,
+        label: AppStrings.get('dashboard', locale: locale),
+      ),
+      (
+        activeIcon: Icons.hub_rounded,
+        inactiveIcon: Icons.hub_outlined,
+        label: AppStrings.get('configs', locale: locale),
+      ),
+      Platform.isAndroid
+          ? (
+              activeIcon: Icons.rss_feed_rounded,
+              inactiveIcon: Icons.rss_feed_outlined,
+              label: locale == 'fa' ? 'اشتراک‌ها' : 'Sub',
+            )
+          : (
+              activeIcon: Icons.card_giftcard_rounded,
+              inactiveIcon: Icons.card_giftcard_outlined,
+              label: AppStrings.get('free_configs', locale: locale),
             ),
-            NavigationDestination(
-              icon: const Icon(Icons.hub_rounded),
-              label: AppStrings.get('configs', locale: locale),
-            ),
-            Platform.isAndroid
-                ? NavigationDestination(
-                    icon: const Icon(Icons.rss_feed_rounded),
-                    label: locale == 'fa' ? 'اشتراک‌ها' : 'Sub',
-                  )
-                : NavigationDestination(
-                    icon: const Icon(Icons.card_giftcard_rounded),
-                    label: AppStrings.get('free_configs', locale: locale),
+      (
+        activeIcon: Icons.grid_view_rounded,
+        inactiveIcon: Icons.grid_view_outlined,
+        label: AppStrings.get('more', locale: locale),
+      ),
+    ];
+
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF13161F) : Colors.white,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.07),
+            blurRadius: 18,
+            offset: const Offset(0, -4),
+          ),
+        ],
+        border: Border(
+          top: BorderSide(
+            color: isDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.05),
+            width: 1,
+          ),
+        ),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: List.generate(items.length, (idx) {
+              final isSelected = bottomNavIndex == idx;
+              final item = items[idx];
+              return Expanded(
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      if (idx == 0) {
+                        _navigateToTab(0);
+                      } else if (idx == 1) {
+                        _navigateToTab(1);
+                      } else if (idx == 2) {
+                        _navigateToTab(Platform.isAndroid ? 2 : 3);
+                      } else if (idx == 3) {
+                        _scaffoldKey.currentState?.openDrawer();
+                      }
+                    },
+                    borderRadius: BorderRadius.circular(16),
+                    splashColor: primaryColor.withValues(alpha: 0.1),
+                    highlightColor: primaryColor.withValues(alpha: 0.05),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          AnimatedContainer(
+                            duration: const Duration(milliseconds: 220),
+                            curve: Curves.easeOutCubic,
+                            height: 32,
+                            padding: const EdgeInsets.symmetric(horizontal: 18),
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? primaryColor.withValues(alpha: isDark ? 0.22 : 0.14)
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Center(
+                              child: Icon(
+                                isSelected ? item.activeIcon : item.inactiveIcon,
+                                size: 22,
+                                color: isSelected
+                                    ? primaryColor
+                                    : (isDark ? Colors.white54 : Colors.black45),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          AnimatedDefaultTextStyle(
+                            duration: const Duration(milliseconds: 200),
+                            style: TextStyle(
+                              fontSize: isSelected ? 11.5 : 11,
+                              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                              color: isSelected
+                                  ? primaryColor
+                                  : (isDark ? Colors.white60 : Colors.black54),
+                            ),
+                            child: Text(
+                              item.label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
-            NavigationDestination(
-              icon: const Icon(Icons.menu_rounded),
-              label: AppStrings.get('more', locale: locale),
-            ),
-          ],
+                ),
+              );
+            }),
+          ),
         ),
       ),
     );

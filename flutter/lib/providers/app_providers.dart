@@ -1216,12 +1216,13 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
 
       final scanStartTime = DateTime.now();
 
-      for (int i = 0; i < candidates.length; i += workers) {
+      final batchSize = min(workers, 8);
+      for (int i = 0; i < candidates.length; i += batchSize) {
         if (_isCancelled) break;
-        final chunk = candidates.sublist(i, min(i + workers, candidates.length));
+        final chunk = candidates.sublist(i, min(i + batchSize, candidates.length));
 
-        final futures = chunk.map((ip) async {
-          final candidateNode = activeNode.copyWith(
+        final candidateNodes = chunk.map((ip) {
+          return activeNode.copyWith(
             id: 'scan_target_${ip.replaceAll('.', '_')}',
             address: ip,
             host: (activeNode.host != null && activeNode.host!.isNotEmpty)
@@ -1231,14 +1232,30 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
                 ? activeNode.sni
                 : (isDomain ? origAddress : null),
           );
-          final res = await XrayProcessService.instance.testNodeRealDelay(
-            candidateNode,
-            timeout: const Duration(seconds: 4),
-          );
-          return MapEntry(ip, res);
-        });
+        }).toList();
 
-        final chunkResults = await Future.wait(futures);
+        Map<String, NodeTestResult> batchResults = {};
+        if (XrayProcessService.instance.isNodeConfigSupported(activeNode) &&
+            XrayProcessService.instance.findXrayBinarySync() != null) {
+          try {
+            batchResults = await XrayProcessService.instance.testNodesBatchRealProxy(
+              candidateNodes,
+              timeout: const Duration(seconds: 4),
+            );
+          } catch (_) {}
+        }
+
+        final List<MapEntry<String, NodeTestResult>> chunkResults = [];
+        for (int j = 0; j < chunk.length; j++) {
+          final ip = chunk[j];
+          final cand = candidateNodes[j];
+          final res = batchResults[cand.id] ??
+              (batchResults.isEmpty
+                  ? await XrayProcessService.instance.testNodeRealDelay(cand, timeout: const Duration(seconds: 4))
+                  : const NodeTestResult(latencyMs: null));
+          chunkResults.add(MapEntry(ip, res));
+        }
+
         if (_isCancelled) break;
 
         for (final entry in chunkResults) {

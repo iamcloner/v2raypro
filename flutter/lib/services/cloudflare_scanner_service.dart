@@ -27,6 +27,7 @@ class CloudflareScannerService {
     "162.159.0.0/16",
     "1.0.0.0/24",
     "1.1.1.0/24",
+    "8.6.112.0/24",
   ];
 
   static const List<String> cfSubnets = [
@@ -45,6 +46,7 @@ class CloudflareScannerService {
     "108.162.",
     "198.41.",
     "173.245.",
+    "8.6.112.",
   ];
 
   /// Mathematically sample a random usable IPv4 from a CIDR (e.g. 104.18.0.0/16 or 104.16.0.0/13)
