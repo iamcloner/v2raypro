@@ -30,21 +30,27 @@
 ## 📸 界面截图
 
 <p align="center">
-  <img src="docs/screenshots/Dashboard.png" alt="仪表盘" width="480" />
-  <img src="docs/screenshots/CDN-scanner.png" alt="优选 IP 扫描器" width="480" />
+  <img src="docs/screenshots/Dashboard.png" alt="仪表盘" width="820" />
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/Configs.png" alt="节点列表" width="235" />
-  <img src="docs/screenshots/Free-configs.png" alt="免费节点" width="235" />
-  <img src="docs/screenshots/Subs.png" alt="订阅管理" width="235" />
-  <img src="docs/screenshots/Routing.png" alt="路由分流" width="235" />
+  <img src="docs/screenshots/CDN-scanner.png" alt="优选 IP 扫描器" width="410" />
+  <img src="docs/screenshots/Configs.png" alt="节点列表" width="410" />
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/Settings-1.png" alt="通用设置" width="315" />
-  <img src="docs/screenshots/Settings-2.png" alt="内核设置" width="315" />
-  <img src="docs/screenshots/Logs.png" alt="内核日志" width="315" />
+  <img src="docs/screenshots/Free-configs.png" alt="免费节点" width="410" />
+  <img src="docs/screenshots/Subs.png" alt="订阅管理" width="410" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Routing.png" alt="路由分流" width="410" />
+  <img src="docs/screenshots/Settings-1.png" alt="通用设置" width="410" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Settings-2.png" alt="内核设置" width="410" />
+  <img src="docs/screenshots/Logs.png" alt="内核日志" width="410" />
 </p>
 
 ---

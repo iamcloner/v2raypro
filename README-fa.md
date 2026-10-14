@@ -30,21 +30,27 @@
 ## 📸 تصاویر برنامه
 
 <p align="center">
-  <img src="docs/screenshots/Dashboard.png" alt="داشبورد" width="480" />
-  <img src="docs/screenshots/CDN-scanner.png" alt="اسکنر کلودفلر" width="480" />
+  <img src="docs/screenshots/Dashboard.png" alt="داشبورد" width="820" />
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/Configs.png" alt="کانفیگ‌ها" width="235" />
-  <img src="docs/screenshots/Free-configs.png" alt="کانفیگ‌های رایگان" width="235" />
-  <img src="docs/screenshots/Subs.png" alt="سابسکریپشن" width="235" />
-  <img src="docs/screenshots/Routing.png" alt="روتینگ" width="235" />
+  <img src="docs/screenshots/CDN-scanner.png" alt="اسکنر کلودفلر" width="410" />
+  <img src="docs/screenshots/Configs.png" alt="کانفیگ‌ها" width="410" />
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/Settings-1.png" alt="تنظیمات عمومی" width="315" />
-  <img src="docs/screenshots/Settings-2.png" alt="تنظیمات هسته" width="315" />
-  <img src="docs/screenshots/Logs.png" alt="لاگ‌ها" width="315" />
+  <img src="docs/screenshots/Free-configs.png" alt="کانفیگ‌های رایگان" width="410" />
+  <img src="docs/screenshots/Subs.png" alt="سابسکریپشن" width="410" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Routing.png" alt="روتینگ" width="410" />
+  <img src="docs/screenshots/Settings-1.png" alt="تنظیمات عمومی" width="410" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Settings-2.png" alt="تنظیمات هسته" width="410" />
+  <img src="docs/screenshots/Logs.png" alt="لاگ‌ها" width="410" />
 </p>
 
 ---

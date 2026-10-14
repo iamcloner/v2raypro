@@ -30,21 +30,27 @@
 ## 📸 Скриншоты
 
 <p align="center">
-  <img src="docs/screenshots/Dashboard.png" alt="Панель управления" width="480" />
-  <img src="docs/screenshots/CDN-scanner.png" alt="Сканер Cloudflare" width="480" />
+  <img src="docs/screenshots/Dashboard.png" alt="Панель управления" width="820" />
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/Configs.png" alt="Узлы" width="235" />
-  <img src="docs/screenshots/Free-configs.png" alt="Бесплатные узлы" width="235" />
-  <img src="docs/screenshots/Subs.png" alt="Подписки" width="235" />
-  <img src="docs/screenshots/Routing.png" alt="Маршрутизация" width="235" />
+  <img src="docs/screenshots/CDN-scanner.png" alt="Сканер Cloudflare" width="410" />
+  <img src="docs/screenshots/Configs.png" alt="Узлы" width="410" />
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/Settings-1.png" alt="Настройки" width="315" />
-  <img src="docs/screenshots/Settings-2.png" alt="Настройки ядра" width="315" />
-  <img src="docs/screenshots/Logs.png" alt="Журнал" width="315" />
+  <img src="docs/screenshots/Free-configs.png" alt="Бесплатные узлы" width="410" />
+  <img src="docs/screenshots/Subs.png" alt="Подписки" width="410" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Routing.png" alt="Маршрутизация" width="410" />
+  <img src="docs/screenshots/Settings-1.png" alt="Настройки" width="410" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Settings-2.png" alt="Настройки ядра" width="410" />
+  <img src="docs/screenshots/Logs.png" alt="Журнал" width="410" />
 </p>
 
 ---

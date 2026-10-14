@@ -30,21 +30,27 @@
 ## 📸 Capturas de pantalla
 
 <p align="center">
-  <img src="docs/screenshots/Dashboard.png" alt="Panel de control" width="480" />
-  <img src="docs/screenshots/CDN-scanner.png" alt="Escáner Cloudflare" width="480" />
+  <img src="docs/screenshots/Dashboard.png" alt="Panel de control" width="820" />
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/Configs.png" alt="Configuraciones" width="235" />
-  <img src="docs/screenshots/Free-configs.png" alt="Nodos gratuitos" width="235" />
-  <img src="docs/screenshots/Subs.png" alt="Suscripciones" width="235" />
-  <img src="docs/screenshots/Routing.png" alt="Enrutamiento" width="235" />
+  <img src="docs/screenshots/CDN-scanner.png" alt="Escáner Cloudflare" width="410" />
+  <img src="docs/screenshots/Configs.png" alt="Configuraciones" width="410" />
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/Settings-1.png" alt="Ajustes" width="315" />
-  <img src="docs/screenshots/Settings-2.png" alt="Ajustes de núcleo" width="315" />
-  <img src="docs/screenshots/Logs.png" alt="Registros" width="315" />
+  <img src="docs/screenshots/Free-configs.png" alt="Nodos gratuitos" width="410" />
+  <img src="docs/screenshots/Subs.png" alt="Suscripciones" width="410" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Routing.png" alt="Enrutamiento" width="410" />
+  <img src="docs/screenshots/Settings-1.png" alt="Ajustes" width="410" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Settings-2.png" alt="Ajustes de núcleo" width="410" />
+  <img src="docs/screenshots/Logs.png" alt="Registros" width="410" />
 </p>
 
 ---

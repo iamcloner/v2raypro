@@ -30,21 +30,27 @@
 ## 📸 Captures d'écran
 
 <p align="center">
-  <img src="docs/screenshots/Dashboard.png" alt="Tableau de bord" width="480" />
-  <img src="docs/screenshots/CDN-scanner.png" alt="Scanner Cloudflare" width="480" />
+  <img src="docs/screenshots/Dashboard.png" alt="Tableau de bord" width="820" />
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/Configs.png" alt="Configurations" width="235" />
-  <img src="docs/screenshots/Free-configs.png" alt="Nœuds gratuits" width="235" />
-  <img src="docs/screenshots/Subs.png" alt="Abonnements" width="235" />
-  <img src="docs/screenshots/Routing.png" alt="Routage" width="235" />
+  <img src="docs/screenshots/CDN-scanner.png" alt="Scanner Cloudflare" width="410" />
+  <img src="docs/screenshots/Configs.png" alt="Configurations" width="410" />
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/Settings-1.png" alt="Paramètres" width="315" />
-  <img src="docs/screenshots/Settings-2.png" alt="Paramètres du cœur" width="315" />
-  <img src="docs/screenshots/Logs.png" alt="Journaux" width="315" />
+  <img src="docs/screenshots/Free-configs.png" alt="Nœuds gratuits" width="410" />
+  <img src="docs/screenshots/Subs.png" alt="Abonnements" width="410" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Routing.png" alt="Routage" width="410" />
+  <img src="docs/screenshots/Settings-1.png" alt="Paramètres" width="410" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Settings-2.png" alt="Paramètres du cœur" width="410" />
+  <img src="docs/screenshots/Logs.png" alt="Journaux" width="410" />
 </p>
 
 ---

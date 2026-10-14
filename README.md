@@ -30,21 +30,27 @@
 ## 📸 Screenshots
 
 <p align="center">
-  <img src="docs/screenshots/Dashboard.png" alt="Dashboard" width="480" />
-  <img src="docs/screenshots/CDN-scanner.png" alt="Cloudflare Scanner" width="480" />
+  <img src="docs/screenshots/Dashboard.png" alt="Dashboard" width="820" />
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/Configs.png" alt="Configs" width="235" />
-  <img src="docs/screenshots/Free-configs.png" alt="Free Configs" width="235" />
-  <img src="docs/screenshots/Subs.png" alt="Subscriptions" width="235" />
-  <img src="docs/screenshots/Routing.png" alt="Routing" width="235" />
+  <img src="docs/screenshots/CDN-scanner.png" alt="Cloudflare Scanner" width="410" />
+  <img src="docs/screenshots/Configs.png" alt="Configs" width="410" />
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/Settings-1.png" alt="Settings General" width="315" />
-  <img src="docs/screenshots/Settings-2.png" alt="Settings Core" width="315" />
-  <img src="docs/screenshots/Logs.png" alt="Core Logs" width="315" />
+  <img src="docs/screenshots/Free-configs.png" alt="Free Configs" width="410" />
+  <img src="docs/screenshots/Subs.png" alt="Subscriptions" width="410" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Routing.png" alt="Routing" width="410" />
+  <img src="docs/screenshots/Settings-1.png" alt="Settings General" width="410" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Settings-2.png" alt="Settings Core" width="410" />
+  <img src="docs/screenshots/Logs.png" alt="Core Logs" width="410" />
 </p>
 
 ---
