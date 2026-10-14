@@ -14,10 +14,12 @@ import java.io.File
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.v2raypro.app/native"
     private val VPN_REQUEST_CODE = 2026
+    private val NOTIFICATION_PERMISSION_CODE = 2027
     private var methodChannel: MethodChannel? = null
     private var pendingVpnResult: MethodChannel.Result? = null
     private var pendingConfigName: String = "V2RayPro"
     private var pendingHttpPort: Int = 10888
+    private var pendingSocksPort: Int = 10999
 
     private var pendingIsTun: Boolean = true
     private var pendingNotificationTitle: String = "V2RayPro - متصل"
@@ -36,6 +38,20 @@ class MainActivity : FlutterActivity() {
 
         channel.setMethodCallHandler { call, result ->
             when (call.method) {
+                "requestNotificationPermission" -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        val perm = android.Manifest.permission.POST_NOTIFICATIONS
+                        val granted = androidx.core.content.ContextCompat.checkSelfPermission(this, perm) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                        if (!granted) {
+                            androidx.core.app.ActivityCompat.requestPermissions(this, arrayOf(perm), NOTIFICATION_PERMISSION_CODE)
+                            result.success(false)
+                        } else {
+                            result.success(true)
+                        }
+                    } else {
+                        result.success(true)
+                    }
+                }
                 "getNativeLibraryDir" -> {
                     result.success(applicationInfo.nativeLibraryDir)
                 }
@@ -78,6 +94,7 @@ class MainActivity : FlutterActivity() {
                 "startVpnService" -> {
                     val configName = call.argument<String>("configName") ?: "V2RayPro"
                     val httpPort = call.argument<Int>("httpPort") ?: 10888
+                    val socksPort = call.argument<Int>("socksPort") ?: 10999
                     val isTun = call.argument<Boolean>("isTun") ?: true
                     val notificationTitle = call.argument<String>("notificationTitle") ?: "V2RayPro - متصل"
                     val disconnectText = call.argument<String>("disconnectText") ?: "قطع اتصال"
@@ -88,17 +105,18 @@ class MainActivity : FlutterActivity() {
                             pendingVpnResult = result
                             pendingConfigName = configName
                             pendingHttpPort = httpPort
+                            pendingSocksPort = socksPort
                             pendingIsTun = isTun
                             pendingNotificationTitle = notificationTitle
                             pendingDisconnectText = disconnectText
                             startActivityForResult(prepareIntent, VPN_REQUEST_CODE)
                         } else {
-                            launchVpnService(configName, httpPort, isTun, notificationTitle, disconnectText)
+                            launchVpnService(configName, httpPort, socksPort, isTun, notificationTitle, disconnectText)
                             result.success(true)
                         }
                     } else {
                         // Proxy Mode: No VPN interface needed, start purely as foreground service
-                        launchVpnService(configName, httpPort, false, notificationTitle, disconnectText)
+                        launchVpnService(configName, httpPort, socksPort, false, notificationTitle, disconnectText)
                         result.success(true)
                     }
                 }
@@ -142,6 +160,7 @@ class MainActivity : FlutterActivity() {
     private fun launchVpnService(
         configName: String,
         httpPort: Int,
+        socksPort: Int,
         isTun: Boolean,
         notificationTitle: String,
         disconnectText: String
@@ -150,6 +169,7 @@ class MainActivity : FlutterActivity() {
             action = V2RayVpnService.ACTION_START
             putExtra("configName", configName)
             putExtra("httpPort", httpPort)
+            putExtra("socksPort", socksPort)
             putExtra("isTun", isTun)
             putExtra("notificationTitle", notificationTitle)
             putExtra("disconnectText", disconnectText)
@@ -168,6 +188,7 @@ class MainActivity : FlutterActivity() {
                 launchVpnService(
                     pendingConfigName,
                     pendingHttpPort,
+                    pendingSocksPort,
                     pendingIsTun,
                     pendingNotificationTitle,
                     pendingDisconnectText

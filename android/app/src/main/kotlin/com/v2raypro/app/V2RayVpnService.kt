@@ -63,11 +63,12 @@ class V2RayVpnService : VpnService() {
         if (action == ACTION_START) {
             val configName = intent.getStringExtra("configName") ?: "V2RayPro"
             val httpPort = intent.getIntExtra("httpPort", 10888)
+            val socksPort = intent.getIntExtra("socksPort", 10999)
             val isTun = intent.getBooleanExtra("isTun", true)
             val notificationTitle = intent.getStringExtra("notificationTitle") ?: "V2RayPro - متصل"
             val disconnectText = intent.getStringExtra("disconnectText") ?: "قطع اتصال"
 
-            startVpn(configName, httpPort, isTun, notificationTitle, disconnectText)
+            startVpn(configName, httpPort, socksPort, isTun, notificationTitle, disconnectText)
             return START_STICKY
         }
 
@@ -126,6 +127,7 @@ class V2RayVpnService : VpnService() {
     private fun startVpn(
         configName: String,
         httpPort: Int,
+        socksPort: Int,
         isTun: Boolean,
         notificationTitle: String,
         disconnectText: String
@@ -141,6 +143,7 @@ class V2RayVpnService : VpnService() {
                     .addRoute("0.0.0.0", 0)
                     .addDnsServer("1.1.1.1")
                     .addDnsServer("8.8.8.8")
+                    .setMtu(8500)
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     try {
@@ -153,7 +156,27 @@ class V2RayVpnService : VpnService() {
                     builder.addDisallowedApplication(packageName)
                 } catch (_: Exception) {}
 
-                vpnInterface = builder.establish()
+                val pfd = builder.establish()
+                vpnInterface = pfd
+                if (pfd != null) {
+                    val tunConfig = java.io.File(cacheDir, "tunnel.yaml")
+                    val configContent = """
+tunnel:
+  mtu: 8500
+  ipv4: 26.26.26.1
+
+socks5:
+  port: $socksPort
+  address: 127.0.0.1
+  udp: 'udp'
+
+misc:
+  log-level: warn
+""".trimIndent()
+                    tunConfig.writeText(configContent)
+
+                    hev.htproxy.TProxyService.TProxyStartService(tunConfig.absolutePath, pfd.fd)
+                }
                 isRunning = true
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -168,6 +191,9 @@ class V2RayVpnService : VpnService() {
 
     private fun stopVpn() {
         isRunning = false
+        try {
+            hev.htproxy.TProxyService.TProxyStopService()
+        } catch (_: Exception) {}
         try {
             vpnInterface?.close()
             vpnInterface = null

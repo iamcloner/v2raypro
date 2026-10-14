@@ -426,4 +426,15 @@ class StorageService {
   static const _testConcurrencyKey = "v2raypro_test_concurrency";
   Future<void> saveTestConcurrency(int val) => saveInt(_testConcurrencyKey, val);
   Future<int> loadTestConcurrency() => loadInt(_testConcurrencyKey, defaultValue: 25);
+
+  static const _localeKey = "v2raypro_current_locale";
+  Future<void> saveLocale(String locale) => saveString(_localeKey, locale);
+  Future<String?> loadLocale() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getString(_localeKey);
+    } catch (_) {
+      return null;
+    }
+  }
 }

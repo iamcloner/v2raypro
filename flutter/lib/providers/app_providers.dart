@@ -1407,8 +1407,40 @@ final dnsSettingsProvider = StateNotifierProvider<DnsNotifier, DnsSettings>((ref
   return DnsNotifier();
 });
 
-// Default to English as requested
-final currentLocaleProvider = StateProvider<String>((ref) => "en");
+class LocaleNotifier extends StateNotifier<String> {
+  LocaleNotifier() : super(_detectInitialLocale()) {
+    _init();
+  }
+
+  static String _detectInitialLocale() {
+    try {
+      final code = WidgetsBinding.instance.platformDispatcher.locale.languageCode.toLowerCase();
+      if (code.startsWith('fa')) return 'fa';
+    } catch (_) {}
+    return 'en';
+  }
+
+  Future<void> _init() async {
+    final saved = await StorageService.instance.loadLocale();
+    if (saved != null && (saved == 'fa' || saved == 'en')) {
+      if (mounted) super.state = saved;
+    }
+  }
+
+  set state(String val) {
+    super.state = val;
+    StorageService.instance.saveLocale(val);
+  }
+
+  void setLocale(String val) {
+    state = val;
+  }
+}
+
+// Locale provider initialized from device language (fa/en) and persisted
+final currentLocaleProvider = StateNotifierProvider<LocaleNotifier, String>((ref) {
+  return LocaleNotifier();
+});
 
 // Port settings providers with persistence and automatic XrayProcessService sync
 class HttpPortNotifier extends StateNotifier<int> {

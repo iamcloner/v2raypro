@@ -171,7 +171,7 @@ class _ScannerViewState extends ConsumerState<ScannerView>
 
             if (isPortrait) ...[
               // Portrait mobile layout: stacked vertically
-              _buildScannerStatsDashboard(state, locale),
+              _buildScannerStatsDashboard(state, locale, isPortrait: true),
               if (state.isScanning) ...[
                 const SizedBox(height: 10),
                 _buildProgressCard(state, locale),
@@ -335,7 +335,7 @@ class _ScannerViewState extends ConsumerState<ScannerView>
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            mainAxisAlignment: isPortrait ? MainAxisAlignment.start : MainAxisAlignment.spaceBetween,
             children: [
             // Strategy Selection: Radar and Target side-by-side with separate info icons
             Row(
@@ -807,7 +807,7 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                   ),
                 ),
               ],
-              const Spacer(),
+              if (!isPortrait) const Spacer() else const SizedBox(height: 12),
               // Radar Pulse Icon
               ScaleTransition(
                 scale: (state.isScanning &&
@@ -1468,7 +1468,11 @@ class _ScannerViewState extends ConsumerState<ScannerView>
     );
   }
 
-  Widget _buildScannerStatsDashboard(ScannerState state, String locale) {
+  Widget _buildScannerStatsDashboard(
+    ScannerState state,
+    String locale, {
+    bool isPortrait = false,
+  }) {
     final scannedCount = state.scanned;
     final responsiveCount = state.results.length;
     final successRate = scannedCount > 0
@@ -1480,49 +1484,68 @@ class _ScannerViewState extends ConsumerState<ScannerView>
             ? '${state.currentBestLatency} ms'
             : '--');
 
-    return Column(
+    final row1 = Row(
       children: [
         Expanded(
-          child: Row(
-            children: [
-              _buildScannerMetricCard(
-                icon: Icons.search_rounded,
-                iconColor: Colors.blueAccent,
-                label: AppStrings.get('tested_ips', locale: locale),
-                value: '$scannedCount',
-              ),
-              const SizedBox(width: 10),
-              _buildScannerMetricCard(
-                icon: Icons.dns_rounded,
-                iconColor: AppTheme.successColor,
-                label: AppStrings.get('responsive_ips', locale: locale),
-                value: '$responsiveCount',
-                highlightColor: AppTheme.successColor,
-              ),
-            ],
+          child: _buildScannerMetricCard(
+            icon: Icons.search_rounded,
+            iconColor: Colors.blueAccent,
+            label: AppStrings.get('tested_ips', locale: locale),
+            value: '$scannedCount',
           ),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(width: 10),
         Expanded(
-          child: Row(
-            children: [
-              _buildScannerMetricCard(
-                icon: Icons.percent_rounded,
-                iconColor: Colors.amber,
-                label: AppStrings.get('success_rate', locale: locale),
-                value: '$successRate%',
-              ),
-              const SizedBox(width: 10),
-              _buildScannerMetricCard(
-                icon: Icons.bolt_rounded,
-                iconColor: AppTheme.primaryAccent,
-                label: AppStrings.get('best_ping', locale: locale),
-                value: bestPing,
-                highlightColor: bestPing != '--' ? AppTheme.primaryAccent : null,
-              ),
-            ],
+          child: _buildScannerMetricCard(
+            icon: Icons.dns_rounded,
+            iconColor: AppTheme.successColor,
+            label: AppStrings.get('responsive_ips', locale: locale),
+            value: '$responsiveCount',
+            highlightColor: AppTheme.successColor,
           ),
         ),
+      ],
+    );
+
+    final row2 = Row(
+      children: [
+        Expanded(
+          child: _buildScannerMetricCard(
+            icon: Icons.percent_rounded,
+            iconColor: Colors.amber,
+            label: AppStrings.get('success_rate', locale: locale),
+            value: '$successRate%',
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _buildScannerMetricCard(
+            icon: Icons.bolt_rounded,
+            iconColor: AppTheme.primaryAccent,
+            label: AppStrings.get('best_ping', locale: locale),
+            value: bestPing,
+            highlightColor: bestPing != '--' ? AppTheme.primaryAccent : null,
+          ),
+        ),
+      ],
+    );
+
+    if (isPortrait) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          row1,
+          const SizedBox(height: 10),
+          row2,
+        ],
+      );
+    }
+
+    return Column(
+      children: [
+        Expanded(child: row1),
+        const SizedBox(height: 10),
+        Expanded(child: row2),
       ],
     );
   }

@@ -152,6 +152,7 @@ class XrayProcessService {
       final res = await channel.invokeMethod<bool>('startVpnService', {
         'configName': configName,
         'httpPort': httpPort,
+        'socksPort': socksPort,
         'isTun': isTun,
         'notificationTitle': notificationTitle ?? 'V2RayPro - متصل',
         'disconnectText': disconnectText ?? 'قطع اتصال',

@@ -132,6 +132,7 @@ class _MainShellState extends ConsumerState<MainShell> {
           ref.read(connectionStatusProvider.notifier).setDisconnected();
         }
       };
+      const MethodChannel('com.v2raypro.app/native').invokeMethod('requestNotificationPermission');
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkAutoConnect();
@@ -738,12 +739,28 @@ class DashboardView extends ConsumerStatefulWidget {
 class _DashboardViewState extends ConsumerState<DashboardView> {
   Timer? _ticker;
   bool _isTestingPing = false;
+  bool _hasOtherVpn = false;
+  int _tickCount = 0;
 
   @override
   void initState() {
     super.initState();
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() {});
+      if (mounted) {
+        setState(() {});
+        if (Platform.isAndroid && _tickCount++ % 2 == 0) {
+          final status = ref.read(connectionStatusProvider);
+          if (status == ConnectionStateEnum.disconnected) {
+            XrayProcessService.instance.isAnotherVpnActive().then((active) {
+              if (mounted && _hasOtherVpn != active) {
+                setState(() => _hasOtherVpn = active);
+              }
+            });
+          } else if (_hasOtherVpn) {
+            setState(() => _hasOtherVpn = false);
+          }
+        }
+      }
     });
   }
 
@@ -814,6 +831,38 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
           if (!Platform.isAndroid) ...[
             _buildBrandHeader(context, status, isConnected, isConnecting, locale),
             const SizedBox(height: 16),
+          ],
+
+          // Android Warning: Another external VPN is active
+          if (Platform.isAndroid && _hasOtherVpn && !isConnected) ...[
+            Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.amber.shade900.withValues(alpha: 0.22),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.amber.shade700, width: 1.2),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 22),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      locale == 'fa'
+                          ? 'یک فیلترشکن دیگر در دستگاه شما فعال است. لطفاً برای جلوگیری از تداخل، آن را قطع کنید.'
+                          : 'Another VPN is currently active on your device. Please disconnect it to avoid conflicts.',
+                      style: const TextStyle(
+                        color: Colors.amber,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        height: 1.3,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
 
           // 1. Top Section: Connect Card (50% width) and IP Info Card (50% width) side-by-side
