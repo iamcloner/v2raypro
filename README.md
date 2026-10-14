@@ -1,100 +1,106 @@
-# V2Ray Pro
+# V2RayPro
 
-A professional, high-performance, and production-ready V2Ray / Xray client for **Windows** and **Android** featuring an integrated **Cloudflare Candidate IP Scanner & Benchmark Engine**.
+<p align="center">
+  <img src="flutter/assets/app_icon.png" alt="V2RayPro Logo" width="128" height="128" />
+</p>
 
----
+<p align="center">
+  <strong>High-performance, modern GUI client for V2Ray / Xray & Sing-box with integrated Cloudflare Clean IP Scanner</strong>
+</p>
 
-## ?? Key Features
-
-1. **Protocol Support**:
-   - VLESS (Reality, TLS, WebSocket, gRPC)
-   - VMess (TLS, WebSocket, TCP)
-   - Trojan (TLS, WebSocket, gRPC)
-   - Shadowsocks (Standard ciphers)
-   - Subscription URLs (Base64 decoded auto-updates)
-
-2. **Advanced Cloudflare Scanner**:
-   - Automated detection of Cloudflare CDN-backed nodes.
-   - Non-blocking candidate sampling from official Cloudflare subnets.
-   - Multi-stage pipeline: **TCP Connect ? TLS Handshake (with real SNI) ? Protocol Probe**.
-   - Real-time streaming results with latency classification (Excellent, Good, Average, Poor).
-   - One-click **Apply Clean IP** with configuration backup and rollback safety.
-
-3. **Modern Material 3 Interface**:
-   - Dark Modern theme with systematic color tokens and smooth animations.
-   - Responsive layouts: Desktop NavigationRail on Windows / Bottom NavigationBar on Android.
-   - Full Internationalization (i18n): English and **Persian (?????)** with native RTL support.
-
-4. **Robust Architecture**:
-   - **Rust Core**: Independent high-throughput network scanner, Xray process manager, and secure local storage.
-   - **FFI & Event Streams**: Non-blocking asynchronous event communication between Flutter and Rust.
-   - **Android VPNService**: Native TUN interface with persistent foreground service and notification.
-   - **Mock Scan Mode**: Built-in simulator for instantaneous UI/UX testing in offline environments.
+<p align="center">
+  <a href="#features">Features</a> â€¢
+  <a href="#installation">Installation</a> â€¢
+  <a href="#android-version">Android Version</a> â€¢
+  <a href="#screenshots">Screenshots</a> â€¢
+  <a href="#donation">Donation</a> â€¢
+  <a href="#license">License</a>
+</p>
 
 ---
 
-## ??? Project Architecture
+### ðŸŒ Languages / Ø²Ø¨Ø§Ù†â€ŒÙ‡Ø§ / è¯­è¨€ / Ð¯Ð·Ñ‹ÐºÐ¸ / Langues / Idiomas
 
-```
-v2raypro/
-+-- rust/                      # Native Core Engine (Rust)
-¦   +-- src/
-¦   ¦   +-- api/               # FFI C-API & Event Callbacks
-¦   ¦   +-- config/            # Parser for VLESS, VMess, Trojan, SS, JSON
-¦   ¦   +-- networking/        # TCP & TLS Handshake Probes
-¦   ¦   +-- scanner/           # Cloudflare candidate selection & benchmarks
-¦   ¦   +-- xray/              # Xray JSON builder & process supervisor
-¦   ¦   +-- storage/           # Encrypted local JSON store
-¦   ¦   +-- utils/             # Cloudflare CIDR matcher & error models
-¦   +-- tests/                 # Core unit & integration tests
-¦
-+-- flutter/                   # Cross-Platform Frontend (Flutter / Dart)
-¦   +-- lib/
-¦   ¦   +-- core/              # FFI bridge, M3 Theme, i18n (en/fa)
-¦   ¦   +-- features/          # Dashboard, Configs, Scanner, Settings
-¦   ¦   +-- models/            # Entity models mirroring Rust core
-¦   ¦   +-- providers/         # Riverpod state notifiers & streams
-¦   +-- test/                  # Widget & smoke tests
-¦
-+-- android/                   # Android VpnService & platform channel
-+-- docs/                      # Technical specifications & guides
-```
+| Language | File |
+| :--- | :--- |
+| **English** | [README.md](README.md) |
+| **ÙØ§Ø±Ø³ÛŒ (Persian)** | [README-fa.md](README-fa.md) |
+| **ä¸­æ–‡ (Simplified Chinese)** | [README-ch.md](README-ch.md) |
+| **Ð ÑƒÑÑÐºÐ¸Ð¹ (Russian)** | [README-ru.md](README-ru.md) |
+| **FranÃ§ais (French)** | [README-fr.md](README-fr.md) |
+| **EspaÃ±ol (Spanish)** | [README-sp.md](README-sp.md) |
 
 ---
 
-## ?? How to Run & Build
+## ðŸš€ Features
 
-### Prerequisites
-- [Flutter SDK](https://flutter.dev) (>= 3.19.0)
-- [Rust Toolchain](https://rustup.rs) (>= 1.75.0)
-
-### Run Desktop (Windows)
-```bash
-cd flutter
-flutter pub get
-flutter run -d windows
-```
-
-### Run Android
-```bash
-cd flutter
-flutter pub get
-flutter run -d android
-```
-
-### Build Releases
-```bash
-# Windows
-flutter build windows --release
-
-# Android APK & App Bundle
-flutter build apk --release
-flutter build appbundle --release
-```
+- **Multi-Core Engine**: Native support for **Xray-core** and **sing-box** engines with effortless switching.
+- **Protocol Versatility**: Full support for VLESS, VMess, Trojan, Shadowsocks, Reality, WireGuard, and Hysteria protocols.
+- **Cloudflare Clean IP Scanner**:
+  - **Radar Mode**: Automatically explores Cloudflare IP ranges in real-time and latches onto the lowest-latency clean IP without disconnecting.
+  - **Target Mode**: Tests targeted IP ranges with customizable concurrent connections (up to 100 workers).
+  - Dynamic latency improvement history and inline bandwidth-saving traffic alerts.
+- **Global TUN & System Proxy Modes**:
+  - Transparent system-wide routing via high-speed wintun driver.
+  - HTTP / SOCKS5 system proxy support with smart bypass rules for local and domestic domains.
+- **Advanced Subscription & Node Management**:
+  - Automatic base64 and standard subscription parser.
+  - Delay testing: TCP ping, real HTTP delay, and protocol-level speed probe.
+  - Search, filter by country/tag, duplicate removal, and sort.
+- **Modern User Experience**:
+  - Clean Flutter desktop interface with responsive dark and light themes.
+  - Multi-language localization (English, Persian, etc.).
+  - System tray minimization, auto-reconnect, and auto-start on boot.
 
 ---
 
-## ?? Security
-- UUIDs, passwords, and private keys are never exposed in log outputs.
-- All processes and URL parsers employ strict bounds and format checks.
-- Scanner respects concurrency limits and prevents aggressive port exhaustion.
+## ðŸ“¸ Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/preview.png" alt="V2RayPro Interface Preview" width="850" />
+</p>
+
+---
+
+## ðŸ“± Android Version
+
+> **Note**: The **Android version** of V2RayPro is currently under active development.  
+> It will bring the full power of V2RayPro, including core routing and Cloudflare clean IP scanning, to mobile devices. Stay tuned for the upcoming beta release in the [Releases](https://github.com/iamcloner/v2raypro/releases) page!
+
+---
+
+## ðŸ’» Installation
+
+### Windows (x64)
+
+1. Navigate to the latest release on the [GitHub Releases](https://github.com/iamcloner/v2raypro/releases) page.
+2. Download `v2raypro-windows-v1.7.3.zip` (or `v2raypro-v1.7.3-windows-x64.zip`).
+3. Extract the downloaded zip file into any folder (e.g., `C:\Program Files\V2RayPro` or Desktop).
+4. Run `v2raypro.exe`.
+   - *Optional for TUN mode*: Run as Administrator to allow Windows virtual network adapter (Wintun) creation.
+
+---
+
+## ðŸ’– Donation & Support
+
+If you find V2RayPro helpful and would like to support ongoing development and server maintenance, you can donate via cryptocurrency:
+
+| Coin | Network / Symbol | Address |
+| :--- | :--- | :--- |
+| **Bitcoin** | BTC | `1JpSSvLjAj3wreRogBdjTMdEykW7YsX97b` |
+| **Ethereum** | ETH (ERC20) | `0xE90973336d5c09B1183A8ddc4f27b1647Cbdc52A` |
+| **Tether / Tron** | TRX / TRC20 | `TSuhDm1B7X4sz4xNjgd3Y6JGDXCgq8qv7b` |
+| **BNB** | BSC (BEP20) | `0xE90973336d5c09B1183A8ddc4f27b1647Cbdc52A` |
+| **Telegram Open Network** | Gram / TON | `EQDD0fo7jSaljn5q4dO02hhC1d3xc2Hr9N5AK2JqMCguZmnB` |
+| **Solana** | SOL | `E5fNLHCaZhYTWWacyCnFXLEnkLT8pkiZUqbWEEnEhHQe` |
+| **Monero** | XMR | `42o9i9DacHtbzndSx9eSPBFmAFrCeW9R2RWyv1ZJeNemKTAKDyHa8jRF8Ce8j7CVqJJBURGDNipKyC4ebigbPjVRUeMRHoK` |
+| **Ripple** | XRP | `raxQ5Vg3awT1U7jx1Zv1znVcCrKVCJ8HNF` |
+| **Ethereum Classic** | ETC | `0xE90973336d5c09B1183A8ddc4f27b1647Cbdc52A` |
+| **Litecoin** | LTC | `LSHokx4e2pbdmJaYpKqEkJUv3R4iE9t4zZ` |
+| **Cardano** | ADA | `addr1qxlavq0fu3x2dzd685shgq46v6ysyu4w3w7g4pu6r6sjl95qwrclc2a2x6x4c5fgp80m27rupavltt62ezwcmx2z8ngsam72me` |
+
+---
+
+## ðŸ“„ License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
