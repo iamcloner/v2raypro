@@ -33,6 +33,8 @@ flutter:
   uses-material-design: true
   assets:
     - assets/bin/xray.exe
+    - assets/bin/geoip.dat
+    - assets/bin/geosite.dat
     - assets/fonts/tahoma.ttf
     - assets/app_icon.ico
     - assets/app_icon.png

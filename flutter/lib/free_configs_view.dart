@@ -100,10 +100,10 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Top Bar
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final isNarrow = constraints.maxWidth < 600;
+                final titleCol = Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
@@ -122,11 +122,10 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
                       style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
                     ),
                   ],
-                ),
-                Row(
-                  children: [
-                    if (freeState.isScanning)
-                      OutlinedButton.icon(
+                );
+
+                final actionBtn = freeState.isScanning
+                    ? OutlinedButton.icon(
                         style: OutlinedButton.styleFrom(
                           side: const BorderSide(color: Colors.amber, width: 1.5),
                         ),
@@ -141,8 +140,7 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
                         ),
                         onPressed: () => ref.read(freeConfigsProvider.notifier).cancelScan(),
                       )
-                    else
-                      FilledButton.icon(
+                    : FilledButton.icon(
                         style: FilledButton.styleFrom(
                           backgroundColor: AppTheme.primaryAccent,
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -156,10 +154,27 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
                           setState(() => _selectedCountryCode = null);
                           ref.read(freeConfigsProvider.notifier).startScan();
                         },
-                      ),
+                      );
+
+                if (isNarrow) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      titleCol,
+                      const SizedBox(height: 12),
+                      Align(alignment: Alignment.centerLeft, child: actionBtn),
+                    ],
+                  );
+                }
+
+                return Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    titleCol,
+                    actionBtn,
                   ],
-                ),
-              ],
+                );
+              },
             ),
             const SizedBox(height: 16),
 
@@ -443,45 +458,67 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
   }
 
   Widget _buildStatsDashboard(FreeConfigsState state, String locale) {
-    return Row(
-      children: [
-        _buildStatCard(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final card1 = _buildStatCard(
           icon: Icons.cloud_download_rounded,
           iconColor: Colors.blueAccent,
           label: AppStrings.get('total_candidates', locale: locale),
           value: state.totalScraped > 0 ? '${state.totalScraped}' : (state.workingNodes.isNotEmpty ? '${state.workingNodes.length}' : '0'),
-        ),
-        const SizedBox(width: 10),
-        _buildStatCard(
+        );
+        final card2 = _buildStatCard(
           icon: Icons.filter_alt_rounded,
           iconColor: Colors.purpleAccent,
           label: AppStrings.get('unique_candidates', locale: locale),
           value: state.totalUnique > 0 ? '${state.totalUnique}' : (state.workingNodes.isNotEmpty ? '${state.workingNodes.length}' : '0'),
-        ),
-        const SizedBox(width: 10),
-        _buildStatCard(
+        );
+        final card3 = _buildStatCard(
           icon: Icons.speed_rounded,
           iconColor: Colors.amber,
           label: AppStrings.get('tested_count', locale: locale),
           value: state.testedCandidates > 0 ? '${state.testedCandidates}' : (state.workingNodes.isNotEmpty ? '${state.workingNodes.length}' : '0'),
-        ),
-        const SizedBox(width: 10),
-        _buildStatCard(
+        );
+        final card4 = _buildStatCard(
           icon: Icons.check_circle_rounded,
           iconColor: AppTheme.successColor,
           label: AppStrings.get('responsive_configs_count', locale: locale),
           value: '${state.workingNodes.length}',
           highlightColor: AppTheme.successColor,
-        ),
-        const SizedBox(width: 10),
-        _buildStatCard(
+        );
+        final card5 = _buildStatCard(
           icon: Icons.cancel_rounded,
           iconColor: Colors.redAccent,
           label: AppStrings.get('failed_timeout_count', locale: locale),
           value: '${state.failedCount}',
           highlightColor: state.failedCount > 0 ? Colors.redAccent : null,
-        ),
-      ],
+        );
+
+        if (constraints.maxWidth < 700) {
+          return Column(
+            children: [
+              Row(children: [card1, const SizedBox(width: 8), card2]),
+              const SizedBox(height: 8),
+              Row(children: [card3, const SizedBox(width: 8), card4]),
+              const SizedBox(height: 8),
+              Row(children: [card5]),
+            ],
+          );
+        }
+
+        return Row(
+          children: [
+            card1,
+            const SizedBox(width: 10),
+            card2,
+            const SizedBox(width: 10),
+            card3,
+            const SizedBox(width: 10),
+            card4,
+            const SizedBox(width: 10),
+            card5,
+          ],
+        );
+      },
     );
   }
 

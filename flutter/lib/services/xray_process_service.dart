@@ -2,6 +2,8 @@ import "dart:async";
 import "dart:convert";
 import "dart:ffi" as ffi;
 import "dart:io";
+import "package:flutter/services.dart";
+import "package:path_provider/path_provider.dart";
 import "../models/proxy_node.dart";
 import "../models/routing_rule.dart";
 import "../models/log_entry.dart";
@@ -73,7 +75,83 @@ class XrayProcessService {
   TrafficStats _currentTrafficStats = const TrafficStats();
   TrafficStats get currentTrafficStats => _currentTrafficStats;
 
+  String? _androidBinaryPath;
+  Directory? _androidAssetDir;
+
+  Future<void> initAndroid() async {
+    if (!Platform.isAndroid) return;
+    try {
+      const channel = MethodChannel('com.v2raypro.app/native');
+      final path = await channel.invokeMethod<String>('getXrayBinary');
+      if (path != null && File(path).existsSync()) {
+        _androidBinaryPath = path;
+      }
+    } catch (e) {
+      LogService.instance.add("Android getXrayBinary: $e", level: LogLevel.warning, source: "system");
+    }
+
+    if (_androidBinaryPath == null) {
+      try {
+        const channel = MethodChannel('com.v2raypro.app/native');
+        final libDir = await channel.invokeMethod<String>('getNativeLibraryDir');
+        if (libDir != null) {
+          final candidate = File('$libDir/libxray.so');
+          if (candidate.existsSync()) {
+            _androidBinaryPath = candidate.path;
+          }
+        }
+      } catch (_) {}
+    }
+
+    try {
+      final appSupport = await getApplicationSupportDirectory();
+      final xrayDir = Directory('${appSupport.path}/xray');
+      if (!xrayDir.existsSync()) {
+        await xrayDir.create(recursive: true);
+      }
+      _androidAssetDir = xrayDir;
+
+      for (final datName in ['geoip.dat', 'geosite.dat']) {
+        final targetFile = File('${xrayDir.path}/$datName');
+        if (!targetFile.existsSync() || targetFile.lengthSync() < 1000) {
+          try {
+            final byteData = await rootBundle.load('assets/bin/$datName');
+            final buffer = byteData.buffer;
+            await targetFile.writeAsBytes(
+              buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes),
+              flush: true,
+            );
+          } catch (e) {
+            LogService.instance.add("Failed to extract $datName: $e", level: LogLevel.warning, source: "system");
+          }
+        }
+      }
+    } catch (e) {
+      LogService.instance.add("Failed to initialize Android asset dir: $e", level: LogLevel.warning, source: "system");
+    }
+  }
+
+  String _getWorkingDirectory(String binaryPath) {
+    if (Platform.isAndroid && _androidAssetDir != null) {
+      return _androidAssetDir!.path;
+    }
+    return File(binaryPath).parent.path;
+  }
+
+  Map<String, String>? _getXrayEnvironment() {
+    if (Platform.isAndroid && _androidAssetDir != null) {
+      return {"XRAY_LOCATION_ASSET": _androidAssetDir!.path};
+    }
+    return null;
+  }
+
   String? _findXrayBinary() {
+    if (Platform.isAndroid) {
+      if (_androidBinaryPath != null && File(_androidBinaryPath!).existsSync()) {
+        return _androidBinaryPath;
+      }
+      return null;
+    }
     final exeDir = File(Platform.resolvedExecutable).parent.path;
     final candidates = [
       "$exeDir/xray/xray.exe",
@@ -500,6 +578,10 @@ class XrayProcessService {
     _state = EngineState.starting;
     LogService.instance.add("Initializing Xray core for node: ${node.name} (${node.address}:${node.port}) [TUN: $enableTun, SysProxy: $setSysProxy, UDP: $enableUdp, LAN: ${allowLan || globalAllowLan}]", level: LogLevel.info, source: "system");
 
+    if (Platform.isAndroid && _androidBinaryPath == null) {
+      await initAndroid();
+    }
+
     final binaryPath = _findXrayBinary();
     if (binaryPath == null) {
       _state = EngineState.error;
@@ -529,14 +611,20 @@ class XrayProcessService {
 
     try {
       final configJson = generateXrayConfig(node, enableTun: enableTun, enableUdp: enableUdp, allowLan: allowLan || globalAllowLan);
-      final tmpDir = Directory.systemTemp;
+      final tmpDir = Platform.isAndroid && _androidAssetDir != null
+          ? _androidAssetDir!
+          : Directory.systemTemp;
       _currentConfigFile = File("${tmpDir.path}/v2raypro_active_config.json");
       await _currentConfigFile!.writeAsString(jsonEncode(configJson));
+
+      final workDir = _getWorkingDirectory(binaryPath);
+      final env = _getXrayEnvironment();
 
       _process = await Process.start(
         binaryPath,
         ["run", "-c", _currentConfigFile!.path],
-        workingDirectory: File(binaryPath).parent.path,
+        workingDirectory: workDir,
+        environment: env,
         mode: ProcessStartMode.normal,
       );
 
@@ -832,7 +920,10 @@ class XrayProcessService {
       }
     };
 
-    final tempFile = File('${Directory.systemTemp.path}/xray_batch_test_${DateTime.now().millisecondsSinceEpoch}.json');
+    final tempDir = Platform.isAndroid && _androidAssetDir != null
+        ? _androidAssetDir!
+        : Directory.systemTemp;
+    final tempFile = File('${tempDir.path}/xray_batch_test_${DateTime.now().millisecondsSinceEpoch}.json');
     Process? proc;
     try {
       await tempFile.writeAsString(jsonEncode(testConfig));
@@ -840,7 +931,8 @@ class XrayProcessService {
       proc = await Process.start(
         xrayBin,
         ['run', '-c', tempFile.path],
-        workingDirectory: File(xrayBin).parent.path,
+        workingDirectory: _getWorkingDirectory(xrayBin),
+        environment: _getXrayEnvironment(),
       );
       // Fast startup delay for localhost socket binding
       await Future.delayed(const Duration(milliseconds: 40));

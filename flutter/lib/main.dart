@@ -7,6 +7,7 @@ import 'logs_view.dart';
 import 'settings_view.dart';
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -33,6 +34,12 @@ import 'services/country_service.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   RustBridge.instance.initialize();
+
+  if (Platform.isAndroid) {
+    try {
+      await XrayProcessService.instance.initAndroid();
+    } catch (_) {}
+  }
 
   // Startup safety check: If previous run left active proxy or orphan xray/TUN processes, clean them up immediately
   try {
@@ -114,6 +121,7 @@ class MainShell extends ConsumerStatefulWidget {
 
 class _MainShellState extends ConsumerState<MainShell> {
   int _selectedIndex = 0;
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   @override
   void initState() {
@@ -433,9 +441,26 @@ class _MainShellState extends ConsumerState<MainShell> {
       );
     }
 
+    int bottomNavIndex = 3;
+    if (_selectedIndex == 0) {
+      bottomNavIndex = 0;
+    } else if (_selectedIndex == 1) {
+      bottomNavIndex = 1;
+    } else if (_selectedIndex == 3) {
+      bottomNavIndex = 2;
+    }
+
     return Scaffold(
+      key: _scaffoldKey,
+      drawer: _buildMobileDrawer(context, locale, hasCdn, scannerLabel),
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.menu_rounded),
+          tooltip: AppStrings.get('more', locale: locale),
+          onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+        ),
         title: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
             Container(
               width: 30,
@@ -450,7 +475,7 @@ class _MainShellState extends ConsumerState<MainShell> {
               clipBehavior: Clip.antiAlias,
               child: Image.asset('assets/app_icon.png', fit: BoxFit.cover),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 8),
             const Text(
               "V2Ray",
               style: TextStyle(
@@ -483,8 +508,18 @@ class _MainShellState extends ConsumerState<MainShell> {
       ),
       body: pages[_selectedIndex],
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedIndex,
-        onDestinationSelected: (idx) => setState(() => _selectedIndex = idx),
+        selectedIndex: bottomNavIndex,
+        onDestinationSelected: (idx) {
+          if (idx == 0) {
+            setState(() => _selectedIndex = 0);
+          } else if (idx == 1) {
+            setState(() => _selectedIndex = 1);
+          } else if (idx == 2) {
+            setState(() => _selectedIndex = 3); // Free Configs
+          } else if (idx == 3) {
+            _scaffoldKey.currentState?.openDrawer();
+          }
+        },
         destinations: [
           NavigationDestination(
             icon: const Icon(Icons.dashboard_rounded),
@@ -495,31 +530,159 @@ class _MainShellState extends ConsumerState<MainShell> {
             label: AppStrings.get('configs', locale: locale),
           ),
           NavigationDestination(
-            icon: const Icon(Icons.rss_feed_rounded),
-            label: AppStrings.get('subscriptions', locale: locale),
-          ),
-          NavigationDestination(
             icon: const Icon(Icons.card_giftcard_rounded),
             label: AppStrings.get('free_configs', locale: locale),
           ),
-          if (hasCdn)
-            NavigationDestination(
-              icon: const Icon(Icons.radar_rounded),
-              label: scannerLabel,
-            ),
           NavigationDestination(
-            icon: const Icon(Icons.alt_route_rounded),
-            label: AppStrings.get('routing', locale: locale),
-          ),
-          NavigationDestination(
-            icon: const Icon(Icons.article_rounded),
-            label: AppStrings.get('logs', locale: locale),
-          ),
-          NavigationDestination(
-            icon: const Icon(Icons.settings_rounded),
-            label: AppStrings.get('settings', locale: locale),
+            icon: const Icon(Icons.menu_rounded),
+            label: AppStrings.get('more', locale: locale),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildMobileDrawer(BuildContext context, String locale, bool hasCdn, String scannerLabel) {
+    final routingIdx = hasCdn ? 5 : 4;
+    final logsIdx = hasCdn ? 6 : 5;
+    final settingsIdx = hasCdn ? 7 : 6;
+
+    return Drawer(
+      child: SafeArea(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+              child: Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: const Color(0xFF00D2FF).withValues(alpha: 0.5),
+                        width: 1.5,
+                      ),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: Image.asset('assets/app_icon.png', fit: BoxFit.cover),
+                  ),
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          const Text(
+                            "V2Ray",
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                          ),
+                          const SizedBox(width: 5),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFF00D2FF), Color(0xFFFF7A00)],
+                              ),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text(
+                              "PRO",
+                              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 8, color: Colors.white),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        UpdateService.currentAppVersion,
+                        style: const TextStyle(fontSize: 11, color: Colors.grey, fontFamily: 'monospace'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.dashboard_rounded),
+              title: Text(AppStrings.get('dashboard', locale: locale)),
+              selected: _selectedIndex == 0,
+              onTap: () {
+                Navigator.of(context).pop();
+                setState(() => _selectedIndex = 0);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.hub_rounded),
+              title: Text(AppStrings.get('configs', locale: locale)),
+              selected: _selectedIndex == 1,
+              onTap: () {
+                Navigator.of(context).pop();
+                setState(() => _selectedIndex = 1);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.card_giftcard_rounded),
+              title: Text(AppStrings.get('free_configs', locale: locale)),
+              selected: _selectedIndex == 3,
+              onTap: () {
+                Navigator.of(context).pop();
+                setState(() => _selectedIndex = 3);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.rss_feed_rounded),
+              title: Text(AppStrings.get('subscriptions', locale: locale)),
+              selected: _selectedIndex == 2,
+              onTap: () {
+                Navigator.of(context).pop();
+                setState(() => _selectedIndex = 2);
+              },
+            ),
+            if (hasCdn)
+              ListTile(
+                leading: const Icon(Icons.radar_rounded),
+                title: Text(scannerLabel),
+                selected: _selectedIndex == 4,
+                onTap: () {
+                  Navigator.of(context).pop();
+                  setState(() => _selectedIndex = 4);
+                },
+              ),
+            const Divider(height: 16),
+            ListTile(
+              leading: const Icon(Icons.alt_route_rounded),
+              title: Text(AppStrings.get('routing', locale: locale)),
+              selected: _selectedIndex == routingIdx,
+              onTap: () {
+                Navigator.of(context).pop();
+                setState(() => _selectedIndex = routingIdx);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.article_rounded),
+              title: Text(AppStrings.get('logs', locale: locale)),
+              selected: _selectedIndex == logsIdx,
+              onTap: () {
+                Navigator.of(context).pop();
+                setState(() => _selectedIndex = logsIdx);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.settings_rounded),
+              title: Text(AppStrings.get('settings', locale: locale)),
+              selected: _selectedIndex == settingsIdx,
+              onTap: () {
+                Navigator.of(context).pop();
+                setState(() => _selectedIndex = settingsIdx);
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -664,119 +827,140 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
           const SizedBox(height: 16),
 
           // 2. System Proxy & TUN Mode Toggles
-          Row(
-            children: [
-              Expanded(
-                child: Opacity(
-                  opacity: isConnected ? 1.0 : 0.45,
-                  child: Card(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isWide = constraints.maxWidth >= 640;
+              final sysProxyCard = Opacity(
+                opacity: isConnected ? 1.0 : 0.45,
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.shield_outlined,
+                          color: (isConnected && isSysProxy) ? AppTheme.successColor : Colors.grey,
+                          size: 24,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(
-                                Icons.shield_outlined,
-                                color: (isConnected && isSysProxy) ? AppTheme.successColor : Colors.grey,
-                                size: 24,
+                              Text(
+                                AppStrings.get('system_proxy', locale: locale),
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
-                              const SizedBox(width: 10),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    AppStrings.get('system_proxy', locale: locale),
-                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                                  ),
-                                  Text(
-                                    isConnected
-                                        ? AppStrings.get('system_proxy_desc', locale: locale)
-                                        : AppStrings.get('connect_first_hint', locale: locale),
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      color: isConnected ? Colors.grey : AppTheme.secondaryAccent.withValues(alpha: 0.8),
-                                    ),
-                                  ),
-                                ],
+                              Text(
+                                isConnected
+                                    ? AppStrings.get('system_proxy_desc', locale: locale)
+                                    : AppStrings.get('connect_first_hint', locale: locale),
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: isConnected ? Colors.grey : AppTheme.secondaryAccent.withValues(alpha: 0.8),
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ],
                           ),
-                          Switch(
-                            value: isConnected && isSysProxy,
-                            activeColor: AppTheme.successColor,
-                            onChanged: isConnected
-                                ? (val) {
-                                    ref.read(isSystemProxyEnabledProvider.notifier).toggle(val);
-                                  }
-                                : null,
-                          ),
-                        ],
-                      ),
+                        ),
+                        const SizedBox(width: 8),
+                        Switch(
+                          value: isConnected && isSysProxy,
+                          activeColor: AppTheme.successColor,
+                          onChanged: isConnected
+                              ? (val) {
+                                  ref.read(isSystemProxyEnabledProvider.notifier).toggle(val);
+                                }
+                              : null,
+                        ),
+                      ],
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Opacity(
-                  opacity: isConnected ? 1.0 : 0.45,
-                  child: Card(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
+              );
+
+              final tunCard = Opacity(
+                opacity: isConnected ? 1.0 : 0.45,
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.vpn_lock_rounded,
+                          color: (isConnected && isTun) ? AppTheme.primaryAccent : Colors.grey,
+                          size: 24,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(
-                                Icons.vpn_lock_rounded,
-                                color: (isConnected && isTun) ? AppTheme.primaryAccent : Colors.grey,
-                                size: 24,
+                              Text(
+                                AppStrings.get('tun_mode', locale: locale),
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
-                              const SizedBox(width: 10),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    AppStrings.get('tun_mode', locale: locale),
-                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                                  ),
-                                  Text(
-                                    isConnected
-                                        ? AppStrings.get('tun_mode_desc', locale: locale)
-                                        : AppStrings.get('connect_first_hint', locale: locale),
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      color: isConnected ? Colors.grey : AppTheme.primaryAccent.withValues(alpha: 0.8),
-                                    ),
-                                  ),
-                                ],
+                              Text(
+                                isConnected
+                                    ? AppStrings.get('tun_mode_desc', locale: locale)
+                                    : AppStrings.get('connect_first_hint', locale: locale),
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: isConnected ? Colors.grey : AppTheme.primaryAccent.withValues(alpha: 0.8),
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ],
                           ),
-                          Switch(
-                            value: isConnected && isTun,
-                            activeColor: AppTheme.primaryAccent,
-                            onChanged: isConnected
-                                ? (val) async {
-                                    if (val && !XrayProcessService.instance.isRunningAsAdmin()) {
-                                      _showAdminElevationDialog(context, locale);
-                                      return;
-                                    }
-                                    ref.read(isTunEnabledProvider.notifier).toggle(val);
-                                    await ref.read(connectionStatusProvider.notifier).reconnectWithUpdatedSettings();
+                        ),
+                        const SizedBox(width: 8),
+                        Switch(
+                          value: isConnected && isTun,
+                          activeColor: AppTheme.primaryAccent,
+                          onChanged: isConnected
+                              ? (val) async {
+                                  if (val && !XrayProcessService.instance.isRunningAsAdmin()) {
+                                    _showAdminElevationDialog(context, locale);
+                                    return;
                                   }
-                                : null,
-                          ),
-                        ],
-                      ),
+                                  ref.read(isTunEnabledProvider.notifier).toggle(val);
+                                  await ref.read(connectionStatusProvider.notifier).reconnectWithUpdatedSettings();
+                                }
+                              : null,
+                        ),
+                      ],
                     ),
                   ),
                 ),
-              ),
-            ],
+              );
+
+              if (isWide) {
+                return Row(
+                  children: [
+                    Expanded(child: sysProxyCard),
+                    const SizedBox(width: 12),
+                    Expanded(child: tunCard),
+                  ],
+                );
+              } else {
+                return Column(
+                  children: [
+                    sysProxyCard,
+                    const SizedBox(height: 10),
+                    tunCard,
+                  ],
+                );
+              }
+            },
           ),
           const SizedBox(height: 16),
 
@@ -854,104 +1038,112 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: const Color(0xFF00D2FF).withValues(alpha: 0.5),
-                    width: 1.5,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF00D2FF).withValues(alpha: 0.25),
-                      blurRadius: 14,
-                      spreadRadius: 1,
+          Expanded(
+            child: Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: const Color(0xFF00D2FF).withValues(alpha: 0.5),
+                      width: 1.5,
                     ),
-                  ],
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: Image.asset('assets/app_icon.png', fit: BoxFit.cover),
-              ),
-              const SizedBox(width: 14),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      Text(
-                        "V2Ray",
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 0.6,
-                          color: Theme.of(context).colorScheme.onSurface,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF00D2FF), Color(0xFFFF7A00)],
-                          ),
-                          borderRadius: BorderRadius.circular(5),
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(0xFFFF7A00).withValues(alpha: 0.35),
-                              blurRadius: 6,
-                            ),
-                          ],
-                        ),
-                        child: const Text(
-                          "PRO",
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 1.0,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.06),
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: Colors.white12),
-                        ),
-                        child: Text(
-                          UpdateService.currentAppVersion,
-                          style: const TextStyle(
-                            fontSize: 10,
-                            fontFamily: 'monospace',
-                            color: Colors.grey,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF00D2FF).withValues(alpha: 0.25),
+                        blurRadius: 14,
+                        spreadRadius: 1,
                       ),
                     ],
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    AppStrings.get('app_tagline', locale: locale),
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.grey.shade400,
-                      letterSpacing: 0.2,
-                    ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Image.asset('assets/app_icon.png', fit: BoxFit.cover),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            "V2Ray",
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.6,
+                              color: Theme.of(context).colorScheme.onSurface,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFF00D2FF), Color(0xFFFF7A00)],
+                              ),
+                              borderRadius: BorderRadius.circular(5),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFFFF7A00).withValues(alpha: 0.35),
+                                  blurRadius: 6,
+                                ),
+                              ],
+                            ),
+                            child: const Text(
+                              "PRO",
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 1.0,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 5, vertical: 1.5),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.06),
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: Colors.white12),
+                            ),
+                            child: Text(
+                              UpdateService.currentAppVersion,
+                              style: const TextStyle(
+                                fontSize: 9,
+                                fontFamily: 'monospace',
+                                color: Colors.grey,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        AppStrings.get('app_tagline', locale: locale),
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade400,
+                          letterSpacing: 0.2,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
                   ),
-                ],
-              ),
-            ],
+                ),
+              ],
+            ),
           ),
+          const SizedBox(width: 8),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
@@ -1181,10 +1373,12 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                             ),
                             if (outbound.isp != null) ...[
                               const SizedBox(width: 6),
-                              Text(
-                                '•  ${outbound.isp}',
-                                style: const TextStyle(fontSize: 11, color: Colors.grey),
-                                overflow: TextOverflow.ellipsis,
+                              Flexible(
+                                child: Text(
+                                  '•  ${outbound.isp}',
+                                  style: const TextStyle(fontSize: 11, color: Colors.grey),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
                             ],
                           ],
@@ -1422,24 +1616,39 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
   Widget _buildMetricTile({required String title, required String value, required IconData icon, required Color color}) {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
         child: Row(
           children: [
             Container(
-              padding: const EdgeInsets.all(8),
+              padding: const EdgeInsets.all(7),
               decoration: BoxDecoration(
                 color: color.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(8),
               ),
-              child: Icon(icon, color: color, size: 20),
+              child: Icon(icon, color: color, size: 18),
             ),
-            const SizedBox(width: 10),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-              ],
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(fontSize: 10, color: Colors.grey),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      value,
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),

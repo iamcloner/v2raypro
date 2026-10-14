@@ -307,6 +307,7 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
     final outbound = ref.watch(outboundInfoProvider);
     final connState = ref.watch(connectionStatusProvider);
     final isConnected = connState == ConnectionStateEnum.connected;
+    final isDesktop = MediaQuery.of(context).size.width >= 650;
 
     final progress = _totalToTest > 0 ? (_testedCount / _totalToTest).clamp(0.0, 1.0) : 0.0;
     final progressPercent = (progress * 100).toInt();
@@ -333,67 +334,92 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
             padding: const EdgeInsets.all(24),
             child: Column(
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      AppStrings.get('configs', locale: locale),
-                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                    ),
-                    Row(
-                      children: [
-                        if (nodes.isNotEmpty) ...[
-                          OutlinedButton.icon(
-                            style: _isTestingAll
-                                ? OutlinedButton.styleFrom(
-                                    side: const BorderSide(color: Colors.amber, width: 1.5),
-                                  )
-                                : null,
-                            icon: _isTestingAll
-                                ? SizedBox(
-                                    width: 14,
-                                    height: 14,
-                                    child: CircularProgressIndicator(
-                                      value: progress > 0 ? progress : null,
-                                      strokeWidth: 2,
-                                      color: Colors.amber,
-                                    ),
-                                  )
-                                : const Icon(Icons.speed_rounded, size: 18),
-                            label: Text(
-                              _isTestingAll
-                                  ? (_testRemainingEta != null
-                                      ? '$progressPercent% ($_testRemainingEta)'
-                                      : '$progressPercent% (${AppStrings.get("cancel_scan", locale: locale)})')
-                                  : AppStrings.get('test_all', locale: locale),
-                              style: TextStyle(
-                                color: _isTestingAll ? Colors.amber : null,
-                                fontWeight: _isTestingAll ? FontWeight.bold : FontWeight.normal,
-                              ),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isNarrow = constraints.maxWidth < 640;
+                    final buttons = [
+                      if (nodes.isNotEmpty) ...[
+                        OutlinedButton.icon(
+                          style: _isTestingAll
+                              ? OutlinedButton.styleFrom(
+                                  side: const BorderSide(color: Colors.amber, width: 1.5),
+                                )
+                              : null,
+                          icon: _isTestingAll
+                              ? SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(
+                                    value: progress > 0 ? progress : null,
+                                    strokeWidth: 2,
+                                    color: Colors.amber,
+                                  ),
+                                )
+                              : const Icon(Icons.speed_rounded, size: 18),
+                          label: Text(
+                            _isTestingAll
+                                ? (_testRemainingEta != null
+                                    ? '$progressPercent% ($_testRemainingEta)'
+                                    : '$progressPercent% (${AppStrings.get("cancel_scan", locale: locale)})')
+                                : AppStrings.get('test_all', locale: locale),
+                            style: TextStyle(
+                              color: _isTestingAll ? Colors.amber : null,
+                              fontWeight: _isTestingAll ? FontWeight.bold : FontWeight.normal,
                             ),
-                            onPressed: () => _testAllNodes(nodes),
                           ),
-                          const SizedBox(width: 8),
-                          OutlinedButton.icon(
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: Colors.redAccent,
-                              side: BorderSide(color: Colors.redAccent.withValues(alpha: 0.6), width: 1.2),
-                            ),
-                            icon: const Icon(Icons.delete_sweep_rounded, size: 18),
-                            label: Text(AppStrings.get('delete_dead_configs', locale: locale)),
-                            onPressed: () => _deleteDeadNodes(nodes, locale),
+                          onPressed: () => _testAllNodes(nodes),
+                        ),
+                        OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.redAccent,
+                            side: BorderSide(color: Colors.redAccent.withValues(alpha: 0.6), width: 1.2),
                           ),
-                          const SizedBox(width: 12),
-                        ],
-                        FilledButton.icon(
-                          style: FilledButton.styleFrom(backgroundColor: AppTheme.primaryAccent),
-                          icon: const Icon(Icons.add),
-                          label: Text(AppStrings.get('add_config', locale: locale)),
-                          onPressed: () => AddConfigDialog.show(context, locale),
+                          icon: const Icon(Icons.delete_sweep_rounded, size: 18),
+                          label: Text(AppStrings.get('delete_dead_configs', locale: locale)),
+                          onPressed: () => _deleteDeadNodes(nodes, locale),
                         ),
                       ],
-                    ),
-                  ],
+                      FilledButton.icon(
+                        style: FilledButton.styleFrom(backgroundColor: AppTheme.primaryAccent),
+                        icon: const Icon(Icons.add),
+                        label: Text(AppStrings.get('add_config', locale: locale)),
+                        onPressed: () => AddConfigDialog.show(context, locale),
+                      ),
+                    ];
+
+                    if (isNarrow) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            AppStrings.get('configs', locale: locale),
+                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: buttons,
+                          ),
+                        ],
+                      );
+                    } else {
+                      return Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            AppStrings.get('configs', locale: locale),
+                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                          ),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: buttons,
+                          ),
+                        ],
+                      );
+                    }
+                  },
                 ),
                 const SizedBox(height: 16),
                 if (nodes.isNotEmpty)
@@ -529,36 +555,99 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
                                       ),
                                     ),
                                 ],
-                                IconButton(
-                                  visualDensity: VisualDensity.compact,
-                                  icon: const Icon(Icons.bolt_rounded, size: 20, color: Colors.cyanAccent),
-                                  tooltip: 'Ping test',
-                                  onPressed: () => _testNodeLatency(node),
-                                ),
-                                IconButton(
-                                  visualDensity: VisualDensity.compact,
-                                  icon: const Icon(Icons.edit, size: 20, color: Colors.amberAccent),
-                                  tooltip: AppStrings.get('edit_config', locale: locale),
-                                  onPressed: () => EditConfigDialog.show(context, node, locale),
-                                ),
-                                IconButton(
-                                  visualDensity: VisualDensity.compact,
-                                  icon: const Icon(Icons.share, size: 20, color: Colors.purpleAccent),
-                                  tooltip: AppStrings.get('share_config', locale: locale),
-                                  onPressed: () {
-                                    Clipboard.setData(ClipboardData(text: node.toShareUrl()));
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text(AppStrings.get('share_copied', locale: locale))),
-                                    );
-                                  },
-                                ),
-                                IconButton(
-                                  visualDensity: VisualDensity.compact,
-                                  icon: Icon(Icons.delete_outline_rounded, size: 20, color: Colors.redAccent.shade100),
-                                  onPressed: () {
-                                    ref.read(nodesProvider.notifier).removeNode(node.id);
-                                  },
-                                ),
+                                if (isDesktop) ...[
+                                  IconButton(
+                                    visualDensity: VisualDensity.compact,
+                                    icon: const Icon(Icons.bolt_rounded, size: 20, color: Colors.cyanAccent),
+                                    tooltip: 'Ping test',
+                                    onPressed: () => _testNodeLatency(node),
+                                  ),
+                                  IconButton(
+                                    visualDensity: VisualDensity.compact,
+                                    icon: const Icon(Icons.edit, size: 20, color: Colors.amberAccent),
+                                    tooltip: AppStrings.get('edit_config', locale: locale),
+                                    onPressed: () => EditConfigDialog.show(context, node, locale),
+                                  ),
+                                  IconButton(
+                                    visualDensity: VisualDensity.compact,
+                                    icon: const Icon(Icons.share, size: 20, color: Colors.purpleAccent),
+                                    tooltip: AppStrings.get('share_config', locale: locale),
+                                    onPressed: () {
+                                      Clipboard.setData(ClipboardData(text: node.toShareUrl()));
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text(AppStrings.get('share_copied', locale: locale))),
+                                      );
+                                    },
+                                  ),
+                                  IconButton(
+                                    visualDensity: VisualDensity.compact,
+                                    icon: Icon(Icons.delete_outline_rounded, size: 20, color: Colors.redAccent.shade100),
+                                    onPressed: () {
+                                      ref.read(nodesProvider.notifier).removeNode(node.id);
+                                    },
+                                  ),
+                                ] else ...[
+                                  PopupMenuButton<String>(
+                                    icon: const Icon(Icons.more_vert_rounded, size: 20),
+                                    padding: EdgeInsets.zero,
+                                    onSelected: (val) {
+                                      if (val == 'ping') {
+                                        _testNodeLatency(node);
+                                      } else if (val == 'edit') {
+                                        EditConfigDialog.show(context, node, locale);
+                                      } else if (val == 'share') {
+                                        Clipboard.setData(ClipboardData(text: node.toShareUrl()));
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(content: Text(AppStrings.get('share_copied', locale: locale))),
+                                        );
+                                      } else if (val == 'delete') {
+                                        ref.read(nodesProvider.notifier).removeNode(node.id);
+                                      }
+                                    },
+                                    itemBuilder: (ctx) => [
+                                      const PopupMenuItem(
+                                        value: 'ping',
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.bolt_rounded, size: 18, color: Colors.cyanAccent),
+                                            SizedBox(width: 8),
+                                            Text('Ping test'),
+                                          ],
+                                        ),
+                                      ),
+                                      PopupMenuItem(
+                                        value: 'edit',
+                                        child: Row(
+                                          children: [
+                                            const Icon(Icons.edit, size: 18, color: Colors.amberAccent),
+                                            const SizedBox(width: 8),
+                                            Text(AppStrings.get('edit_config', locale: locale)),
+                                          ],
+                                        ),
+                                      ),
+                                      PopupMenuItem(
+                                        value: 'share',
+                                        child: Row(
+                                          children: [
+                                            const Icon(Icons.share, size: 18, color: Colors.purpleAccent),
+                                            const SizedBox(width: 8),
+                                            Text(AppStrings.get('share_config', locale: locale)),
+                                          ],
+                                        ),
+                                      ),
+                                      const PopupMenuItem(
+                                        value: 'delete',
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.delete_outline_rounded, size: 18, color: Colors.redAccent),
+                                            SizedBox(width: 8),
+                                            Text('Delete'),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
                               ],
                             ),
                             onTap: () {
