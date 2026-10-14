@@ -121,7 +121,17 @@ class MainShell extends ConsumerStatefulWidget {
 
 class _MainShellState extends ConsumerState<MainShell> {
   int _selectedIndex = 0;
+  final List<int> _navigationHistory = [0];
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  void _navigateToTab(int index) {
+    if (_selectedIndex != index) {
+      setState(() {
+        _navigationHistory.add(index);
+        _selectedIndex = index;
+      });
+    }
+  }
 
   @override
   void initState() {
@@ -319,7 +329,7 @@ class _MainShellState extends ConsumerState<MainShell> {
     final pages = <Widget>[
       const DashboardView(),
       ConfigsView(
-        onNavigateToFreeConfigs: () => setState(() => _selectedIndex = 3),
+        onNavigateToFreeConfigs: () => _navigateToTab(3),
         onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
       ),
       SubscriptionsView(
@@ -484,101 +494,123 @@ class _MainShellState extends ConsumerState<MainShell> {
       }
     }
 
-    return Scaffold(
-      key: _scaffoldKey,
-      drawer: _buildMobileDrawer(context, locale, hasCdn, scannerLabel),
-      appBar: (Platform.isAndroid && _selectedIndex != 0)
-          ? null
-          : AppBar(
-              leading: IconButton(
-                icon: const Icon(Icons.menu_rounded),
-                tooltip: AppStrings.get('more', locale: locale),
-                onPressed: () => _scaffoldKey.currentState?.openDrawer(),
-              ),
-              title: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 30,
-                    height: 30,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: const Color(0xFF00D2FF).withValues(alpha: 0.4),
-                        width: 1.2,
+    return PopScope(
+      canPop: _selectedIndex == 0 && !(_scaffoldKey.currentState?.isDrawerOpen ?? false),
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        if (_scaffoldKey.currentState?.isDrawerOpen ?? false) {
+          _scaffoldKey.currentState?.closeDrawer();
+          return;
+        }
+        if (_selectedIndex != 0) {
+          setState(() {
+            while (_navigationHistory.isNotEmpty && _navigationHistory.last == _selectedIndex) {
+              _navigationHistory.removeLast();
+            }
+            if (_navigationHistory.isNotEmpty) {
+              _selectedIndex = _navigationHistory.removeLast();
+            } else {
+              _selectedIndex = 0;
+            }
+          });
+        }
+      },
+      child: Scaffold(
+        key: _scaffoldKey,
+        drawer: _buildMobileDrawer(context, locale, hasCdn, scannerLabel),
+        appBar: (Platform.isAndroid && _selectedIndex != 0)
+            ? null
+            : AppBar(
+                leading: IconButton(
+                  icon: const Icon(Icons.menu_rounded),
+                  tooltip: AppStrings.get('more', locale: locale),
+                  onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+                ),
+                title: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 30,
+                      height: 30,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: const Color(0xFF00D2FF).withValues(alpha: 0.4),
+                          width: 1.2,
+                        ),
                       ),
+                      clipBehavior: Clip.antiAlias,
+                      child: Image.asset('assets/app_icon.png', fit: BoxFit.cover),
                     ),
-                    clipBehavior: Clip.antiAlias,
-                    child: Image.asset('assets/app_icon.png', fit: BoxFit.cover),
-                  ),
-                  const SizedBox(width: 8),
-                  const Text(
-                    "V2Ray",
-                    style: TextStyle(
-                      fontWeight: FontWeight.w900,
-                      fontSize: 17,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                  const SizedBox(width: 5),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF00D2FF), Color(0xFFFF7A00)],
-                      ),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: const Text(
-                      "PRO",
+                    const SizedBox(width: 8),
+                    const Text(
+                      "V2Ray",
                       style: TextStyle(
                         fontWeight: FontWeight.w900,
-                        fontSize: 9,
-                        color: Colors.white,
-                        letterSpacing: 0.8,
+                        fontSize: 17,
+                        letterSpacing: 0.5,
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ),
-      body: pages[_selectedIndex],
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: bottomNavIndex,
-        onDestinationSelected: (idx) {
-          if (idx == 0) {
-            setState(() => _selectedIndex = 0);
-          } else if (idx == 1) {
-            setState(() => _selectedIndex = 1);
-          } else if (idx == 2) {
-            setState(() => _selectedIndex = Platform.isAndroid ? 2 : 3);
-          } else if (idx == 3) {
-            _scaffoldKey.currentState?.openDrawer();
-          }
-        },
-        destinations: [
-          NavigationDestination(
-            icon: const Icon(Icons.dashboard_rounded),
-            label: AppStrings.get('dashboard', locale: locale),
-          ),
-          NavigationDestination(
-            icon: const Icon(Icons.hub_rounded),
-            label: AppStrings.get('configs', locale: locale),
-          ),
-          Platform.isAndroid
-              ? NavigationDestination(
-                  icon: const Icon(Icons.rss_feed_rounded),
-                  label: locale == 'fa' ? 'اشتراک‌ها' : 'Sub',
-                )
-              : NavigationDestination(
-                  icon: const Icon(Icons.card_giftcard_rounded),
-                  label: AppStrings.get('free_configs', locale: locale),
+                    const SizedBox(width: 5),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF00D2FF), Color(0xFFFF7A00)],
+                        ),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Text(
+                        "PRO",
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 9,
+                          color: Colors.white,
+                          letterSpacing: 0.8,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-          NavigationDestination(
-            icon: const Icon(Icons.menu_rounded),
-            label: AppStrings.get('more', locale: locale),
-          ),
-        ],
+              ),
+        body: pages[_selectedIndex],
+        bottomNavigationBar: NavigationBar(
+          selectedIndex: bottomNavIndex,
+          onDestinationSelected: (idx) {
+            if (idx == 0) {
+              _navigateToTab(0);
+            } else if (idx == 1) {
+              _navigateToTab(1);
+            } else if (idx == 2) {
+              _navigateToTab(Platform.isAndroid ? 2 : 3);
+            } else if (idx == 3) {
+              _scaffoldKey.currentState?.openDrawer();
+            }
+          },
+          destinations: [
+            NavigationDestination(
+              icon: const Icon(Icons.dashboard_rounded),
+              label: AppStrings.get('dashboard', locale: locale),
+            ),
+            NavigationDestination(
+              icon: const Icon(Icons.hub_rounded),
+              label: AppStrings.get('configs', locale: locale),
+            ),
+            Platform.isAndroid
+                ? NavigationDestination(
+                    icon: const Icon(Icons.rss_feed_rounded),
+                    label: locale == 'fa' ? 'اشتراک‌ها' : 'Sub',
+                  )
+                : NavigationDestination(
+                    icon: const Icon(Icons.card_giftcard_rounded),
+                    label: AppStrings.get('free_configs', locale: locale),
+                  ),
+            NavigationDestination(
+              icon: const Icon(Icons.menu_rounded),
+              label: AppStrings.get('more', locale: locale),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -654,7 +686,7 @@ class _MainShellState extends ConsumerState<MainShell> {
               selected: _selectedIndex == 0,
               onTap: () {
                 Navigator.of(context).pop();
-                setState(() => _selectedIndex = 0);
+                _navigateToTab(0);
               },
             ),
             ListTile(
@@ -663,7 +695,7 @@ class _MainShellState extends ConsumerState<MainShell> {
               selected: _selectedIndex == 1,
               onTap: () {
                 Navigator.of(context).pop();
-                setState(() => _selectedIndex = 1);
+                _navigateToTab(1);
               },
             ),
             ListTile(
@@ -672,7 +704,7 @@ class _MainShellState extends ConsumerState<MainShell> {
               selected: _selectedIndex == 3,
               onTap: () {
                 Navigator.of(context).pop();
-                setState(() => _selectedIndex = 3);
+                _navigateToTab(3);
               },
             ),
             ListTile(
@@ -681,7 +713,7 @@ class _MainShellState extends ConsumerState<MainShell> {
               selected: _selectedIndex == 2,
               onTap: () {
                 Navigator.of(context).pop();
-                setState(() => _selectedIndex = 2);
+                _navigateToTab(2);
               },
             ),
             if (hasCdn)
@@ -691,7 +723,7 @@ class _MainShellState extends ConsumerState<MainShell> {
                 selected: _selectedIndex == 4,
                 onTap: () {
                   Navigator.of(context).pop();
-                  setState(() => _selectedIndex = 4);
+                  _navigateToTab(4);
                 },
               ),
             const Divider(height: 16),
@@ -701,7 +733,7 @@ class _MainShellState extends ConsumerState<MainShell> {
               selected: _selectedIndex == routingIdx,
               onTap: () {
                 Navigator.of(context).pop();
-                setState(() => _selectedIndex = routingIdx);
+                _navigateToTab(routingIdx);
               },
             ),
             ListTile(
@@ -710,7 +742,7 @@ class _MainShellState extends ConsumerState<MainShell> {
               selected: _selectedIndex == logsIdx,
               onTap: () {
                 Navigator.of(context).pop();
-                setState(() => _selectedIndex = logsIdx);
+                _navigateToTab(logsIdx);
               },
             ),
             ListTile(
@@ -719,7 +751,7 @@ class _MainShellState extends ConsumerState<MainShell> {
               selected: _selectedIndex == settingsIdx,
               onTap: () {
                 Navigator.of(context).pop();
-                setState(() => _selectedIndex = settingsIdx);
+                _navigateToTab(settingsIdx);
               },
             ),
           ],

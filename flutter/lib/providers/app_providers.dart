@@ -1576,6 +1576,30 @@ final routingRulesProvider = StateNotifierProvider<RoutingRulesNotifier, List<Ro
   return RoutingRulesNotifier();
 });
 
+class AppRoutingModeNotifier extends StateNotifier<AppRoutingMode> {
+  AppRoutingModeNotifier() : super(AppRoutingMode.exclusive) {
+    _init();
+  }
+
+  Future<void> _init() async {
+    final mode = await StorageService.instance.loadAppRoutingMode();
+    if (mounted) {
+      state = mode;
+      XrayProcessService.instance.appRoutingMode = mode;
+    }
+  }
+
+  Future<void> setMode(AppRoutingMode mode) async {
+    state = mode;
+    XrayProcessService.instance.appRoutingMode = mode;
+    await StorageService.instance.saveAppRoutingMode(mode);
+  }
+}
+
+final appRoutingModeProvider = StateNotifierProvider<AppRoutingModeNotifier, AppRoutingMode>((ref) {
+  return AppRoutingModeNotifier();
+});
+
 class LogsNotifier extends StateNotifier<List<LogEntry>> {
   StreamSubscription<LogEntry>? _sub;
 

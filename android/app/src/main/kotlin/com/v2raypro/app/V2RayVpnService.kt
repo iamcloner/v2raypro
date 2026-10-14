@@ -67,8 +67,10 @@ class V2RayVpnService : VpnService() {
             val isTun = intent.getBooleanExtra("isTun", true)
             val notificationTitle = intent.getStringExtra("notificationTitle") ?: "V2RayPro - متصل"
             val disconnectText = intent.getStringExtra("disconnectText") ?: "قطع اتصال"
+            val appRoutingMode = intent.getStringExtra("appRoutingMode") ?: "exclusive"
+            val appRoutingList = intent.getStringArrayListExtra("appRoutingList") ?: arrayListOf<String>()
 
-            startVpn(configName, httpPort, socksPort, isTun, notificationTitle, disconnectText)
+            startVpn(configName, httpPort, socksPort, isTun, notificationTitle, disconnectText, appRoutingMode, appRoutingList)
             return START_STICKY
         }
 
@@ -130,7 +132,9 @@ class V2RayVpnService : VpnService() {
         socksPort: Int,
         isTun: Boolean,
         notificationTitle: String,
-        disconnectText: String
+        disconnectText: String,
+        appRoutingMode: String = "exclusive",
+        appRoutingList: ArrayList<String> = arrayListOf()
     ) {
         val notification = createNotification(configName, notificationTitle, disconnectText)
         startForeground(NOTIFICATION_ID, notification)
@@ -151,10 +155,31 @@ class V2RayVpnService : VpnService() {
                     } catch (_: Exception) {}
                 }
 
-                // Exclude our own package so Xray loopback doesn't cause recursion
-                try {
-                    builder.addDisallowedApplication(packageName)
-                } catch (_: Exception) {}
+                if (appRoutingMode == "inclusive" && appRoutingList.isNotEmpty()) {
+                    // Inclusive mode: ONLY the selected applications are routed through the VPN tunnel.
+                    // All other apps bypass the tunnel and connect directly.
+                    // Note: Our own package is NOT added to allowed list, so Xray core connections
+                    // bypass the VPN automatically without loopback recursion!
+                    for (pkg in appRoutingList) {
+                        try {
+                            builder.addAllowedApplication(pkg)
+                        } catch (_: Exception) {}
+                    }
+                } else {
+                    // Exclusive mode (default): Selected applications bypass the VPN tunnel.
+                    // Our own package MUST be excluded so Xray loopback doesn't cause recursion.
+                    try {
+                        builder.addDisallowedApplication(packageName)
+                    } catch (_: Exception) {}
+
+                    for (pkg in appRoutingList) {
+                        if (pkg != packageName) {
+                            try {
+                                builder.addDisallowedApplication(pkg)
+                            } catch (_: Exception) {}
+                        }
+                    }
+                }
 
                 val pfd = builder.establish()
                 vpnInterface = pfd

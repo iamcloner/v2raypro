@@ -501,10 +501,11 @@ class _RoutingViewState extends ConsumerState<RoutingView> with SingleTickerProv
 
     return Column(
       children: [
-        if (type == RoutingRuleType.app)
+        if (type == RoutingRuleType.app) ...[
+          _buildAppRoutingModeCard(locale),
           Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            padding: const EdgeInsets.all(12),
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
               color: Colors.amber.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(8),
@@ -512,17 +513,18 @@ class _RoutingViewState extends ConsumerState<RoutingView> with SingleTickerProv
             ),
             child: Row(
               children: [
-                const Icon(Icons.info_outline_rounded, color: Colors.amber, size: 20),
-                const SizedBox(width: 10),
+                const Icon(Icons.info_outline_rounded, color: Colors.amber, size: 18),
+                const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     AppStrings.get('routing_tun_required', locale: locale),
-                    style: const TextStyle(fontSize: 12, color: Colors.amberAccent),
+                    style: const TextStyle(fontSize: 11.5, color: Colors.amberAccent),
                   ),
                 ),
               ],
             ),
           ),
+        ],
         Expanded(
           child: rules.isEmpty
               ? Center(
@@ -842,6 +844,194 @@ class _RoutingViewState extends ConsumerState<RoutingView> with SingleTickerProv
                 _buildRuleList(RoutingRuleType.app, locale),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAppRoutingModeCard(String locale) {
+    final mode = ref.watch(appRoutingModeProvider);
+    final isExclusive = mode == AppRoutingMode.exclusive;
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Theme.of(context).dividerColor.withValues(alpha: 0.5),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.tune_rounded, size: 18, color: AppTheme.primaryAccent),
+              const SizedBox(width: 8),
+              Text(
+                AppStrings.get('app_routing_policy', locale: locale),
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: isExclusive
+                      ? Colors.orange.withValues(alpha: 0.15)
+                      : AppTheme.primaryAccent.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  isExclusive ? 'Exclusive' : 'Inclusive',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: isExclusive ? Colors.orange : AppTheme.primaryAccent,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: InkWell(
+                  onTap: () {
+                    if (!isExclusive) {
+                      ref.read(appRoutingModeProvider.notifier).setMode(AppRoutingMode.exclusive);
+                      if (ref.read(connectionStatusProvider) == ConnectionStateEnum.connected) {
+                        ref.read(connectionStatusProvider.notifier).reconnectWithUpdatedSettings();
+                      }
+                    }
+                  },
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: isExclusive
+                          ? Colors.orange.withValues(alpha: 0.12)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: isExclusive
+                            ? Colors.orange
+                            : Theme.of(context).dividerColor.withValues(alpha: 0.4),
+                        width: isExclusive ? 1.5 : 1.0,
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.call_split_rounded,
+                              size: 16,
+                              color: isExclusive ? Colors.orange : Colors.grey,
+                            ),
+                            const SizedBox(width: 6),
+                            Flexible(
+                              child: Text(
+                                AppStrings.get('app_routing_exclusive', locale: locale),
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: isExclusive ? Colors.orange : null,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          AppStrings.get('app_routing_exclusive_desc', locale: locale),
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            height: 1.25,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: InkWell(
+                  onTap: () {
+                    if (isExclusive) {
+                      ref.read(appRoutingModeProvider.notifier).setMode(AppRoutingMode.inclusive);
+                      if (ref.read(connectionStatusProvider) == ConnectionStateEnum.connected) {
+                        ref.read(connectionStatusProvider.notifier).reconnectWithUpdatedSettings();
+                      }
+                    }
+                  },
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: !isExclusive
+                          ? AppTheme.primaryAccent.withValues(alpha: 0.12)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: !isExclusive
+                            ? AppTheme.primaryAccent
+                            : Theme.of(context).dividerColor.withValues(alpha: 0.4),
+                        width: !isExclusive ? 1.5 : 1.0,
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.filter_alt_rounded,
+                              size: 16,
+                              color: !isExclusive ? AppTheme.primaryAccent : Colors.grey,
+                            ),
+                            const SizedBox(width: 6),
+                            Flexible(
+                              child: Text(
+                                AppStrings.get('app_routing_inclusive', locale: locale),
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: !isExclusive ? AppTheme.primaryAccent : null,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          AppStrings.get('app_routing_inclusive_desc', locale: locale),
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            height: 1.25,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),

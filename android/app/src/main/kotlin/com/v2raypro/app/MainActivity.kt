@@ -24,6 +24,8 @@ class MainActivity : FlutterActivity() {
     private var pendingIsTun: Boolean = true
     private var pendingNotificationTitle: String = "V2RayPro - متصل"
     private var pendingDisconnectText: String = "قطع اتصال"
+    private var pendingAppRoutingMode: String = "exclusive"
+    private var pendingAppRoutingList: ArrayList<String> = arrayListOf()
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -98,6 +100,8 @@ class MainActivity : FlutterActivity() {
                     val isTun = call.argument<Boolean>("isTun") ?: true
                     val notificationTitle = call.argument<String>("notificationTitle") ?: "V2RayPro - متصل"
                     val disconnectText = call.argument<String>("disconnectText") ?: "قطع اتصال"
+                    val appRoutingMode = call.argument<String>("appRoutingMode") ?: "exclusive"
+                    val appRoutingList = call.argument<ArrayList<String>>("appRoutingList") ?: arrayListOf<String>()
 
                     if (isTun) {
                         val prepareIntent = VpnService.prepare(this)
@@ -109,14 +113,16 @@ class MainActivity : FlutterActivity() {
                             pendingIsTun = isTun
                             pendingNotificationTitle = notificationTitle
                             pendingDisconnectText = disconnectText
+                            pendingAppRoutingMode = appRoutingMode
+                            pendingAppRoutingList = appRoutingList
                             startActivityForResult(prepareIntent, VPN_REQUEST_CODE)
                         } else {
-                            launchVpnService(configName, httpPort, socksPort, isTun, notificationTitle, disconnectText)
+                            launchVpnService(configName, httpPort, socksPort, isTun, notificationTitle, disconnectText, appRoutingMode, appRoutingList)
                             result.success(true)
                         }
                     } else {
                         // Proxy Mode: No VPN interface needed, start purely as foreground service
-                        launchVpnService(configName, httpPort, socksPort, false, notificationTitle, disconnectText)
+                        launchVpnService(configName, httpPort, socksPort, false, notificationTitle, disconnectText, appRoutingMode, appRoutingList)
                         result.success(true)
                     }
                 }
@@ -163,7 +169,9 @@ class MainActivity : FlutterActivity() {
         socksPort: Int,
         isTun: Boolean,
         notificationTitle: String,
-        disconnectText: String
+        disconnectText: String,
+        appRoutingMode: String = "exclusive",
+        appRoutingList: ArrayList<String> = arrayListOf()
     ) {
         val startIntent = Intent(this, V2RayVpnService::class.java).apply {
             action = V2RayVpnService.ACTION_START
@@ -173,6 +181,8 @@ class MainActivity : FlutterActivity() {
             putExtra("isTun", isTun)
             putExtra("notificationTitle", notificationTitle)
             putExtra("disconnectText", disconnectText)
+            putExtra("appRoutingMode", appRoutingMode)
+            putStringArrayListExtra("appRoutingList", appRoutingList)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(startIntent)
@@ -191,7 +201,9 @@ class MainActivity : FlutterActivity() {
                     pendingSocksPort,
                     pendingIsTun,
                     pendingNotificationTitle,
-                    pendingDisconnectText
+                    pendingDisconnectText,
+                    pendingAppRoutingMode,
+                    pendingAppRoutingList
                 )
                 pendingVpnResult?.success(true)
             } else {

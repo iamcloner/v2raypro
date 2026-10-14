@@ -26,6 +26,7 @@ class StorageService {
   static const _enableMuxKey = "v2raypro_global_enable_mux";
   static const _allowLanKey = "v2raypro_allow_lan";
   static const _routingRulesKey = "v2raypro_routing_rules";
+  static const _appRoutingModeKey = "v2raypro_app_routing_mode";
 
   File _getBackupFile(String filename) {
     final exeDir = File(Platform.resolvedExecutable).parent.path;
@@ -249,6 +250,27 @@ class StorageService {
       }
     } catch (_) {}
     return [];
+  }
+
+  Future<void> saveAppRoutingMode(AppRoutingMode mode) async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      await sp.setString(_appRoutingModeKey, mode.name);
+    } catch (_) {}
+  }
+
+  Future<AppRoutingMode> loadAppRoutingMode() async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final val = sp.getString(_appRoutingModeKey);
+      if (val != null) {
+        return AppRoutingMode.values.firstWhere(
+          (m) => m.name == val,
+          orElse: () => AppRoutingMode.exclusive,
+        );
+      }
+    } catch (_) {}
+    return AppRoutingMode.exclusive;
   }
 
   Future<void> saveCdnRanges(CdnProvider provider, List<String> ranges) async {

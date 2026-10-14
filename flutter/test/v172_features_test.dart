@@ -1,7 +1,10 @@
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:v2raypro/models/proxy_node.dart';
+import 'package:v2raypro/models/routing_rule.dart';
 import 'package:v2raypro/providers/app_providers.dart';
+import 'package:v2raypro/services/storage_service.dart';
 import 'package:v2raypro/services/xray_process_service.dart';
 import 'package:v2raypro/utils/config_parser.dart';
 
@@ -274,6 +277,91 @@ void main() {
       );
       // Since port 59999 is closed/unreachable, it should cleanly return null
       expect(latency, isNull);
+    });
+  });
+
+  group('v1.7.3 Android Per-App Routing & Navigation Tests', () {
+    test('AppRoutingMode enum contains exclusive and inclusive values', () {
+      expect(AppRoutingMode.values, contains(AppRoutingMode.exclusive));
+      expect(AppRoutingMode.values, contains(AppRoutingMode.inclusive));
+      expect(AppRoutingMode.exclusive.name, 'exclusive');
+      expect(AppRoutingMode.inclusive.name, 'inclusive');
+    });
+
+    test('StorageService persists and restores AppRoutingMode', () async {
+      SharedPreferences.setMockInitialValues({});
+      final storage = StorageService.instance;
+
+      // Default should be exclusive
+      final defaultMode = await storage.loadAppRoutingMode();
+      expect(defaultMode, AppRoutingMode.exclusive);
+
+      // Save inclusive
+      await storage.saveAppRoutingMode(AppRoutingMode.inclusive);
+      final loadedInclusive = await storage.loadAppRoutingMode();
+      expect(loadedInclusive, AppRoutingMode.inclusive);
+
+      // Save exclusive
+      await storage.saveAppRoutingMode(AppRoutingMode.exclusive);
+      final loadedExclusive = await storage.loadAppRoutingMode();
+      expect(loadedExclusive, AppRoutingMode.exclusive);
+    });
+
+    test('XrayProcessService maintains appRoutingMode state', () {
+      final service = XrayProcessService.instance;
+      service.appRoutingMode = AppRoutingMode.exclusive;
+      expect(service.appRoutingMode, AppRoutingMode.exclusive);
+
+      service.appRoutingMode = AppRoutingMode.inclusive;
+      expect(service.appRoutingMode, AppRoutingMode.inclusive);
+    });
+
+    test('Navigation history pop logic properly handles stack and returns to dashboard', () {
+      final history = <int>[0];
+      int selectedIndex = 0;
+
+      void navigateTo(int index) {
+        if (selectedIndex != index) {
+          history.add(index);
+          selectedIndex = index;
+        }
+      }
+
+      void pop() {
+        while (history.isNotEmpty && history.last == selectedIndex) {
+          history.removeLast();
+        }
+        if (history.isNotEmpty) {
+          selectedIndex = history.removeLast();
+        } else {
+          selectedIndex = 0;
+        }
+      }
+
+      // Start at dashboard (0)
+      expect(selectedIndex, 0);
+
+      // Navigate to Configs (1)
+      navigateTo(1);
+      expect(selectedIndex, 1);
+      expect(history, [0, 1]);
+
+      // Navigate to Routing (5)
+      navigateTo(5);
+      expect(selectedIndex, 5);
+      expect(history, [0, 1, 5]);
+
+      // Pop should go back to Configs (1)
+      pop();
+      expect(selectedIndex, 1);
+
+      // Pop should go back to Dashboard (0)
+      pop();
+      expect(selectedIndex, 0);
+
+      // Further pop stays at Dashboard (0)
+      pop();
+      expect(selectedIndex, 0);
     });
   });
 }

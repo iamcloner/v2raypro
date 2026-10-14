@@ -1,7 +1,8 @@
-﻿import 'package:uuid/uuid.dart';
+import 'package:uuid/uuid.dart';
 
 enum RoutingRuleType { address, ip, app }
 enum RoutingAction { proxy, direct, block }
+enum AppRoutingMode { exclusive, inclusive }
 
 class RoutingRule {
   final String id;

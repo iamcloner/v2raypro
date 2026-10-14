@@ -65,6 +65,7 @@ class XrayProcessService {
   bool globalEnableMux = false;
   bool globalAllowLan = false;
   List<RoutingRule> routingRules = [];
+  AppRoutingMode appRoutingMode = AppRoutingMode.exclusive;
   String? lastLog;
   String? lastErrorLog;
   static int _nextBatchPort = 29200;
@@ -145,6 +146,8 @@ class XrayProcessService {
     bool isTun = true,
     String? notificationTitle,
     String? disconnectText,
+    String appRoutingMode = 'exclusive',
+    List<String> appRoutingList = const [],
   }) async {
     if (!Platform.isAndroid) return false;
     try {
@@ -156,6 +159,8 @@ class XrayProcessService {
         'isTun': isTun,
         'notificationTitle': notificationTitle ?? 'V2RayPro - متصل',
         'disconnectText': disconnectText ?? 'قطع اتصال',
+        'appRoutingMode': appRoutingMode,
+        'appRoutingList': appRoutingList,
       });
       return res ?? false;
     } catch (e) {
@@ -732,11 +737,21 @@ class XrayProcessService {
       }
 
       if (Platform.isAndroid) {
+        final appRules = routingRules
+            .where((r) => r.type == RoutingRuleType.app && r.enabled)
+            .expand((r) => r.values)
+            .map((e) => e.trim())
+            .where((pkg) => pkg.isNotEmpty)
+            .toSet()
+            .toList();
+
         await startAndroidVpn(
           node.name,
           isTun: enableTun,
           notificationTitle: notificationTitle,
           disconnectText: disconnectText,
+          appRoutingMode: appRoutingMode.name,
+          appRoutingList: appRules,
         );
       }
 
