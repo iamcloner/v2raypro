@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -23,6 +24,7 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
   final TextEditingController _searchController = TextEditingController();
   String _searchFilter = '';
   String? _selectedCountryCode;
+  bool _isSearchExpanded = false;
 
   @override
   void initState() {
@@ -102,6 +104,102 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
             // Top Bar
             LayoutBuilder(
               builder: (context, constraints) {
+                if (Platform.isAndroid) {
+                  final actionBtn = freeState.isScanning
+                      ? OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: Colors.amber, width: 1.2),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          ),
+                          icon: const SizedBox(
+                            width: 12,
+                            height: 12,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.amber),
+                          ),
+                          label: Text(
+                            AppStrings.get('cancel_scan', locale: locale),
+                            style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 11),
+                          ),
+                          onPressed: () => ref.read(freeConfigsProvider.notifier).cancelScan(),
+                        )
+                      : FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppTheme.primaryAccent,
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          ),
+                          icon: const Icon(Icons.autorenew_rounded, size: 16),
+                          label: Text(
+                            AppStrings.get('get_new_configs', locale: locale),
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                          ),
+                          onPressed: () {
+                            setState(() => _selectedCountryCode = null);
+                            ref.read(freeConfigsProvider.notifier).startScan();
+                          },
+                        );
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.card_giftcard_rounded, color: AppTheme.primaryAccent, size: 22),
+                              const SizedBox(width: 8),
+                              Text(
+                                AppStrings.get('free_configs', locale: locale),
+                                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                              ),
+                            ],
+                          ),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: Icon(_isSearchExpanded ? Icons.close : Icons.search, size: 20),
+                                tooltip: AppStrings.get('search_nodes', locale: locale),
+                                onPressed: () {
+                                  setState(() {
+                                    _isSearchExpanded = !_isSearchExpanded;
+                                    if (!_isSearchExpanded) {
+                                      _searchController.clear();
+                                    }
+                                  });
+                                },
+                              ),
+                              const SizedBox(width: 4),
+                              actionBtn,
+                            ],
+                          ),
+                        ],
+                      ),
+                      if (_isSearchExpanded) ...[
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          height: 38,
+                          child: TextField(
+                            controller: _searchController,
+                            autofocus: true,
+                            decoration: InputDecoration(
+                              hintText: AppStrings.get('search_nodes', locale: locale),
+                              prefixIcon: const Icon(Icons.search, size: 16),
+                              suffixIcon: _searchFilter.isNotEmpty
+                                  ? IconButton(
+                                      icon: const Icon(Icons.clear, size: 14),
+                                      onPressed: () => _searchController.clear(),
+                                    )
+                                  : null,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  );
+                }
+
                 final isNarrow = constraints.maxWidth < 600;
                 final titleCol = Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -260,8 +358,8 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
                 locale: locale,
               ),
 
-            // Search filter if nodes present
-            if (nodesToFilter.isNotEmpty) ...[
+            // Search filter if nodes present (Desktop/Windows only; Android uses search icon in top bar)
+            if (!Platform.isAndroid && nodesToFilter.isNotEmpty) ...[
               SizedBox(
                 height: 42,
                 child: TextField(
@@ -493,13 +591,14 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
           highlightColor: state.failedCount > 0 ? Colors.redAccent : null,
         );
 
-        if (constraints.maxWidth < 700) {
+        if (Platform.isAndroid || constraints.maxWidth < 700) {
+          final spacing = Platform.isAndroid ? 6.0 : 8.0;
           return Column(
             children: [
-              Row(children: [card1, const SizedBox(width: 8), card2]),
-              const SizedBox(height: 8),
-              Row(children: [card3, const SizedBox(width: 8), card4]),
-              const SizedBox(height: 8),
+              Row(children: [card1, SizedBox(width: spacing), card2]),
+              SizedBox(height: spacing),
+              Row(children: [card3, SizedBox(width: spacing), card4]),
+              SizedBox(height: spacing),
               Row(children: [card5]),
             ],
           );
@@ -529,24 +628,28 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
     required String value,
     Color? highlightColor,
   }) {
+    final isAndroid = Platform.isAndroid;
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: EdgeInsets.symmetric(
+          horizontal: isAndroid ? 8 : 12,
+          vertical: isAndroid ? 6 : 10,
+        ),
         decoration: BoxDecoration(
           color: Theme.of(context).cardColor,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(isAndroid ? 8 : 10),
         ),
         child: Row(
           children: [
             Container(
-              padding: const EdgeInsets.all(7),
+              padding: EdgeInsets.all(isAndroid ? 5 : 7),
               decoration: BoxDecoration(
                 color: iconColor.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(isAndroid ? 6 : 8),
               ),
-              child: Icon(icon, size: 18, color: iconColor),
+              child: Icon(icon, size: isAndroid ? 14 : 18, color: iconColor),
             ),
-            const SizedBox(width: 10),
+            SizedBox(width: isAndroid ? 6 : 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -554,15 +657,18 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
                 children: [
                   Text(
                     label,
-                    style: TextStyle(fontSize: 10.5, color: Colors.grey.shade400),
+                    style: TextStyle(
+                      fontSize: isAndroid ? 9.5 : 10.5,
+                      color: Colors.grey.shade400,
+                    ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 2),
+                  SizedBox(height: isAndroid ? 1 : 2),
                   Text(
                     value,
                     style: TextStyle(
-                      fontSize: 15,
+                      fontSize: isAndroid ? 13 : 15,
                       fontWeight: FontWeight.bold,
                       color: highlightColor ?? Theme.of(context).colorScheme.onSurface,
                     ),

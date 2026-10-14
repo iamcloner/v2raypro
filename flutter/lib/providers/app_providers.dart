@@ -409,6 +409,11 @@ class NodesNotifier extends StateNotifier<List<ProxyNode>> {
     _save();
   }
 
+  void clearAllNodes() {
+    state = [];
+    _save();
+  }
+
   void removeNodesBySubscription(String subId) {
     state = state.where((n) => n.subscriptionId != subId).toList();
     if (state.isNotEmpty && !state.any((n) => n.isActive)) {

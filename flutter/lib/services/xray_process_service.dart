@@ -77,6 +77,7 @@ class XrayProcessService {
 
   String? _androidBinaryPath;
   Directory? _androidAssetDir;
+  VoidCallback? onAndroidNotificationDisconnect;
 
   Future<void> initAndroid() async {
     if (!Platform.isAndroid) return;
@@ -126,8 +127,50 @@ class XrayProcessService {
           }
         }
       }
+
+      const nativeChannel = MethodChannel('com.v2raypro.app/native');
+      nativeChannel.setMethodCallHandler((call) async {
+        if (call.method == 'onDisconnectedFromNotification') {
+          await stop();
+          onAndroidNotificationDisconnect?.call();
+        }
+      });
     } catch (e) {
       LogService.instance.add("Failed to initialize Android asset dir: $e", level: LogLevel.warning, source: "system");
+    }
+  }
+
+  Future<bool> startAndroidVpn(String configName) async {
+    if (!Platform.isAndroid) return false;
+    try {
+      const channel = MethodChannel('com.v2raypro.app/native');
+      final res = await channel.invokeMethod<bool>('startVpnService', {
+        'configName': configName,
+        'httpPort': httpPort,
+      });
+      return res ?? false;
+    } catch (e) {
+      LogService.instance.add("startAndroidVpn failed: $e", level: LogLevel.warning, source: "system");
+      return false;
+    }
+  }
+
+  Future<void> stopAndroidVpn() async {
+    if (!Platform.isAndroid) return;
+    try {
+      const channel = MethodChannel('com.v2raypro.app/native');
+      await channel.invokeMethod('stopVpnService');
+    } catch (_) {}
+  }
+
+  Future<bool> isAnotherVpnActive() async {
+    if (!Platform.isAndroid) return false;
+    try {
+      const channel = MethodChannel('com.v2raypro.app/native');
+      final res = await channel.invokeMethod<bool>('isAnotherVpnActive');
+      return res ?? false;
+    } catch (_) {
+      return false;
     }
   }
 
@@ -671,6 +714,10 @@ class XrayProcessService {
         setWindowsSystemProxy(true);
       }
 
+      if (Platform.isAndroid) {
+        await startAndroidVpn(node.name);
+      }
+
       _state = EngineState.running;
       _activeRunningNode = node;
       _startTrafficPolling();
@@ -691,6 +738,9 @@ class XrayProcessService {
     LogService.instance.add("Stopping Xray core...", level: LogLevel.info, source: "system");
     if (Platform.isWindows) {
       setWindowsSystemProxy(false);
+    }
+    if (Platform.isAndroid) {
+      await stopAndroidVpn();
     }
     if (_process != null) {
       final pid = _process!.pid;
@@ -721,6 +771,9 @@ class XrayProcessService {
         try {
           Process.runSync("taskkill", ["/F", "/IM", "xray.exe"]);
         } catch (_) {}
+      }
+      if (Platform.isAndroid) {
+        stopAndroidVpn();
       }
       if (_process != null) {
         _process!.kill();

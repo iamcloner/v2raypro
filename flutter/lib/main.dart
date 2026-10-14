@@ -126,6 +126,13 @@ class _MainShellState extends ConsumerState<MainShell> {
   @override
   void initState() {
     super.initState();
+    if (Platform.isAndroid) {
+      XrayProcessService.instance.onAndroidNotificationDisconnect = () {
+        if (mounted) {
+          ref.read(connectionStatusProvider.notifier).setDisconnected();
+        }
+      };
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkAutoConnect();
       _checkStartupUpdate();
@@ -310,7 +317,9 @@ class _MainShellState extends ConsumerState<MainShell> {
     // Build pages and nav items dynamically: Scanner is completely excluded if active node is not a CDN node
     final pages = <Widget>[
       const DashboardView(),
-      const ConfigsView(),
+      ConfigsView(
+        onNavigateToFreeConfigs: () => setState(() => _selectedIndex = 3),
+      ),
       const SubscriptionsView(),
       const FreeConfigsView(),
       if (hasCdn) const ScannerView(),
@@ -442,12 +451,22 @@ class _MainShellState extends ConsumerState<MainShell> {
     }
 
     int bottomNavIndex = 3;
-    if (_selectedIndex == 0) {
-      bottomNavIndex = 0;
-    } else if (_selectedIndex == 1) {
-      bottomNavIndex = 1;
-    } else if (_selectedIndex == 3) {
-      bottomNavIndex = 2;
+    if (Platform.isAndroid) {
+      if (_selectedIndex == 0) {
+        bottomNavIndex = 0;
+      } else if (_selectedIndex == 1) {
+        bottomNavIndex = 1;
+      } else if (_selectedIndex == 2) {
+        bottomNavIndex = 2;
+      }
+    } else {
+      if (_selectedIndex == 0) {
+        bottomNavIndex = 0;
+      } else if (_selectedIndex == 1) {
+        bottomNavIndex = 1;
+      } else if (_selectedIndex == 3) {
+        bottomNavIndex = 2;
+      }
     }
 
     return Scaffold(
@@ -515,7 +534,7 @@ class _MainShellState extends ConsumerState<MainShell> {
           } else if (idx == 1) {
             setState(() => _selectedIndex = 1);
           } else if (idx == 2) {
-            setState(() => _selectedIndex = 3); // Free Configs
+            setState(() => _selectedIndex = Platform.isAndroid ? 2 : 3);
           } else if (idx == 3) {
             _scaffoldKey.currentState?.openDrawer();
           }
@@ -529,10 +548,15 @@ class _MainShellState extends ConsumerState<MainShell> {
             icon: const Icon(Icons.hub_rounded),
             label: AppStrings.get('configs', locale: locale),
           ),
-          NavigationDestination(
-            icon: const Icon(Icons.card_giftcard_rounded),
-            label: AppStrings.get('free_configs', locale: locale),
-          ),
+          Platform.isAndroid
+              ? NavigationDestination(
+                  icon: const Icon(Icons.rss_feed_rounded),
+                  label: locale == 'fa' ? 'اشتراک‌ها' : 'Sub',
+                )
+              : NavigationDestination(
+                  icon: const Icon(Icons.card_giftcard_rounded),
+                  label: AppStrings.get('free_configs', locale: locale),
+                ),
           NavigationDestination(
             icon: const Icon(Icons.menu_rounded),
             label: AppStrings.get('more', locale: locale),
@@ -770,9 +794,11 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 0. Top Brand Header
-          _buildBrandHeader(context, status, isConnected, isConnecting, locale),
-          const SizedBox(height: 16),
+          // 0. Top Brand Header (Desktop/Windows only)
+          if (!Platform.isAndroid) ...[
+            _buildBrandHeader(context, status, isConnected, isConnecting, locale),
+            const SizedBox(height: 16),
+          ],
 
           // 1. Top Section: Connect Card (50% width) and IP Info Card (50% width) side-by-side
           LayoutBuilder(
@@ -826,143 +852,145 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
           ),
           const SizedBox(height: 16),
 
-          // 2. System Proxy & TUN Mode Toggles
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final isWide = constraints.maxWidth >= 640;
-              final sysProxyCard = Opacity(
-                opacity: isConnected ? 1.0 : 0.45,
-                child: Card(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.shield_outlined,
-                          color: (isConnected && isSysProxy) ? AppTheme.successColor : Colors.grey,
-                          size: 24,
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                AppStrings.get('system_proxy', locale: locale),
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              Text(
-                                isConnected
-                                    ? AppStrings.get('system_proxy_desc', locale: locale)
-                                    : AppStrings.get('connect_first_hint', locale: locale),
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: isConnected ? Colors.grey : AppTheme.secondaryAccent.withValues(alpha: 0.8),
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
+          // 2. System Proxy & TUN Mode Toggles (Desktop/Windows only)
+          if (!Platform.isAndroid) ...[
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final isWide = constraints.maxWidth >= 640;
+                final sysProxyCard = Opacity(
+                  opacity: isConnected ? 1.0 : 0.45,
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.shield_outlined,
+                            color: (isConnected && isSysProxy) ? AppTheme.successColor : Colors.grey,
+                            size: 24,
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        Switch(
-                          value: isConnected && isSysProxy,
-                          activeColor: AppTheme.successColor,
-                          onChanged: isConnected
-                              ? (val) {
-                                  ref.read(isSystemProxyEnabledProvider.notifier).toggle(val);
-                                }
-                              : null,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              );
-
-              final tunCard = Opacity(
-                opacity: isConnected ? 1.0 : 0.45,
-                child: Card(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.vpn_lock_rounded,
-                          color: (isConnected && isTun) ? AppTheme.primaryAccent : Colors.grey,
-                          size: 24,
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                AppStrings.get('tun_mode', locale: locale),
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              Text(
-                                isConnected
-                                    ? AppStrings.get('tun_mode_desc', locale: locale)
-                                    : AppStrings.get('connect_first_hint', locale: locale),
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: isConnected ? Colors.grey : AppTheme.primaryAccent.withValues(alpha: 0.8),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  AppStrings.get('system_proxy', locale: locale),
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
+                                Text(
+                                  isConnected
+                                      ? AppStrings.get('system_proxy_desc', locale: locale)
+                                      : AppStrings.get('connect_first_hint', locale: locale),
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: isConnected ? Colors.grey : AppTheme.secondaryAccent.withValues(alpha: 0.8),
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        Switch(
-                          value: isConnected && isTun,
-                          activeColor: AppTheme.primaryAccent,
-                          onChanged: isConnected
-                              ? (val) async {
-                                  if (val && !XrayProcessService.instance.isRunningAsAdmin()) {
-                                    _showAdminElevationDialog(context, locale);
-                                    return;
+                          const SizedBox(width: 8),
+                          Switch(
+                            value: isConnected && isSysProxy,
+                            activeColor: AppTheme.successColor,
+                            onChanged: isConnected
+                                ? (val) {
+                                    ref.read(isSystemProxyEnabledProvider.notifier).toggle(val);
                                   }
-                                  ref.read(isTunEnabledProvider.notifier).toggle(val);
-                                  await ref.read(connectionStatusProvider.notifier).reconnectWithUpdatedSettings();
-                                }
-                              : null,
-                        ),
-                      ],
+                                : null,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-              );
+                );
 
-              if (isWide) {
-                return Row(
-                  children: [
-                    Expanded(child: sysProxyCard),
-                    const SizedBox(width: 12),
-                    Expanded(child: tunCard),
-                  ],
+                final tunCard = Opacity(
+                  opacity: isConnected ? 1.0 : 0.45,
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.vpn_lock_rounded,
+                            color: (isConnected && isTun) ? AppTheme.primaryAccent : Colors.grey,
+                            size: 24,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  AppStrings.get('tun_mode', locale: locale),
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                Text(
+                                  isConnected
+                                      ? AppStrings.get('tun_mode_desc', locale: locale)
+                                      : AppStrings.get('connect_first_hint', locale: locale),
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: isConnected ? Colors.grey : AppTheme.primaryAccent.withValues(alpha: 0.8),
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Switch(
+                            value: isConnected && isTun,
+                            activeColor: AppTheme.primaryAccent,
+                            onChanged: isConnected
+                                ? (val) async {
+                                    if (val && !XrayProcessService.instance.isRunningAsAdmin()) {
+                                      _showAdminElevationDialog(context, locale);
+                                      return;
+                                    }
+                                    ref.read(isTunEnabledProvider.notifier).toggle(val);
+                                    await ref.read(connectionStatusProvider.notifier).reconnectWithUpdatedSettings();
+                                  }
+                                : null,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 );
-              } else {
-                return Column(
-                  children: [
-                    sysProxyCard,
-                    const SizedBox(height: 10),
-                    tunCard,
-                  ],
-                );
-              }
-            },
-          ),
-          const SizedBox(height: 16),
+
+                if (isWide) {
+                  return Row(
+                    children: [
+                      Expanded(child: sysProxyCard),
+                      const SizedBox(width: 12),
+                      Expanded(child: tunCard),
+                    ],
+                  );
+                } else {
+                  return Column(
+                    children: [
+                      sysProxyCard,
+                      const SizedBox(height: 10),
+                      tunCard,
+                    ],
+                  );
+                }
+              },
+            ),
+            const SizedBox(height: 16),
+          ],
 
           // 3. Traffic Metrics Tiles
           Row(
@@ -984,15 +1012,17 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                   color: AppTheme.secondaryAccent,
                 ),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildMetricTile(
-                  title: activeNode?.protocol.name.toUpperCase() ?? 'PROTOCOL',
-                  value: activeNode?.network.name.toUpperCase() ?? '--',
-                  icon: Icons.cable_rounded,
-                  color: AppTheme.primaryAccent,
+              if (!Platform.isAndroid) ...[
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildMetricTile(
+                    title: activeNode?.protocol.name.toUpperCase() ?? 'PROTOCOL',
+                    value: activeNode?.network.name.toUpperCase() ?? '--',
+                    icon: Icons.cable_rounded,
+                    color: AppTheme.primaryAccent,
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
         ],
@@ -1237,7 +1267,52 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                         ),
                   onPressed: nodes.isEmpty || isConnecting
                       ? null
-                      : () {
+                      : () async {
+                          if (Platform.isAndroid && !isConnected) {
+                            final hasOtherVpn = await XrayProcessService.instance.isAnotherVpnActive();
+                            if (hasOtherVpn && context.mounted) {
+                              final proceed = await showDialog<bool>(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  backgroundColor: const Color(0xFF1E2230),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                  title: Row(
+                                    children: [
+                                      const Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 28),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Text(
+                                          locale == 'fa' ? 'هشدار اتصال وی‌پی‌ان' : 'VPN Conflict Warning',
+                                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  content: Text(
+                                    locale == 'fa'
+                                        ? 'یک وی‌پی‌ان دیگر در گوشی شما فعال است. اتصال همزمان به دو فیلترشکن ممکن است باعث قطع ارتباط اینترنت شود. آیا مایل به ادامه اتصال هستید؟'
+                                        : 'Another VPN connection is currently active on your device. Running multiple VPNs simultaneously may disrupt network access. Do you wish to continue?',
+                                    style: const TextStyle(fontSize: 13, height: 1.5, color: Colors.white70),
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.of(ctx).pop(false),
+                                      child: Text(locale == 'fa' ? 'انصراف' : 'Cancel', style: const TextStyle(color: Colors.grey)),
+                                    ),
+                                    ElevatedButton(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: AppTheme.primaryAccent,
+                                        foregroundColor: Colors.white,
+                                      ),
+                                      onPressed: () => Navigator.of(ctx).pop(true),
+                                      child: Text(locale == 'fa' ? 'ادامه اتصال' : 'Proceed'),
+                                    ),
+                                  ],
+                                ),
+                              );
+                              if (proceed != true) return;
+                            }
+                          }
                           final isTun = ref.read(isTunEnabledProvider);
                           if (!isConnected && isTun && !XrayProcessService.instance.isRunningAsAdmin()) {
                             _showAdminElevationDialog(context, locale);

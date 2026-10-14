@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -20,7 +21,8 @@ import 'services/country_service.dart';
 import 'services/storage_service.dart';
 
 class ConfigsView extends ConsumerStatefulWidget {
-  const ConfigsView({super.key});
+  final VoidCallback? onNavigateToFreeConfigs;
+  const ConfigsView({super.key, this.onNavigateToFreeConfigs});
 
   @override
   ConsumerState<ConfigsView> createState() => _ConfigsViewState();
@@ -287,6 +289,126 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
     }
   }
 
+  Future<void> _deleteAllNodes(String locale) async {
+    final nodes = ref.read(nodesProvider).where((n) => n.subscriptionId == null).toList();
+    if (nodes.isEmpty) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.delete_forever_rounded, color: Colors.redAccent),
+            const SizedBox(width: 8),
+            Text(locale == 'fa' ? 'حذف همه کانفیگ‌ها' : 'Delete All Configs'),
+          ],
+        ),
+        content: Text(
+          locale == 'fa'
+              ? 'آیا از حذف تمامی ${nodes.length} کانفیگ اطمینان دارید؟'
+              : 'Are you sure you want to delete all ${nodes.length} configs?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(AppStrings.get('cancel', locale: locale)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(AppStrings.get('delete', locale: locale)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      ref.read(nodesProvider.notifier).clearAllNodes();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(locale == 'fa' ? 'تمامی کانفیگ‌ها حذف شدند.' : 'All configs deleted.'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _showQrDialog(String locale) async {
+    final controller = TextEditingController();
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.qr_code_scanner_rounded, color: Colors.amber),
+            const SizedBox(width: 8),
+            Text(locale == 'fa' ? 'اسکن یا درج کد QR' : 'Scan / Enter QR Code'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              locale == 'fa'
+                  ? 'لینک کانفیگ یا متن حاصل از اسکن بارکد QR را وارد کنید:'
+                  : 'Paste the config link from your QR code scan or clipboard below:',
+              style: const TextStyle(fontSize: 13, color: Colors.grey),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              maxLines: 3,
+              decoration: InputDecoration(
+                hintText: 'vless://... / vmess://... / trojan://...',
+                border: const OutlineInputBorder(),
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.paste_rounded),
+                  tooltip: 'Paste',
+                  onPressed: () async {
+                    final data = await Clipboard.getData(Clipboard.kTextPlain);
+                    if (data?.text != null) {
+                      controller.text = data!.text!;
+                    }
+                  },
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text(AppStrings.get('cancel', locale: locale)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primaryAccent,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () async {
+              final text = controller.text.trim();
+              if (text.isNotEmpty) {
+                final nodes = await ConfigParser.parseBatchAsync(text);
+                if (nodes.isNotEmpty && mounted) {
+                  ref.read(nodesProvider.notifier).addNodes(nodes);
+                  Navigator.of(ctx).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('${nodes.length} configuration(s) added successfully.')),
+                  );
+                } else if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('No valid proxy config found in text.')),
+                  );
+                }
+              }
+            },
+            child: Text(AppStrings.get('import', locale: locale)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final allNodes = ref.watch(nodesProvider);
@@ -336,6 +458,146 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
               children: [
                 LayoutBuilder(
                   builder: (context, constraints) {
+                    if (Platform.isAndroid) {
+                      return Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              AppStrings.get('configs', locale: locale),
+                              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              // Free Configs button
+                              FilledButton.tonalIcon(
+                                style: FilledButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                ),
+                                icon: const Icon(Icons.card_giftcard_rounded, size: 18),
+                                label: Text(
+                                  locale == 'fa' ? 'کانفیگ رایگان' : 'Free Configs',
+                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                ),
+                                onPressed: () {
+                                  widget.onNavigateToFreeConfigs?.call();
+                                },
+                              ),
+                              const SizedBox(width: 6),
+                              // + Menu
+                              PopupMenuButton<String>(
+                                icon: Container(
+                                  padding: const EdgeInsets.all(7),
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.primaryAccent,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Icon(Icons.add, color: Colors.white, size: 18),
+                                ),
+                                tooltip: locale == 'fa' ? 'افزودن کانفیگ' : 'Add Config',
+                                onSelected: (val) {
+                                  if (val == 'add') {
+                                    AddConfigDialog.show(context, locale);
+                                  } else if (val == 'clipboard') {
+                                    _pasteFromClipboard();
+                                  } else if (val == 'qr') {
+                                    _showQrDialog(locale);
+                                  }
+                                },
+                                itemBuilder: (ctx) => [
+                                  PopupMenuItem(
+                                    value: 'add',
+                                    child: Row(
+                                      children: [
+                                        const Icon(Icons.edit_note_rounded, size: 20, color: AppTheme.primaryAccent),
+                                        const SizedBox(width: 10),
+                                        Text(locale == 'fa' ? 'افزودن دستی (add config)' : 'Add Config'),
+                                      ],
+                                    ),
+                                  ),
+                                  PopupMenuItem(
+                                    value: 'clipboard',
+                                    child: Row(
+                                      children: [
+                                        const Icon(Icons.content_paste_rounded, size: 20, color: Colors.tealAccent),
+                                        const SizedBox(width: 10),
+                                        Text(locale == 'fa' ? 'از کلیپ‌بورد (import from clipboard)' : 'Import from Clipboard'),
+                                      ],
+                                    ),
+                                  ),
+                                  PopupMenuItem(
+                                    value: 'qr',
+                                    child: Row(
+                                      children: [
+                                        const Icon(Icons.qr_code_scanner_rounded, size: 20, color: Colors.amber),
+                                        const SizedBox(width: 10),
+                                        Text(locale == 'fa' ? 'اسکن بارکد (scan Qr code)' : 'Scan QR Code'),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(width: 4),
+                              // Options Menu
+                              PopupMenuButton<String>(
+                                icon: const Icon(Icons.more_vert_rounded),
+                                tooltip: locale == 'fa' ? 'منو عملیات' : 'Options',
+                                onSelected: (val) {
+                                  if (val == 'test_all') {
+                                    _testAllNodes(nodes);
+                                  } else if (val == 'delete_dead') {
+                                    _deleteDeadNodes(nodes, locale);
+                                  } else if (val == 'delete_all') {
+                                    _deleteAllNodes(locale);
+                                  }
+                                },
+                                itemBuilder: (ctx) => [
+                                  PopupMenuItem(
+                                    value: 'test_all',
+                                    child: Row(
+                                      children: [
+                                        Icon(Icons.speed_rounded, size: 20, color: _isTestingAll ? Colors.amber : Colors.blueAccent),
+                                        const SizedBox(width: 10),
+                                        Text(
+                                          _isTestingAll
+                                              ? (locale == 'fa' ? 'لغو تست پینگ' : 'Cancel Test All')
+                                              : (locale == 'fa' ? 'تست پینگ همه (Test all configs)' : 'Test all configs'),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  PopupMenuItem(
+                                    value: 'delete_dead',
+                                    child: Row(
+                                      children: [
+                                        const Icon(Icons.delete_sweep_rounded, size: 20, color: Colors.orangeAccent),
+                                        const SizedBox(width: 10),
+                                        Text(locale == 'fa' ? 'حذف تایم‌اوت‌ها (Delete death configs)' : 'Delete death configs'),
+                                      ],
+                                    ),
+                                  ),
+                                  PopupMenuItem(
+                                    value: 'delete_all',
+                                    child: Row(
+                                      children: [
+                                        const Icon(Icons.delete_forever_rounded, size: 20, color: Colors.redAccent),
+                                        const SizedBox(width: 10),
+                                        Text(locale == 'fa' ? 'حذف همه کانفیگ‌ها (Delete all configs)' : 'Delete all configs'),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ],
+                      );
+                    }
+
                     final isNarrow = constraints.maxWidth < 640;
                     final buttons = [
                       if (nodes.isNotEmpty) ...[
