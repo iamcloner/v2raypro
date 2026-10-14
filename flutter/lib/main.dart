@@ -42,8 +42,11 @@ void main() async {
   }
 
   // Startup safety check: If previous run left active proxy or orphan xray/TUN processes, clean them up immediately
+  // On Android: check if background VPN is running before cleanup, so we don't kill active connections!
   try {
-    XrayProcessService.instance.cleanupSystemAndXray();
+    if (!Platform.isAndroid || !(await XrayProcessService.instance.isAndroidVpnRunning())) {
+      XrayProcessService.instance.cleanupSystemAndXray();
+    }
   } catch (_) {}
 
   final container = ProviderContainer();
@@ -66,15 +69,19 @@ class _V2RayProAppState extends ConsumerState<V2RayProApp> {
     super.initState();
     _lifecycleListener = AppLifecycleListener(
       onExitRequested: () async {
-        try {
-          XrayProcessService.instance.cleanupSystemAndXray();
-        } catch (_) {}
+        if (!Platform.isAndroid) {
+          try {
+            XrayProcessService.instance.cleanupSystemAndXray();
+          } catch (_) {}
+        }
         return AppExitResponse.exit;
       },
       onDetach: () {
-        try {
-          XrayProcessService.instance.cleanupSystemAndXray();
-        } catch (_) {}
+        if (!Platform.isAndroid) {
+          try {
+            XrayProcessService.instance.cleanupSystemAndXray();
+          } catch (_) {}
+        }
       },
     );
   }
@@ -142,6 +149,7 @@ class _MainShellState extends ConsumerState<MainShell> {
           ref.read(connectionStatusProvider.notifier).setDisconnected();
         }
       };
+      ref.read(connectionStatusProvider.notifier).checkExistingConnection();
       const MethodChannel('com.v2raypro.app/native').invokeMethod('requestNotificationPermission');
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {

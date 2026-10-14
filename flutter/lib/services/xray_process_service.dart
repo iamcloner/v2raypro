@@ -177,6 +177,17 @@ class XrayProcessService {
     } catch (_) {}
   }
 
+  Future<bool> isAndroidVpnRunning() async {
+    if (!Platform.isAndroid) return false;
+    try {
+      const channel = MethodChannel('com.v2raypro.app/native');
+      final res = await channel.invokeMethod<bool>('isVpnRunning');
+      return res ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<bool> isAnotherVpnActive() async {
     if (!Platform.isAndroid) return false;
     try {
@@ -799,8 +810,9 @@ class XrayProcessService {
   }
 
   /// Complete system cleanup for startup and shutdown:
-  /// Clears Windows system proxy, terminates orphan xray processes, and removes temp config
-  void cleanupSystemAndXray() {
+  /// Clears Windows system proxy, terminates orphan xray processes, and removes temp config.
+  /// On Android, background VPN is preserved unless [force] is true.
+  void cleanupSystemAndXray({bool force = false}) {
     try {
       if (Platform.isWindows) {
         setWindowsSystemProxy(false);
@@ -809,19 +821,21 @@ class XrayProcessService {
           Process.runSync("taskkill", ["/F", "/IM", "xray.exe"]);
         } catch (_) {}
       }
-      if (Platform.isAndroid) {
+      if (Platform.isAndroid && force) {
         stopAndroidVpn();
       }
-      if (_process != null) {
+      if (_process != null && (!Platform.isAndroid || force)) {
         _process!.kill();
         _process = null;
       }
       final tmpDir = Directory.systemTemp;
       final activeConfig = File("${tmpDir.path}/v2raypro_active_config.json");
-      if (activeConfig.existsSync()) {
+      if (activeConfig.existsSync() && (!Platform.isAndroid || force)) {
         try { activeConfig.deleteSync(); } catch (_) {}
       }
-      _state = EngineState.stopped;
+      if (!Platform.isAndroid || force) {
+        _state = EngineState.stopped;
+      }
     } catch (_) {}
   }
 
@@ -1035,87 +1049,38 @@ class XrayProcessService {
         client.findProxy = (uri) => 'PROXY 127.0.0.1:$port';
         client.connectionTimeout = timeout;
 
-        // 1. Primary: Cloudflare cdn-cgi/trace gives real exit IP and exit country code
-        final sw = Stopwatch()..start();
-        bool proxyConnected = false;
-        try {
-          final r = await client.getUrl(Uri.parse('http://cp.cloudflare.com/cdn-cgi/trace')).timeout(timeout);
-          final resp = await r.close().timeout(timeout);
-          proxyConnected = true;
-          if (resp.statusCode == 200) {
-            final body = await resp.transform(utf8.decoder).join().timeout(timeout);
-            sw.stop();
-            // Bidirectional verification: check that trace returned authentic payload
-            if (body.contains('ip=') || body.contains('loc=')) {
-              final trace = NodeTestResult.parseCloudflareTrace(body);
-              String? cCode = trace.loc;
-              if (cCode == null && trace.ip != null) {
-                cCode = LocalGeoIp.instance.lookup(trace.ip!);
-              }
-              final cName = cCode != null ? CountryService.getCountryName(cCode) : null;
-              results[node.id] = NodeTestResult(
-                latencyMs: sw.elapsedMilliseconds,
-                countryCode: cCode,
-                country: cName,
-                exitIp: trace.ip,
-              );
-            }
-          }
-        } catch (_) {}
+        // 1. Primary: Ping google.com:443 3 times and select the lowest ping
+        final lowestPing = await pingGoogleViaProxy(client, count: 3, timeout: timeout);
 
-        // 2. Secondary: ip-api.com gives authentic exit IP and exit country
-        // Only attempted if proxy connected (prevent wasting timeouts on dead nodes)
-        if (!results.containsKey(node.id) && proxyConnected) {
-          final swApi = Stopwatch()..start();
+        if (lowestPing != null) {
+          String? cCode;
+          String? cName;
+          String? exitIp;
+
+          // Attempt fast trace to discover exit IP and country
           try {
-            final r = await client.getUrl(Uri.parse('http://ip-api.com/json/')).timeout(timeout);
+            final r = await client.getUrl(Uri.parse('http://cp.cloudflare.com/cdn-cgi/trace')).timeout(timeout);
             final resp = await r.close().timeout(timeout);
             if (resp.statusCode == 200) {
               final body = await resp.transform(utf8.decoder).join().timeout(timeout);
-              swApi.stop();
-              final data = jsonDecode(body);
-              if (data is Map && data['status'] == 'success') {
-                final cCode = (data['countryCode'] as String?)?.toUpperCase();
-                final cName = data['country'] as String? ?? (cCode != null ? CountryService.getCountryName(cCode) : null);
-                final exitIp = data['query']?.toString();
-                results[node.id] = NodeTestResult(
-                  latencyMs: swApi.elapsedMilliseconds,
-                  countryCode: cCode,
-                  country: cName,
-                  exitIp: exitIp,
-                );
+              final trace = NodeTestResult.parseCloudflareTrace(body);
+              cCode = trace.loc;
+              exitIp = trace.ip;
+              if (cCode == null && exitIp != null) {
+                cCode = LocalGeoIp.instance.lookup(exitIp);
+              }
+              if (cCode != null) {
+                cName = CountryService.getCountryName(cCode);
               }
             }
           } catch (_) {}
-        }
 
-        // 3. Fallback if exit IP endpoints were blocked but node has internet connectivity:
-        // Set countryCode to null (Unknown) since exit country cannot be accurately determined
-        if (!results.containsKey(node.id) && proxyConnected) {
-          final fallbackUrls = [
-            'http://cp.cloudflare.com/generate_204',
-            'http://www.google.com/generate_204',
-            'http://connectivitycheck.gstatic.com/generate_204',
-          ];
-
-          for (final targetUrl in fallbackUrls) {
-            if (results.containsKey(node.id)) break;
-            final swFall = Stopwatch()..start();
-            try {
-              final r = await client.getUrl(Uri.parse(targetUrl)).timeout(timeout);
-              final resp = await r.close().timeout(timeout);
-              swFall.stop();
-              if (resp.statusCode == 204 || resp.statusCode == 200) {
-                // Verified bidirectional send/receive, but exit country is unknown
-                results[node.id] = NodeTestResult(
-                  latencyMs: swFall.elapsedMilliseconds,
-                  countryCode: null,
-                  country: null,
-                );
-                break;
-              }
-            } catch (_) {}
-          }
+          results[node.id] = NodeTestResult(
+            latencyMs: lowestPing,
+            countryCode: cCode,
+            country: cName,
+            exitIp: exitIp,
+          );
         }
         client.close(force: true);
       }));
@@ -1132,23 +1097,52 @@ class XrayProcessService {
   }
 
   /// Fast TCP probe: attempts up to [count] quick TCP handshakes to host:port.
-  /// Returns elapsed milliseconds on first responsive probe, or null if all fail.
+  /// Returns lowest elapsed milliseconds among [count] attempts, or null if all fail.
   Future<int?> tcpPing(
     String host,
     int port, {
     int count = 3,
     Duration timeout = const Duration(milliseconds: 650),
   }) async {
+    int? lowestPing;
     for (int i = 0; i < count; i++) {
       try {
         final sw = Stopwatch()..start();
         final s = await Socket.connect(host, port, timeout: timeout);
         sw.stop();
         s.destroy();
-        return sw.elapsedMilliseconds;
+        final lat = sw.elapsedMilliseconds;
+        if (lowestPing == null || lat < lowestPing) {
+          lowestPing = lat;
+        }
       } catch (_) {}
     }
-    return null;
+    return lowestPing;
+  }
+
+  /// Pings google.com:443 via an established HTTP proxy client up to [count] times (default 3),
+  /// returning the lowest latency in milliseconds, or null if all attempts fail.
+  Future<int?> pingGoogleViaProxy(
+    HttpClient client, {
+    int count = 3,
+    Duration timeout = const Duration(milliseconds: 2500),
+  }) async {
+    int? lowestPing;
+    for (int attempt = 0; attempt < count; attempt++) {
+      final sw = Stopwatch()..start();
+      try {
+        final r = await client.getUrl(Uri.parse('https://www.google.com/generate_204')).timeout(timeout);
+        final resp = await r.close().timeout(timeout);
+        sw.stop();
+        if (resp.statusCode == 204 || resp.statusCode == 200) {
+          final lat = sw.elapsedMilliseconds;
+          if (lowestPing == null || lat < lowestPing) {
+            lowestPing = lat;
+          }
+        }
+      } catch (_) {}
+    }
+    return lowestPing;
   }
 
   /// Real Latency & Outbound Country Test:
@@ -1219,30 +1213,45 @@ class XrayProcessService {
   }
 
   Future<NodeTestResult?> _testHttpViaLocalProxy(Duration timeout) async {
-    // 1. Primary: Cloudflare cdn-cgi/trace through running local proxy
     HttpClient? client;
     try {
       client = HttpClient();
       client.findProxy = (uri) => "PROXY 127.0.0.1:$httpPort";
       client.connectionTimeout = timeout;
-      final sw = Stopwatch()..start();
-      final request = await client.getUrl(Uri.parse("http://cp.cloudflare.com/cdn-cgi/trace")).timeout(timeout);
-      final response = await request.close().timeout(timeout);
-      if (response.statusCode == 200) {
-        final body = await response.transform(utf8.decoder).join().timeout(timeout);
-        sw.stop();
-        client.close(force: true);
-        final trace = NodeTestResult.parseCloudflareTrace(body);
-        String? cCode = trace.loc;
-        if (cCode == null && trace.ip != null) {
-          cCode = LocalGeoIp.instance.lookup(trace.ip!);
+
+      // 1. Primary: 3x ping to google.com:443 to measure lowest latency
+      final lowestPing = await pingGoogleViaProxy(client, count: 3, timeout: timeout);
+
+      String? cCode;
+      String? cName;
+      String? exitIp;
+
+      // 2. Discover exit IP & country via Cloudflare trace
+      try {
+        final request = await client.getUrl(Uri.parse("http://cp.cloudflare.com/cdn-cgi/trace")).timeout(timeout);
+        final response = await request.close().timeout(timeout);
+        if (response.statusCode == 200) {
+          final body = await response.transform(utf8.decoder).join().timeout(timeout);
+          final trace = NodeTestResult.parseCloudflareTrace(body);
+          cCode = trace.loc;
+          exitIp = trace.ip;
+          if (cCode == null && exitIp != null) {
+            cCode = LocalGeoIp.instance.lookup(exitIp);
+          }
+          if (cCode != null) {
+            cName = CountryService.getCountryName(cCode);
+          }
         }
-        final cName = cCode != null ? CountryService.getCountryName(cCode) : null;
+      } catch (_) {}
+
+      client.close(force: true);
+
+      if (lowestPing != null) {
         return NodeTestResult(
-          latencyMs: sw.elapsedMilliseconds,
+          latencyMs: lowestPing,
           countryCode: cCode,
           country: cName,
-          exitIp: trace.ip,
+          exitIp: exitIp,
         );
       }
     } catch (_) {
@@ -1251,65 +1260,6 @@ class XrayProcessService {
       } catch (_) {}
     }
 
-    // 2. Secondary: ip-api.com through running local proxy
-    HttpClient? clientApi;
-    try {
-      clientApi = HttpClient();
-      clientApi.findProxy = (uri) => "PROXY 127.0.0.1:$httpPort";
-      clientApi.connectionTimeout = timeout;
-      final swApi = Stopwatch()..start();
-      final request = await clientApi.getUrl(Uri.parse("http://ip-api.com/json/")).timeout(timeout);
-      final response = await request.close().timeout(timeout);
-      if (response.statusCode == 200) {
-        final body = await response.transform(utf8.decoder).join().timeout(timeout);
-        swApi.stop();
-        clientApi.close(force: true);
-        final data = jsonDecode(body);
-        if (data is Map && data['status'] == 'success') {
-          final cCode = (data['countryCode'] as String?)?.toUpperCase();
-          final cName = data['country'] as String? ?? (cCode != null ? CountryService.getCountryName(cCode) : null);
-          final exitIp = data['query']?.toString();
-          return NodeTestResult(
-            latencyMs: swApi.elapsedMilliseconds,
-            countryCode: cCode,
-            country: cName,
-            exitIp: exitIp,
-          );
-        }
-      }
-    } catch (_) {
-      try {
-        clientApi?.close(force: true);
-      } catch (_) {}
-    }
-
-    // 3. Fallback to generate_204 targets
-    final targets = [
-      "http://cp.cloudflare.com/generate_204",
-      "http://www.google.com/generate_204",
-      "http://connectivitycheck.gstatic.com/generate_204",
-    ];
-
-    for (final target in targets) {
-      final sw = Stopwatch()..start();
-      HttpClient? fClient;
-      try {
-        fClient = HttpClient();
-        fClient.findProxy = (uri) => "PROXY 127.0.0.1:$httpPort";
-        fClient.connectionTimeout = timeout;
-        final request = await fClient.getUrl(Uri.parse(target)).timeout(timeout);
-        final response = await request.close().timeout(timeout);
-        sw.stop();
-        fClient.close(force: true);
-        if (response.statusCode == 204 || response.statusCode == 200) {
-          return NodeTestResult(latencyMs: sw.elapsedMilliseconds);
-        }
-      } catch (_) {
-        try {
-          fClient?.close(force: true);
-        } catch (_) {}
-      }
-    }
     return null;
   }
 
@@ -1389,7 +1339,7 @@ class XrayProcessService {
               final responseStr = utf8.decode(data, allowMalformed: true);
               final firstLine = responseStr.split('\r\n').first;
 
-              // Strictly reject CDN error status codes or WAF blocks (502, 503, 504, 520-526, etc.):
+              // Strictly reject CDN error status codes, WAF blocks or HTML error pages:
               final isCdnError = responseStr.contains('502') ||
                   responseStr.contains('503') ||
                   responseStr.contains('504') ||
@@ -1403,10 +1353,14 @@ class XrayProcessService {
                   responseStr.contains('530') ||
                   responseStr.contains('Error 1000') ||
                   responseStr.contains('Error 1005') ||
-                  responseStr.contains('Error 1020');
+                  responseStr.contains('Error 1020') ||
+                  responseStr.contains('<html') ||
+                  responseStr.contains('<!DOCTYPE') ||
+                  responseStr.contains('<HTML') ||
+                  responseStr.contains('<title>');
 
-              // Accept any HTTP response indicating backend or web server responded:
-              // 101, 200, 204, 301, 302, 400 (standard V2Ray WS probe response), 404
+              // Accept any HTTP response indicating genuine backend:
+              // 101 Switching Protocols, 204 No Content, or standard V2Ray WS response without CDN error
               final isAcceptableStatus = firstLine.startsWith('HTTP/') &&
                   !isCdnError &&
                   !firstLine.contains('502') &&

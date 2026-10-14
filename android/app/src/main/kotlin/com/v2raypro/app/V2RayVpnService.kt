@@ -30,6 +30,7 @@ class V2RayVpnService : VpnService() {
     }
 
     private var vpnInterface: ParcelFileDescriptor? = null
+    private var wakeLock: android.os.PowerManager.WakeLock? = null
 
     private val disconnectReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -139,6 +140,12 @@ class V2RayVpnService : VpnService() {
         val notification = createNotification(configName, notificationTitle, disconnectText)
         startForeground(NOTIFICATION_ID, notification)
 
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+            wakeLock = pm?.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "V2RayPro:VpnWakeLock")
+            wakeLock?.acquire(24 * 60 * 60 * 1000L) // 24h safety limit
+        } catch (_: Exception) {}
+
         if (isTun) {
             try {
                 val builder = Builder()
@@ -224,6 +231,13 @@ misc:
             vpnInterface = null
         } catch (_: Exception) {}
 
+        try {
+            if (wakeLock?.isHeld == true) {
+                wakeLock?.release()
+            }
+        } catch (_: Exception) {}
+        wakeLock = null
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)
         } else {
@@ -231,6 +245,12 @@ misc:
             stopForeground(true)
         }
         stopSelf()
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // Keep foreground service active when app is swiped from recents!
+        // Do NOT call stopVpn() here!
+        super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy() {

@@ -93,6 +93,9 @@ class MainActivity : FlutterActivity() {
                     }
                     result.success(hasOtherVpn)
                 }
+                "isVpnRunning" -> {
+                    result.success(V2RayVpnService.isRunning)
+                }
                 "startVpnService" -> {
                     val configName = call.argument<String>("configName") ?: "V2RayPro"
                     val httpPort = call.argument<Int>("httpPort") ?: 10888

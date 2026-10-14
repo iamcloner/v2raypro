@@ -32,7 +32,21 @@ class ConnectionStatusNotifier extends StateNotifier<ConnectionStateEnum> {
       XrayProcessService.instance.onAndroidNotificationDisconnect = () {
         setDisconnected();
       };
+      checkExistingConnection();
     }
+  }
+
+  Future<void> checkExistingConnection() async {
+    if (!Platform.isAndroid) return;
+    try {
+      final isRunning = await XrayProcessService.instance.isAndroidVpnRunning();
+      if (isRunning && state != ConnectionStateEnum.connected) {
+        state = ConnectionStateEnum.connected;
+        ref.read(connectedAtProvider.notifier).state ??= DateTime.now();
+        ref.read(outboundInfoProvider.notifier).fetch();
+        _testPing();
+      }
+    } catch (_) {}
   }
 
   void setConnected() {
@@ -1018,15 +1032,16 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
       final rng = Random();
 
       while (!_isCancelled) {
+        final batchSize = min(workers, 8);
         final chunk = CdnScannerService.generateCandidateIps(
           cdn: cdn,
-          count: workers,
+          count: batchSize,
           customCidrs: customCidrs,
           rng: rng,
         );
 
-        final futures = chunk.map((ip) async {
-          final candidateNode = activeNode.copyWith(
+        final candidateNodes = chunk.map((ip) {
+          return activeNode.copyWith(
             id: 'scan_radar_${ip.replaceAll('.', '_')}',
             address: ip,
             host: (activeNode.host != null && activeNode.host!.isNotEmpty)
@@ -1036,14 +1051,31 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
                 ? activeNode.sni
                 : (isDomain ? origAddress : null),
           );
-          final res = await XrayProcessService.instance.testNodeRealDelay(
-            candidateNode,
-            timeout: const Duration(seconds: 4),
-          );
-          return MapEntry(ip, res);
-        });
+        }).toList();
 
-        final chunkResults = await Future.wait(futures);
+        // Efficient batch test: test candidate nodes through single Xray test process targeting google.com:443
+        Map<String, NodeTestResult> batchResults = {};
+        if (XrayProcessService.instance.isNodeConfigSupported(activeNode) &&
+            XrayProcessService.instance.findXrayBinarySync() != null) {
+          try {
+            batchResults = await XrayProcessService.instance.testNodesBatchRealProxy(
+              candidateNodes,
+              timeout: const Duration(seconds: 4),
+            );
+          } catch (_) {}
+        }
+
+        final List<MapEntry<String, NodeTestResult>> chunkResults = [];
+        for (int i = 0; i < chunk.length; i++) {
+          final ip = chunk[i];
+          final cand = candidateNodes[i];
+          final res = batchResults[cand.id] ??
+              (batchResults.isEmpty
+                  ? await XrayProcessService.instance.testNodeRealDelay(cand, timeout: const Duration(seconds: 4))
+                  : const NodeTestResult(latencyMs: null));
+          chunkResults.add(MapEntry(ip, res));
+        }
+
         if (_isCancelled) break;
 
         for (final entry in chunkResults) {
@@ -1105,7 +1137,8 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
             updatedResults.sort((a, b) => (a.totalLatencyMs ?? 99999).compareTo(b.totalLatencyMs ?? 99999));
 
             final prevBest = state.currentBestLatency;
-            final isNewBest = prevBest == null || lat < prevBest;
+            // Switch only if first discovered working IP, or if improvement is at least 20ms to prevent flapping
+            final isNewBest = prevBest == null || (lat < prevBest && (prevBest - lat) >= 20);
 
             if (isNewBest) {
               final improvement = prevBest != null ? (prevBest - lat) : null;
