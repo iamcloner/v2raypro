@@ -50,7 +50,30 @@
 ## 📸 تصاویر برنامه
 
 <p align="center">
-  <img src="docs/screenshots/preview.png" alt="پیش‌نمایش محیط برنامه V2RayPro" width="850" />
+  <img src="docs/screenshots/Dashboard.png" alt="داشبورد و وضعیت اتصال" width="800" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/CDN-scanner.png" alt="اسکنر هوشمند آی‌پی کلودفلر" width="800" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Configs.png" alt="مدیریت کانفیگ‌ها" width="400" />
+  <img src="docs/screenshots/Free-configs.png" alt="کانفیگ‌های رایگان روزانه" width="400" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Subs.png" alt="مدیریت لینک‌های سابسکریپشن" width="400" />
+  <img src="docs/screenshots/Routing.png" alt="تنظیمات روتینگ و مسیریابی" width="400" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Settings-1.png" alt="تنظیمات عمومی" width="400" />
+  <img src="docs/screenshots/Settings-2.png" alt="تنظیمات هسته‌ها و پروتکل‌ها" width="400" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Logs.png" alt="لاگ‌های زنده هسته" width="800" />
 </p>
 
 ---

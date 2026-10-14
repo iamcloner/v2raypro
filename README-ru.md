@@ -49,7 +49,30 @@
 ## 📸 Скриншоты
 
 <p align="center">
-  <img src="docs/screenshots/preview.png" alt="Интерфейс V2RayPro" width="850" />
+  <img src="docs/screenshots/Dashboard.png" alt="Панель управления и статус подключения" width="800" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/CDN-scanner.png" alt="Сканер чистых IP Cloudflare" width="800" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Configs.png" alt="Управление узлами и конфигурациями" width="400" />
+  <img src="docs/screenshots/Free-configs.png" alt="Бесплатные конфигурации" width="400" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Subs.png" alt="Управление подписками" width="400" />
+  <img src="docs/screenshots/Routing.png" alt="Правила маршрутизации" width="400" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Settings-1.png" alt="Общие настройки" width="400" />
+  <img src="docs/screenshots/Settings-2.png" alt="Настройки ядер и протоколов" width="400" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Logs.png" alt="Журнал работы ядра" width="800" />
 </p>
 
 ---

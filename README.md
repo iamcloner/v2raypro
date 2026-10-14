@@ -57,7 +57,30 @@
 ## 📸 Screenshots
 
 <p align="center">
-  <img src="docs/screenshots/preview.png" alt="V2RayPro Interface Preview" width="850" />
+  <img src="docs/screenshots/Dashboard.png" alt="Dashboard" width="800" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/CDN-scanner.png" alt="Cloudflare Scanner" width="800" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Configs.png" alt="Configs Management" width="400" />
+  <img src="docs/screenshots/Free-configs.png" alt="Free Configs" width="400" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Subs.png" alt="Subscriptions" width="400" />
+  <img src="docs/screenshots/Routing.png" alt="Routing Rules" width="400" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Settings-1.png" alt="Settings General" width="400" />
+  <img src="docs/screenshots/Settings-2.png" alt="Settings Core & Protocols" width="400" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Logs.png" alt="Core Logs" width="800" />
 </p>
 
 ---

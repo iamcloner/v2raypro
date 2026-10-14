@@ -49,7 +49,30 @@
 ## 📸 Capturas de pantalla
 
 <p align="center">
-  <img src="docs/screenshots/preview.png" alt="Vista previa de la interfaz de V2RayPro" width="850" />
+  <img src="docs/screenshots/Dashboard.png" alt="Panel de control y estado de conexión" width="800" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/CDN-scanner.png" alt="Escáner de IP limpias de Cloudflare" width="800" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Configs.png" alt="Gestión de nodos y configuraciones" width="400" />
+  <img src="docs/screenshots/Free-configs.png" alt="Configuraciones gratuitas diarias" width="400" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Subs.png" alt="Gestión de suscripciones" width="400" />
+  <img src="docs/screenshots/Routing.png" alt="Reglas de enrutamiento" width="400" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Settings-1.png" alt="Ajustes generales" width="400" />
+  <img src="docs/screenshots/Settings-2.png" alt="Ajustes de núcleos y protocolos" width="400" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Logs.png" alt="Registros en vivo del núcleo" width="800" />
 </p>
 
 ---

@@ -49,7 +49,30 @@
 ## 📸 界面截图
 
 <p align="center">
-  <img src="docs/screenshots/preview.png" alt="V2RayPro 界面预览" width="850" />
+  <img src="docs/screenshots/Dashboard.png" alt="仪表盘与连接状态" width="800" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/CDN-scanner.png" alt="Cloudflare 优选 IP 扫描器" width="800" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Configs.png" alt="节点管理" width="400" />
+  <img src="docs/screenshots/Free-configs.png" alt="每日免费节点" width="400" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Subs.png" alt="订阅管理" width="400" />
+  <img src="docs/screenshots/Routing.png" alt="分流与路由规则" width="400" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Settings-1.png" alt="常规设置" width="400" />
+  <img src="docs/screenshots/Settings-2.png" alt="内核与协议高级设置" width="400" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Logs.png" alt="实时内核日志" width="800" />
 </p>
 
 ---
