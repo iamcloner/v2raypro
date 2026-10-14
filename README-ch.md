@@ -1,121 +1,87 @@
-# V2RayPro (中文说明)
+# V2RayPro
 
 <p align="center">
-  <img src="flutter/assets/app_icon.png" alt="V2RayPro 标志" width="128" height="128" />
+  <img src="flutter/assets/app_icon.png" alt="V2RayPro Logo" width="100" height="100" />
 </p>
 
 <p align="center">
-  <strong>高性能、现代化界面的 V2Ray / Xray 与 Sing-box 客户端，集成 Cloudflare 优选 IP 扫描器</strong>
+  <strong>高性能 V2Ray / Xray 与 Sing-box 客户端，集成 Cloudflare 优选 IP 扫描器</strong>
 </p>
 
 <p align="center">
-  <a href="#特性功能">特性功能</a> •
-  <a href="#安装指南">安装指南</a> •
-  <a href="#安卓版本">安卓版本</a> •
-  <a href="#界面截图">界面截图</a> •
-  <a href="#支持与捐赠-donation">支持与捐赠</a> •
-  <a href="#开源许可">开源许可</a>
+  <a href="README.md">English</a> • <a href="README-fa.md">فارسی</a> • 中文 • <a href="README-ru.md">Русский</a> • <a href="README-fr.md">Français</a> • <a href="README-sp.md">Español</a>
 </p>
-
----
-
-### 🌐 多语言 / Languages
-
-[English](README.md) • [فارسی](README-fa.md) • **中文** • [Русский](README-ru.md) • [Français](README-fr.md) • [Español](README-sp.md)
 
 ---
 
 ## 🚀 特性功能
 
-- **双核多引擎驱动**：原生支持 **Xray-core** 与 **sing-box** 引擎，支持一键无缝切换。
-- **广泛的协议支持**：全面兼容 VLESS、VMess、Trojan、Shadowsocks、Reality、WireGuard 及 Hysteria 协议。
-- **独创 Cloudflare 优选 IP 扫描器**：
-  - **雷达模式 (Radar Mode)**：全自动实时测速扫描 Cloudflare IP 段，并在不中断连接的情况下无缝切换至延迟最低的可用优选 IP。
-  - **目标模式 (Target Mode)**：针对自定义 IP 段进行批量测速，支持调整并发线程数（最高 100 并发）。
-  - 动态延迟改善折线图、历史记录及卡片内置的流量警示提醒。
-- **全局 TUN 虚拟网卡与系统代理**：
-  - 基于高速 Wintun 驱动实现真正全局透明代理流量接管。
-  - 支持 HTTP / SOCKS5 本地代理，内置中国大陆及局域网域名智能分流规则。
-- **高级订阅与节点管理**：
-  - 智能识别 Base64 及各类通用订阅格式。
-  - 支持 TCP Ping、真实 HTTP 延迟与协议握手测速。
-  - 支持节点搜索、国家/地区标签筛选、节点排序与一键去重。
-- **现代化桌面体验**：
-  - 基于 Flutter 打造的精致界面，完美支持深色模式（Dark）与浅色模式（Light）。
-  - 支持系统托盘驻留、开机自启与断线自动重连。
+- **多内核支持**：原生支持 Xray-core 与 Sing-box 双内核，支持一键无缝切换。
+- **协议兼容**：支持 VLESS、VMess、Trojan、Shadowsocks、Reality、WireGuard 及 Hysteria。
+- **Cloudflare 优选 IP 扫描器**：
+  - *雷达模式*：全自动探测低延迟 IP 并实现无感热切换。
+  - *目标模式*：批量测速自定义 IP 段，最高支持 100 并发测试。
+- **路由模式**：全局 TUN 虚拟网卡（Wintun）与系统代理（HTTP/SOCKS5），支持域名规则分流。
+- **节点与订阅管理**：支持 Base64 及通用订阅导入，真实 HTTP/TCP 延迟测速，节点一键去重。
+- **现代交互**：基于 Flutter 构建，支持深色/浅色主题，支持托盘驻留与开机自启。
 
 ---
 
 ## 📸 界面截图
 
 <p align="center">
-  <img src="docs/screenshots/Dashboard.png" alt="仪表盘与连接状态" width="800" />
+  <img src="docs/screenshots/Dashboard.png" alt="仪表盘" width="480" />
+  <img src="docs/screenshots/CDN-scanner.png" alt="优选 IP 扫描器" width="480" />
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/CDN-scanner.png" alt="Cloudflare 优选 IP 扫描器" width="800" />
+  <img src="docs/screenshots/Configs.png" alt="节点列表" width="235" />
+  <img src="docs/screenshots/Free-configs.png" alt="免费节点" width="235" />
+  <img src="docs/screenshots/Subs.png" alt="订阅管理" width="235" />
+  <img src="docs/screenshots/Routing.png" alt="路由分流" width="235" />
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/Configs.png" alt="节点管理" width="400" />
-  <img src="docs/screenshots/Free-configs.png" alt="每日免费节点" width="400" />
+  <img src="docs/screenshots/Settings-1.png" alt="通用设置" width="315" />
+  <img src="docs/screenshots/Settings-2.png" alt="内核设置" width="315" />
+  <img src="docs/screenshots/Logs.png" alt="内核日志" width="315" />
 </p>
-
-<p align="center">
-  <img src="docs/screenshots/Subs.png" alt="订阅管理" width="400" />
-  <img src="docs/screenshots/Routing.png" alt="分流与路由规则" width="400" />
-</p>
-
-<p align="center">
-  <img src="docs/screenshots/Settings-1.png" alt="常规设置" width="400" />
-  <img src="docs/screenshots/Settings-2.png" alt="内核与协议高级设置" width="400" />
-</p>
-
-<p align="center">
-  <img src="docs/screenshots/Logs.png" alt="实时内核日志" width="800" />
-</p>
-
----
-
-## 📱 安卓版本 (Android)
-
-> **提示**：V2RayPro 的 **Android（安卓）版本** 目前正在积极开发中！  
-> 移动版本将保留桌面端的核心代理路由与 Cloudflare 优选 IP 扫描能力。敬请关注我们的 [Releases 发行页面](https://github.com/iamcloner/v2raypro/releases) 获取首发公测版通知。
 
 ---
 
 ## 💻 安装指南
 
 ### Windows (x64)
+1. 前往 [GitHub Releases](https://github.com/iamcloner/v2raypro/releases) 下载最新压缩包 `v2raypro-windows-v1.7.3.zip`。
+2. 解压压缩包至任意目录。
+3. 运行 `v2raypro.exe`（使用 TUN 模式请以管理员身份运行）。
 
-1. 前往 GitHub 仓库的 [Releases 发布页面](https://github.com/iamcloner/v2raypro/releases)。
-2. 下载最新版本压缩包：`v2raypro-windows-v1.7.3.zip`（或 `v2raypro-v1.7.3-windows-x64.zip`）。
-3. 解压压缩包至任意文件夹（例如 `C:\Program Files\V2RayPro` 或桌面）。
-4. 双击运行 `v2raypro.exe`。
-   - *TUN 模式提示*：如需使用全局 TUN 虚拟网卡，建议右键以“管理员身份运行”（Run as Administrator）。
+### 安卓版本 (Android)
+> 📱 **提示**：**Android 版本** 目前正在全力开发中，发布后将第一时间在 [GitHub Releases](https://github.com/iamcloner/v2raypro/releases) 页面提供下载。
 
 ---
 
 ## 💖 支持与捐赠 (Donation)
 
-如果您觉得 V2RayPro 对您有所帮助，并希望支持本项目的持续维护、服务器及开发，欢迎通过以下加密货币进行捐助：
+如果您觉得 V2RayPro 对您有所帮助并愿意支持项目的持续开发：
 
-| 币种 | 网络 / 符号 | 钱包地址 |
+| 币种 | 网络 | 钱包地址 |
 | :--- | :--- | :--- |
-| **Bitcoin** | BTC | `1JpSSvLjAj3wreRogBdjTMdEykW7YsX97b` |
-| **Ethereum** | ETH (ERC20) | `0xE90973336d5c09B1183A8ddc4f27b1647Cbdc52A` |
-| **Tether / Tron** | TRX / TRC20 | `TSuhDm1B7X4sz4xNjgd3Y6JGDXCgq8qv7b` |
-| **BNB** | BSC (BEP20) | `0xE90973336d5c09B1183A8ddc4f27b1647Cbdc52A` |
-| **Telegram Open Network** | Gram / TON | `EQDD0fo7jSaljn5q4dO02hhC1d3xc2Hr9N5AK2JqMCguZmnB` |
-| **Solana** | SOL | `E5fNLHCaZhYTWWacyCnFXLEnkLT8pkiZUqbWEEnEhHQe` |
-| **Monero** | XMR | `42o9i9DacHtbzndSx9eSPBFmAFrCeW9R2RWyv1ZJeNemKTAKDyHa8jRF8Ce8j7CVqJJBURGDNipKyC4ebigbPjVRUeMRHoK` |
-| **Ripple** | XRP | `raxQ5Vg3awT1U7jx1Zv1znVcCrKVCJ8HNF` |
-| **Ethereum Classic** | ETC | `0xE90973336d5c09B1183A8ddc4f27b1647Cbdc52A` |
-| **Litecoin** | LTC | `LSHokx4e2pbdmJaYpKqEkJUv3R4iE9t4zZ` |
-| **Cardano** | ADA | `addr1qxlavq0fu3x2dzd685shgq46v6ysyu4w3w7g4pu6r6sjl95qwrclc2a2x6x4c5fgp80m27rupavltt62ezwcmx2z8ngsam72me` |
+| **BTC** | Bitcoin | `1JpSSvLjAj3wreRogBdjTMdEykW7YsX97b` |
+| **ETH** | ERC20 | `0xE90973336d5c09B1183A8ddc4f27b1647Cbdc52A` |
+| **TRX** | TRC20 | `TSuhDm1B7X4sz4xNjgd3Y6JGDXCgq8qv7b` |
+| **BNB** | BEP20 | `0xE90973336d5c09B1183A8ddc4f27b1647Cbdc52A` |
+| **TON / Gram** | TON | `EQDD0fo7jSaljn5q4dO02hhC1d3xc2Hr9N5AK2JqMCguZmnB` |
+| **SOL** | Solana | `E5fNLHCaZhYTWWacyCnFXLEnkLT8pkiZUqbWEEnEhHQe` |
+| **XMR** | Monero | `42o9i9DacHtbzndSx9eSPBFmAFrCeW9R2RWyv1ZJeNemKTAKDyHa8jRF8Ce8j7CVqJJBURGDNipKyC4ebigbPjVRUeMRHoK` |
+| **XRP** | Ripple | `raxQ5Vg3awT1U7jx1Zv1znVcCrKVCJ8HNF` |
+| **ETC** | ETC | `0xE90973336d5c09B1183A8ddc4f27b1647Cbdc52A` |
+| **LTC** | Litecoin | `LSHokx4e2pbdmJaYpKqEkJUv3R4iE9t4zZ` |
+| **ADA** | Cardano | `addr1qxlavq0fu3x2dzd685shgq46v6ysyu4w3w7g4pu6r6sjl95qwrclc2a2x6x4c5fgp80m27rupavltt62ezwcmx2z8ngsam72me` |
 
 ---
 
 ## 📄 开源许可
 
-本项目采用 MIT 许可证开源。
+本项目基于 MIT 协议开源。
+
