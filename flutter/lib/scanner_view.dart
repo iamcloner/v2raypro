@@ -52,10 +52,9 @@ class _ScannerViewState extends ConsumerState<ScannerView>
         ? null
         : nodes.firstWhere((n) => n.isActive, orElse: () => nodes.first);
     final locale = ref.watch(currentLocaleProvider);
-    final cdnMap = ref.watch(nodeCdnMapProvider);
+    ref.watch(nodeCdnMapProvider);
     final detectedCdn = activeNode != null
-        ? (cdnMap[activeNode.address.trim().toLowerCase()] ??
-            ref.read(nodeCdnMapProvider.notifier).detectCdn(activeNode.address))
+        ? ref.read(nodeCdnMapProvider.notifier).detectCdnForNode(activeNode)
         : null;
 
     if (detectedCdn != null && state.selectedCdn != detectedCdn && !state.isScanning) {

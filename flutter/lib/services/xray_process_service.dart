@@ -1263,6 +1263,7 @@ class XrayProcessService {
     Socket? rawSocket;
     try {
       rawSocket = await Socket.connect(node.address, node.port, timeout: effectiveTimeout);
+      final tcpLatency = sw.elapsedMilliseconds;
       Socket activeSocket = rawSocket;
 
       final host = (node.host != null && node.host!.isNotEmpty)
@@ -1272,6 +1273,7 @@ class XrayProcessService {
           ? node.sni!
           : ((node.host != null && node.host!.isNotEmpty) ? node.host! : node.address);
 
+      int handshakeLatency = tcpLatency;
       if (node.security == SecurityType.tls) {
         try {
           activeSocket = await SecureSocket.secure(
@@ -1279,6 +1281,7 @@ class XrayProcessService {
             host: sni,
             onBadCertificate: (_) => node.allowInsecure || globalAllowInsecure,
           ).timeout(effectiveTimeout);
+          handshakeLatency = sw.elapsedMilliseconds;
         } catch (_) {
           rawSocket.destroy();
           return null;
@@ -1293,6 +1296,7 @@ class XrayProcessService {
             onBadCertificate: (_) => true,
           ).timeout(effectiveTimeout);
           activeSocket = probe;
+          handshakeLatency = sw.elapsedMilliseconds;
         } catch (_) {
           // Expected for Reality nodes without full uTLS client
         }
@@ -1360,7 +1364,7 @@ class XrayProcessService {
                   !isCdnError;
 
               if (isAcceptableStatus) {
-                completer.complete(sw.elapsedMilliseconds);
+                completer.complete(handshakeLatency);
               } else {
                 completer.complete(null);
               }
@@ -1393,7 +1397,7 @@ class XrayProcessService {
           (data) {
             sw.stop();
             if (!completer.isCompleted) {
-              completer.complete(sw.elapsedMilliseconds);
+              completer.complete(handshakeLatency);
             }
           },
           onError: (_) {
@@ -1413,7 +1417,7 @@ class XrayProcessService {
       // Standard TCP / Direct / Reality: Socket connect (+ TLS if available) is successful!
       sw.stop();
       activeSocket.destroy();
-      return sw.elapsedMilliseconds;
+      return handshakeLatency;
     } catch (_) {
       try {
         rawSocket?.destroy();
@@ -1438,7 +1442,12 @@ class XrayProcessService {
       if (remaining <= Duration.zero) break;
       final curTimeout = remaining < perProbeTimeout ? remaining : perProbeTimeout;
 
-      final res = await _singleProtocolProbe(node, curTimeout);
+      // Probe 0: full protocol handshake & verification
+      // Subsequent probes: rapid TCP connect to find lowest jitter
+      final res = i == 0
+          ? await _singleProtocolProbe(node, curTimeout)
+          : await tcpPing(node.address, node.port, count: 1, timeout: curTimeout);
+
       if (res != null && res > 0) {
         if (lowest == null || res < lowest) {
           lowest = res;

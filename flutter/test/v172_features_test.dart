@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:v2raypro/models/proxy_node.dart';
 import 'package:v2raypro/models/routing_rule.dart';
@@ -387,6 +388,43 @@ void main() {
         timeout: const Duration(milliseconds: 300),
       );
       expect(res.isSuccess, isFalse);
+    });
+
+    test('detectCdnForNode detects Cloudflare from address domain, host or sni', () {
+      final container = ProviderContainer();
+      final notifier = container.read(nodeCdnMapProvider.notifier);
+
+      final nodeWithCfHost = ProxyNode(
+        id: 'node_cf_host',
+        name: 'CF Host Node',
+        address: '1.2.3.4',
+        port: 443,
+        protocol: ProtocolType.vless,
+        uuidOrPassword: 'test',
+        host: 'my-worker.workers.dev',
+      );
+      expect(notifier.detectCdnForNode(nodeWithCfHost), equals(CdnProvider.cloudflare));
+
+      final nodeWithCfSni = ProxyNode(
+        id: 'node_cf_sni',
+        name: 'CF SNI Node',
+        address: '1.2.3.4',
+        port: 443,
+        protocol: ProtocolType.vless,
+        uuidOrPassword: 'test',
+        sni: 'test.cloudflare.com',
+      );
+      expect(notifier.detectCdnForNode(nodeWithCfSni), equals(CdnProvider.cloudflare));
+
+      final nonCdnNode = ProxyNode(
+        id: 'node_non_cdn',
+        name: 'Direct Node',
+        address: '8.8.8.8',
+        port: 443,
+        protocol: ProtocolType.vless,
+        uuidOrPassword: 'test',
+      );
+      expect(notifier.detectCdnForNode(nonCdnNode), isNull);
     });
   });
 }

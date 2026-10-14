@@ -1031,17 +1031,20 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
 
       final rng = Random();
 
-      while (!_isCancelled) {
-        final batchSize = min(workers, 8);
-        final chunk = CdnScannerService.generateCandidateIps(
-          cdn: cdn,
-          count: batchSize,
-          customCidrs: customCidrs,
-          rng: rng,
-        );
+      final poolSize = workers.clamp(5, 50);
 
-        final candidateNodes = chunk.map((ip) {
-          return activeNode.copyWith(
+      Future<void> runRadarWorker() async {
+        while (!_isCancelled) {
+          final ipList = CdnScannerService.generateCandidateIps(
+            cdn: cdn,
+            count: 1,
+            customCidrs: customCidrs,
+            rng: rng,
+          );
+          if (ipList.isEmpty) break;
+          final ip = ipList.first;
+
+          final cand = activeNode.copyWith(
             id: 'scan_radar_${ip.replaceAll('.', '_')}',
             address: ip,
             host: (activeNode.host != null && activeNode.host!.isNotEmpty)
@@ -1051,37 +1054,13 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
                 ? activeNode.sni
                 : (isDomain ? origAddress : null),
           );
-        }).toList();
 
-        // Efficient batch test: test candidate nodes through single Xray test process targeting google.com:443
-        Map<String, NodeTestResult> batchResults = {};
-        if (XrayProcessService.instance.isNodeConfigSupported(activeNode) &&
-            XrayProcessService.instance.findXrayBinarySync() != null) {
-          try {
-            batchResults = await XrayProcessService.instance.testNodesBatchRealProxy(
-              candidateNodes,
-              timeout: const Duration(seconds: 4),
-            );
-          } catch (_) {}
-        }
+          final res = await XrayProcessService.instance.testNodeRealDelay(
+            cand,
+            timeout: const Duration(milliseconds: 1800),
+          );
 
-        final List<MapEntry<String, NodeTestResult>> chunkResults = [];
-        for (int i = 0; i < chunk.length; i++) {
-          final ip = chunk[i];
-          final cand = candidateNodes[i];
-          final res = batchResults[cand.id] ??
-              (batchResults.isEmpty
-                  ? await XrayProcessService.instance.testNodeRealDelay(cand, timeout: const Duration(seconds: 4))
-                  : const NodeTestResult(latencyMs: null));
-          chunkResults.add(MapEntry(ip, res));
-        }
-
-        if (_isCancelled) break;
-
-        for (final entry in chunkResults) {
           if (_isCancelled) break;
-          final ip = entry.key;
-          final res = entry.value;
 
           state = state.copyWith(
             scanned: state.scanned + 1,
@@ -1191,6 +1170,8 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
         }
       }
 
+      await Future.wait(List.generate(poolSize, (_) => runRadarWorker()));
+
       state = state.copyWith(isScanning: false, statusMessage: "Stopped");
     } else {
       // TARGET MODE: User-selected pool size (200 to 10,000)
@@ -1216,13 +1197,16 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
 
       final scanStartTime = DateTime.now();
 
-      final batchSize = min(workers, 8);
-      for (int i = 0; i < candidates.length; i += batchSize) {
-        if (_isCancelled) break;
-        final chunk = candidates.sublist(i, min(i + batchSize, candidates.length));
+      int currentIndex = 0;
+      final poolSize = workers.clamp(5, 100);
 
-        final candidateNodes = chunk.map((ip) {
-          return activeNode.copyWith(
+      Future<void> runTargetWorker() async {
+        while (currentIndex < candidates.length && !_isCancelled) {
+          final idx = currentIndex++;
+          if (idx >= candidates.length) break;
+          final ip = candidates[idx];
+
+          final cand = activeNode.copyWith(
             id: 'scan_target_${ip.replaceAll('.', '_')}',
             address: ip,
             host: (activeNode.host != null && activeNode.host!.isNotEmpty)
@@ -1232,36 +1216,13 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
                 ? activeNode.sni
                 : (isDomain ? origAddress : null),
           );
-        }).toList();
 
-        Map<String, NodeTestResult> batchResults = {};
-        if (XrayProcessService.instance.isNodeConfigSupported(activeNode) &&
-            XrayProcessService.instance.findXrayBinarySync() != null) {
-          try {
-            batchResults = await XrayProcessService.instance.testNodesBatchRealProxy(
-              candidateNodes,
-              timeout: const Duration(seconds: 4),
-            );
-          } catch (_) {}
-        }
+          final res = await XrayProcessService.instance.testNodeRealDelay(
+            cand,
+            timeout: const Duration(milliseconds: 1800),
+          );
 
-        final List<MapEntry<String, NodeTestResult>> chunkResults = [];
-        for (int j = 0; j < chunk.length; j++) {
-          final ip = chunk[j];
-          final cand = candidateNodes[j];
-          final res = batchResults[cand.id] ??
-              (batchResults.isEmpty
-                  ? await XrayProcessService.instance.testNodeRealDelay(cand, timeout: const Duration(seconds: 4))
-                  : const NodeTestResult(latencyMs: null));
-          chunkResults.add(MapEntry(ip, res));
-        }
-
-        if (_isCancelled) break;
-
-        for (final entry in chunkResults) {
           if (_isCancelled) break;
-          final ip = entry.key;
-          final res = entry.value;
 
           final newScanned = state.scanned + 1;
           String? eta;
@@ -1313,6 +1274,8 @@ class ScannerNotifier extends StateNotifier<ScannerState> {
           }
         }
       }
+
+      await Future.wait(List.generate(poolSize, (_) => runTargetWorker()));
 
       state = state.copyWith(isScanning: false, statusMessage: "Finished", estimatedRemainingTime: null);
       LogService.instance.add(
@@ -1856,6 +1819,12 @@ class NodeCdnDetectionNotifier extends StateNotifier<Map<String, CdnProvider?>> 
     final syncMatch = CdnScannerService.detectCdnHostSync(addr, cdnRanges);
     _syncCache[addr] = syncMatch;
 
+    // If it's a domain name (not raw IPv4/IPv6), automatically check if its underlying IPs belong to a CDN
+    final isIp = addr.contains(RegExp(r'^\d+\.\d+\.\d+\.\d+$')) || addr.contains(':');
+    if (syncMatch == null && !isIp) {
+      Future.microtask(() => checkDomainCdn(addr));
+    }
+
     // Safely update state outside the build phase to prevent widget rebuild errors
     Future.microtask(() {
       if (mounted && !state.containsKey(addr)) {
@@ -1864,6 +1833,24 @@ class NodeCdnDetectionNotifier extends StateNotifier<Map<String, CdnProvider?>> 
     });
 
     return syncMatch;
+  }
+
+  /// Detects whether any part of a ProxyNode (address, host, or SNI) belongs to or resolves to a CDN
+  CdnProvider? detectCdnForNode(ProxyNode node) {
+    final byAddr = detectCdn(node.address);
+    if (byAddr != null) return byAddr;
+
+    if (node.host != null && node.host!.trim().isNotEmpty) {
+      final byHost = detectCdn(node.host!);
+      if (byHost != null) return byHost;
+    }
+
+    if (node.sni != null && node.sni!.trim().isNotEmpty) {
+      final bySni = detectCdn(node.sni!);
+      if (bySni != null) return bySni;
+    }
+
+    return null;
   }
 
   /// Explicit async DNS check for active node or on-demand inspection

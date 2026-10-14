@@ -323,10 +323,9 @@ class _MainShellState extends ConsumerState<MainShell> {
     final isDesktop = MediaQuery.of(context).size.width >= 700;
     final nodes = ref.watch(nodesProvider);
     final activeNode = nodes.isEmpty ? null : nodes.firstWhere((n) => n.isActive, orElse: () => nodes.first);
-    final cdnMap = ref.watch(nodeCdnMapProvider);
+    ref.watch(nodeCdnMapProvider);
     final activeCdn = activeNode != null
-        ? (cdnMap[activeNode.address.trim().toLowerCase()] ??
-            ref.read(nodeCdnMapProvider.notifier).detectCdn(activeNode.address))
+        ? ref.read(nodeCdnMapProvider.notifier).detectCdnForNode(activeNode)
         : null;
     final hasCdn = activeCdn != null;
     final scannerLabel = hasCdn
@@ -582,15 +581,44 @@ class _MainShellState extends ConsumerState<MainShell> {
                 ),
               ),
         body: pages[_selectedIndex],
-        bottomNavigationBar: _buildBottomNavBar(context, bottomNavIndex, locale),
+        bottomNavigationBar: _buildBottomNavBar(context, bottomNavIndex, locale, hasCdn, scannerLabel),
       ),
     );
   }
 
-  Widget _buildBottomNavBar(BuildContext context, int bottomNavIndex, String locale) {
+  Widget _buildBottomNavBar(BuildContext context, int bottomNavIndex, String locale, bool hasCdn, String scannerLabel) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final primaryColor = theme.colorScheme.primary;
+
+    // Dynamically show the active sub-page icon and label when navigated from drawer
+    IconData moreActiveIcon = Icons.grid_view_rounded;
+    IconData moreInactiveIcon = Icons.grid_view_outlined;
+    String moreLabel = AppStrings.get('more', locale: locale);
+
+    if (_selectedIndex >= 3) {
+      if (_selectedIndex == 3) {
+        moreActiveIcon = Icons.card_giftcard_rounded;
+        moreInactiveIcon = Icons.card_giftcard_outlined;
+        moreLabel = AppStrings.get('free_configs', locale: locale);
+      } else if (hasCdn && _selectedIndex == 4) {
+        moreActiveIcon = Icons.radar_rounded;
+        moreInactiveIcon = Icons.radar_outlined;
+        moreLabel = scannerLabel;
+      } else if ((hasCdn && _selectedIndex == 5) || (!hasCdn && _selectedIndex == 4)) {
+        moreActiveIcon = Icons.alt_route_rounded;
+        moreInactiveIcon = Icons.alt_route_outlined;
+        moreLabel = AppStrings.get('routing', locale: locale);
+      } else if ((hasCdn && _selectedIndex == 6) || (!hasCdn && _selectedIndex == 5)) {
+        moreActiveIcon = Icons.article_rounded;
+        moreInactiveIcon = Icons.article_outlined;
+        moreLabel = AppStrings.get('logs', locale: locale);
+      } else if ((hasCdn && _selectedIndex == 7) || (!hasCdn && _selectedIndex == 6)) {
+        moreActiveIcon = Icons.settings_rounded;
+        moreInactiveIcon = Icons.settings_outlined;
+        moreLabel = AppStrings.get('settings', locale: locale);
+      }
+    }
 
     final items = [
       (
@@ -615,26 +643,26 @@ class _MainShellState extends ConsumerState<MainShell> {
               label: AppStrings.get('free_configs', locale: locale),
             ),
       (
-        activeIcon: Icons.grid_view_rounded,
-        inactiveIcon: Icons.grid_view_outlined,
-        label: AppStrings.get('more', locale: locale),
+        activeIcon: moreActiveIcon,
+        inactiveIcon: moreInactiveIcon,
+        label: moreLabel,
       ),
     ];
 
     return Container(
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF13161F) : Colors.white,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+        color: isDark ? const Color(0xFF0F131D) : Colors.white,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.07),
-            blurRadius: 18,
-            offset: const Offset(0, -4),
+            color: Colors.black.withValues(alpha: isDark ? 0.45 : 0.08),
+            blurRadius: 20,
+            offset: const Offset(0, -5),
           ),
         ],
         border: Border(
           top: BorderSide(
-            color: isDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.05),
+            color: isDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.06),
             width: 1,
           ),
         ),
@@ -664,7 +692,7 @@ class _MainShellState extends ConsumerState<MainShell> {
                         _scaffoldKey.currentState?.openDrawer();
                       }
                     },
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(20),
                     splashColor: primaryColor.withValues(alpha: 0.1),
                     highlightColor: primaryColor.withValues(alpha: 0.05),
                     child: Padding(
@@ -673,40 +701,73 @@ class _MainShellState extends ConsumerState<MainShell> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           AnimatedContainer(
-                            duration: const Duration(milliseconds: 220),
+                            duration: const Duration(milliseconds: 250),
                             curve: Curves.easeOutCubic,
-                            height: 32,
+                            height: 34,
                             padding: const EdgeInsets.symmetric(horizontal: 18),
                             decoration: BoxDecoration(
-                              color: isSelected
-                                  ? primaryColor.withValues(alpha: isDark ? 0.22 : 0.14)
-                                  : Colors.transparent,
-                              borderRadius: BorderRadius.circular(16),
+                              gradient: isSelected
+                                  ? const LinearGradient(
+                                      colors: [Color(0xFF00D2FF), Color(0xFF0072FF)],
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                    )
+                                  : null,
+                              borderRadius: BorderRadius.circular(18),
+                              boxShadow: isSelected
+                                  ? [
+                                      BoxShadow(
+                                        color: const Color(0xFF00D2FF).withValues(alpha: isDark ? 0.45 : 0.35),
+                                        blurRadius: 10,
+                                        spreadRadius: 1,
+                                        offset: const Offset(0, 2),
+                                      ),
+                                    ]
+                                  : null,
                             ),
                             child: Center(
                               child: Icon(
                                 isSelected ? item.activeIcon : item.inactiveIcon,
                                 size: 22,
                                 color: isSelected
-                                    ? primaryColor
+                                    ? Colors.white
                                     : (isDark ? Colors.white54 : Colors.black45),
                               ),
                             ),
                           ),
-                          const SizedBox(height: 3),
+                          const SizedBox(height: 4),
                           AnimatedDefaultTextStyle(
                             duration: const Duration(milliseconds: 200),
                             style: TextStyle(
                               fontSize: isSelected ? 11.5 : 11,
-                              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                              fontWeight: isSelected ? FontWeight.w800 : FontWeight.w500,
                               color: isSelected
-                                  ? primaryColor
+                                  ? (isDark ? const Color(0xFF00D2FF) : const Color(0xFF0072FF))
                                   : (isDark ? Colors.white60 : Colors.black54),
                             ),
                             child: Text(
                               item.label,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          AnimatedContainer(
+                            duration: const Duration(milliseconds: 250),
+                            width: isSelected ? 5 : 0,
+                            height: isSelected ? 5 : 0,
+                            decoration: BoxDecoration(
+                              color: isDark ? const Color(0xFF00D2FF) : const Color(0xFF0072FF),
+                              shape: BoxShape.circle,
+                              boxShadow: isSelected
+                                  ? [
+                                      BoxShadow(
+                                        color: const Color(0xFF00D2FF).withValues(alpha: 0.8),
+                                        blurRadius: 6,
+                                        spreadRadius: 1,
+                                      ),
+                                    ]
+                                  : null,
                             ),
                           ),
                         ],
