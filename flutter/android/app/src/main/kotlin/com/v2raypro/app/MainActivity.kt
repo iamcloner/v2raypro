@@ -1,4 +1,4 @@
-package com.example.v2raypro
+package com.v2raypro.app
 
 import io.flutter.embedding.android.FlutterActivity
 

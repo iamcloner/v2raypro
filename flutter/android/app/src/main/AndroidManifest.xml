@@ -14,9 +14,11 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:usesCleartextTraffic="true">
         <activity
-
             android:name=".MainActivity"
+            android:label="V2RayPro"
+            android:icon="@mipmap/ic_launcher"
             android:exported="true"
+
             android:launchMode="singleTop"
             android:taskAffinity=""
             android:theme="@style/LaunchTheme"

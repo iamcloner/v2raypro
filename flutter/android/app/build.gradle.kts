@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.v2raypro"
+    namespace = "com.v2raypro.app"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -17,10 +17,11 @@ android {
     defaultConfig {
         applicationId = "com.v2raypro.app"
         minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+        targetSdk = 34
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
+
 
     signingConfigs {
         create("release") {
