@@ -424,10 +424,23 @@ class XrayProcessService {
             for (final r in routingRules.where((rule) => rule.enabled)) {
               if (r.values.isEmpty) continue;
               if (r.type == RoutingRuleType.address) {
+                // Normalize geosite rules:
+                // Many geosite.dat databases (including v2fly community) use 'geosite:category-ir'
+                // rather than 'geosite:ir'. Expand 'geosite:ir' to both category-ir and regex for complete coverage.
+                final expandedDomains = <String>[];
+                for (final val in r.values) {
+                  final trimmed = val.trim();
+                  if (trimmed.toLowerCase() == "geosite:ir") {
+                    expandedDomains.add("geosite:category-ir");
+                    expandedDomains.add("regexp:.*\\.ir\$");
+                  } else {
+                    expandedDomains.add(trimmed);
+                  }
+                }
                 custom.add({
                   "type": "field",
                   "outboundTag": r.action.name,
-                  "domain": r.values,
+                  "domain": expandedDomains,
                 });
               } else if (r.type == RoutingRuleType.ip) {
                 custom.add({

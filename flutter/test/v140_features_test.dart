@@ -478,8 +478,7 @@ loc=XX
         (r) => r != null && r['outboundTag'] == 'direct' && r['domain'] != null,
         orElse: () => null,
       );
-      expect(directDomainRule, isNotNull);
-      expect(directDomainRule!['domain'], equals(['geosite:ir']));
+      expect(directDomainRule!['domain'], equals(['geosite:category-ir', 'regexp:.*\\.ir\$']));
 
       final blockIpRule = rules.cast<Map<String, dynamic>?>().firstWhere(
         (r) => r != null && r['outboundTag'] == 'block' && r['ip'] != null,
