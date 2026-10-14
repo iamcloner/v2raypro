@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -36,6 +37,77 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
   final Map<String, String?> _subCountryFilterMap = {};
   final Map<String, String?> _subEtaMap = {};
   bool _isUpdatingAll = false;
+
+  void _showAddSubBottomSheet(String locale) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                AppStrings.get("add_subscription", locale: locale),
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryAccent.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.add_link_rounded, color: AppTheme.primaryAccent),
+                ),
+                title: Text(locale == 'fa' ? 'افزودن لینک سابسکریپشن' : 'Add Subscription URL'),
+                subtitle: Text(
+                  locale == 'fa' ? 'وارد کردن نام و لینک اشتراک' : 'Enter subscription name and URL',
+                  style: const TextStyle(fontSize: 11),
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showAddDialog(locale);
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.tealAccent.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.content_paste_rounded, color: Colors.tealAccent),
+                ),
+                title: Text(locale == 'fa' ? 'از کلیپ‌بورد (Paste from Clipboard)' : 'Import from Clipboard'),
+                subtitle: Text(
+                  locale == 'fa' ? 'خواندن خودکار لینک ساب کپی شده' : 'Auto import copied subscription link',
+                  style: const TextStyle(fontSize: 11),
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pasteSubFromClipboard();
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   void _showAddDialog(String locale) {
     _nameController.clear();
@@ -398,44 +470,75 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
       child: Focus(
         autofocus: true,
         child: Scaffold(
+          floatingActionButton: Platform.isAndroid
+              ? FloatingActionButton(
+                  backgroundColor: AppTheme.primaryAccent,
+                  foregroundColor: Colors.white,
+                  elevation: 4,
+                  shape: const CircleBorder(),
+                  tooltip: AppStrings.get("add_subscription", locale: locale),
+                  onPressed: () => _showAddSubBottomSheet(locale),
+                  child: const Icon(Icons.add, size: 28),
+                )
+              : null,
           body: Padding(
-            padding: const EdgeInsets.all(24),
-        child: Column(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            padding: EdgeInsets.all(Platform.isAndroid ? 12 : 24),
+            child: Column(
               children: [
-                Text(
-                  AppStrings.get("subscriptions", locale: locale),
-                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                ),
                 Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    if (subs.isNotEmpty)
-                      OutlinedButton.icon(
-                        icon: _isUpdatingAll
-                            ? const SizedBox(
-                                width: 14,
-                                height: 14,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Icon(Icons.sync_rounded, size: 18),
-                        label: Text(_isUpdatingAll
-                            ? "Updating..."
-                            : AppStrings.get("update_all_subs", locale: locale)),
-                        onPressed: _isUpdatingAll ? null : _updateAllSubs,
+                    Expanded(
+                      child: Text(
+                        AppStrings.get("subscriptions", locale: locale),
+                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                    const SizedBox(width: 12),
-                    FilledButton.icon(
-                      style: FilledButton.styleFrom(backgroundColor: AppTheme.primaryAccent),
-                      icon: const Icon(Icons.add),
-                      label: Text(AppStrings.get("add_subscription", locale: locale)),
-                      onPressed: () => _showAddDialog(locale),
                     ),
+                    if (Platform.isAndroid) ...[
+                      if (subs.isNotEmpty)
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          icon: _isUpdatingAll
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.sync_rounded, color: Colors.cyanAccent),
+                          tooltip: AppStrings.get("update_all_subs", locale: locale),
+                          onPressed: _isUpdatingAll ? null : _updateAllSubs,
+                        ),
+                    ] else ...[
+                      Row(
+                        children: [
+                          if (subs.isNotEmpty)
+                            OutlinedButton.icon(
+                              icon: _isUpdatingAll
+                                  ? const SizedBox(
+                                      width: 14,
+                                      height: 14,
+                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                    )
+                                  : const Icon(Icons.sync_rounded, size: 18),
+                              label: Text(_isUpdatingAll
+                                  ? "Updating..."
+                                  : AppStrings.get("update_all_subs", locale: locale)),
+                              onPressed: _isUpdatingAll ? null : _updateAllSubs,
+                            ),
+                          const SizedBox(width: 12),
+                          FilledButton.icon(
+                            style: FilledButton.styleFrom(backgroundColor: AppTheme.primaryAccent),
+                            icon: const Icon(Icons.add),
+                            label: Text(AppStrings.get("add_subscription", locale: locale)),
+                            onPressed: () => _showAddDialog(locale),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
-              ],
-            ),
             const SizedBox(height: 20),
             if (subs.isEmpty)
               Expanded(
@@ -584,96 +687,204 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                             ],
                           ],
                         ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (subNodes.isNotEmpty) ...[
-                              OutlinedButton.icon(
-                                style: isTestingSub
-                                    ? OutlinedButton.styleFrom(
-                                        side: const BorderSide(color: Colors.amber, width: 1.2),
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                      )
-                                    : OutlinedButton.styleFrom(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        trailing: Platform.isAndroid
+                            ? Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  // 1. Test ping button (OUTSIDE)
+                                  if (subNodes.isNotEmpty)
+                                    IconButton(
+                                      visualDensity: VisualDensity.compact,
+                                      icon: isTestingSub
+                                          ? SizedBox(
+                                              width: 16,
+                                              height: 16,
+                                              child: CircularProgressIndicator(
+                                                value: subProgress > 0 ? subProgress : null,
+                                                strokeWidth: 2,
+                                                color: Colors.amber,
+                                              ),
+                                            )
+                                          : const Icon(Icons.speed_rounded, size: 20, color: Colors.blueAccent),
+                                      tooltip: isTestingSub
+                                          ? (_subEtaMap[sub.id] != null
+                                              ? '$subPercent% (${_subEtaMap[sub.id]})'
+                                              : '$subPercent% (${AppStrings.get("cancel_scan", locale: locale)})')
+                                          : AppStrings.get("test_all_sub", locale: locale),
+                                      onPressed: () => _testAllSubNodes(sub, subNodes),
+                                    ),
+                                  // 2. Update sub button (OUTSIDE)
+                                  if (isUpdating)
+                                    const Padding(
+                                      padding: EdgeInsets.symmetric(horizontal: 6),
+                                      child: SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(strokeWidth: 2),
                                       ),
-                                icon: isTestingSub
-                                    ? SizedBox(
-                                        width: 12,
-                                        height: 12,
-                                        child: CircularProgressIndicator(
-                                          value: subProgress > 0 ? subProgress : null,
-                                          strokeWidth: 2,
-                                          color: Colors.amber,
+                                    )
+                                  else
+                                    IconButton(
+                                      visualDensity: VisualDensity.compact,
+                                      icon: const Icon(Icons.sync_rounded, size: 20, color: Colors.cyanAccent),
+                                      tooltip: "Update subscription",
+                                      onPressed: () => _updateSub(sub),
+                                    ),
+                                  // 3. Options Menu (delete dead, edit, share, delete sub)
+                                  PopupMenuButton<String>(
+                                    icon: const Icon(Icons.more_vert_rounded, size: 20),
+                                    padding: EdgeInsets.zero,
+                                    tooltip: "Options",
+                                    onSelected: (val) {
+                                      if (val == 'delete_dead') {
+                                        _deleteDeadSubNodes(sub, subNodes, locale);
+                                      } else if (val == 'edit') {
+                                        _showEditSubDialog(sub, locale);
+                                      } else if (val == 'share') {
+                                        Clipboard.setData(ClipboardData(text: sub.url));
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text("Subscription URL copied to clipboard.")),
+                                        );
+                                      } else if (val == 'delete') {
+                                        ref.read(subscriptionsProvider.notifier).removeSubscription(sub.id);
+                                      }
+                                    },
+                                    itemBuilder: (ctx) => [
+                                      if (subNodes.isNotEmpty)
+                                        PopupMenuItem(
+                                          value: 'delete_dead',
+                                          child: Row(
+                                            children: [
+                                              const Icon(Icons.delete_sweep_rounded, size: 18, color: Colors.redAccent),
+                                              const SizedBox(width: 8),
+                                              Text(AppStrings.get("delete_sub_dead", locale: locale)),
+                                            ],
+                                          ),
                                         ),
-                                      )
-                                    : const Icon(Icons.speed_rounded, size: 16),
-                                label: Text(
-                                  isTestingSub
-                                      ? (_subEtaMap[sub.id] != null
-                                          ? '$subPercent% (${_subEtaMap[sub.id]})'
-                                          : '$subPercent% (${AppStrings.get("cancel_scan", locale: locale)})')
-                                      : AppStrings.get("test_all_sub", locale: locale),
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: isTestingSub ? Colors.amber : null,
-                                    fontWeight: isTestingSub ? FontWeight.bold : FontWeight.normal,
+                                      const PopupMenuItem(
+                                        value: 'edit',
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.edit, size: 18, color: Colors.amberAccent),
+                                            SizedBox(width: 8),
+                                            Text("Edit"),
+                                          ],
+                                        ),
+                                      ),
+                                      const PopupMenuItem(
+                                        value: 'share',
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.share, size: 18, color: Colors.purpleAccent),
+                                            SizedBox(width: 8),
+                                            Text("Share URL"),
+                                          ],
+                                        ),
+                                      ),
+                                      PopupMenuItem(
+                                        value: 'delete',
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.delete_forever_rounded, size: 18, color: Colors.redAccent.shade100),
+                                            const SizedBox(width: 8),
+                                            const Text("Delete"),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ),
-                                onPressed: () => _testAllSubNodes(sub, subNodes),
-                              ),
-                              const SizedBox(width: 4),
-                              IconButton(
-                                visualDensity: VisualDensity.compact,
-                                icon: const Icon(Icons.delete_sweep_rounded, size: 18, color: Colors.redAccent),
-                                tooltip: AppStrings.get("delete_sub_dead", locale: locale),
-                                onPressed: () => _deleteDeadSubNodes(sub, subNodes, locale),
-                              ),
-                              const SizedBox(width: 4),
-                            ],
-                            IconButton(
-                              visualDensity: VisualDensity.compact,
-                              icon: const Icon(Icons.edit, size: 18, color: Colors.amberAccent),
-                              tooltip: "Edit Subscription",
-                              onPressed: () => _showEditSubDialog(sub, locale),
-                            ),
-                            IconButton(
-                              visualDensity: VisualDensity.compact,
-                              icon: const Icon(Icons.share, size: 18, color: Colors.purpleAccent),
-                              tooltip: "Share Subscription URL",
-                              onPressed: () {
-                                Clipboard.setData(ClipboardData(text: sub.url));
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text("Subscription URL copied to clipboard.")),
-                                );
-                              },
-                            ),
-                            if (isUpdating)
-                              const Padding(
-                                padding: EdgeInsets.symmetric(horizontal: 8),
-                                child: SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
-                                ),
+                                ],
                               )
-                            else
-                              IconButton(
-                                visualDensity: VisualDensity.compact,
-                                icon: const Icon(Icons.sync_rounded, size: 18, color: Colors.cyanAccent),
-                                tooltip: "Update subscription",
-                                onPressed: () => _updateSub(sub),
+                            : Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (subNodes.isNotEmpty) ...[
+                                    OutlinedButton.icon(
+                                      style: isTestingSub
+                                          ? OutlinedButton.styleFrom(
+                                              side: const BorderSide(color: Colors.amber, width: 1.2),
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                            )
+                                          : OutlinedButton.styleFrom(
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                            ),
+                                      icon: isTestingSub
+                                          ? SizedBox(
+                                              width: 12,
+                                              height: 12,
+                                              child: CircularProgressIndicator(
+                                                value: subProgress > 0 ? subProgress : null,
+                                                strokeWidth: 2,
+                                                color: Colors.amber,
+                                              ),
+                                            )
+                                          : const Icon(Icons.speed_rounded, size: 16),
+                                      label: Text(
+                                        isTestingSub
+                                            ? (_subEtaMap[sub.id] != null
+                                                ? '$subPercent% (${_subEtaMap[sub.id]})'
+                                                : '$subPercent% (${AppStrings.get("cancel_scan", locale: locale)})')
+                                            : AppStrings.get("test_all_sub", locale: locale),
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: isTestingSub ? Colors.amber : null,
+                                          fontWeight: isTestingSub ? FontWeight.bold : FontWeight.normal,
+                                        ),
+                                      ),
+                                      onPressed: () => _testAllSubNodes(sub, subNodes),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    IconButton(
+                                      visualDensity: VisualDensity.compact,
+                                      icon: const Icon(Icons.delete_sweep_rounded, size: 18, color: Colors.redAccent),
+                                      tooltip: AppStrings.get("delete_sub_dead", locale: locale),
+                                      onPressed: () => _deleteDeadSubNodes(sub, subNodes, locale),
+                                    ),
+                                    const SizedBox(width: 4),
+                                  ],
+                                  IconButton(
+                                    visualDensity: VisualDensity.compact,
+                                    icon: const Icon(Icons.edit, size: 18, color: Colors.amberAccent),
+                                    tooltip: "Edit Subscription",
+                                    onPressed: () => _showEditSubDialog(sub, locale),
+                                  ),
+                                  IconButton(
+                                    visualDensity: VisualDensity.compact,
+                                    icon: const Icon(Icons.share, size: 18, color: Colors.purpleAccent),
+                                    tooltip: "Share Subscription URL",
+                                    onPressed: () {
+                                      Clipboard.setData(ClipboardData(text: sub.url));
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text("Subscription URL copied to clipboard.")),
+                                      );
+                                    },
+                                  ),
+                                  if (isUpdating)
+                                    const Padding(
+                                      padding: EdgeInsets.symmetric(horizontal: 8),
+                                      child: SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                      ),
+                                    )
+                                  else
+                                    IconButton(
+                                      visualDensity: VisualDensity.compact,
+                                      icon: const Icon(Icons.sync_rounded, size: 18, color: Colors.cyanAccent),
+                                      tooltip: "Update subscription",
+                                      onPressed: () => _updateSub(sub),
+                                    ),
+                                  IconButton(
+                                    visualDensity: VisualDensity.compact,
+                                    icon: Icon(Icons.delete_outline_rounded, size: 18, color: Colors.redAccent.shade100),
+                                    tooltip: "Delete",
+                                    onPressed: () {
+                                      ref.read(subscriptionsProvider.notifier).removeSubscription(sub.id);
+                                    },
+                                  ),
+                                ],
                               ),
-                            IconButton(
-                              visualDensity: VisualDensity.compact,
-                              icon: Icon(Icons.delete_outline_rounded, size: 18, color: Colors.redAccent.shade100),
-                              tooltip: "Delete",
-                              onPressed: () {
-                                ref.read(subscriptionsProvider.notifier).removeSubscription(sub.id);
-                              },
-                            ),
-                          ],
-                        ),
                         children: [
                           Container(
                             color: Theme.of(context).cardColor.withValues(alpha: 0.4),
@@ -746,6 +957,214 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                                 final displayCountry = isThisNodeConnected
                                     ? (outbound.country ?? node.country ?? (displayCountryCode != null ? CountryService.getCountryName(displayCountryCode) : null))
                                     : node.country;
+
+                                if (Platform.isAndroid) {
+                                  return Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                    child: Card(
+                                      margin: EdgeInsets.zero,
+                                      elevation: node.isActive ? 2 : 0,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                        side: node.isActive
+                                            ? const BorderSide(color: AppTheme.primaryAccent, width: 2.0)
+                                            : BorderSide(color: Colors.white.withValues(alpha: 0.08), width: 1.0),
+                                      ),
+                                      color: node.isActive
+                                          ? AppTheme.primaryAccent.withValues(alpha: 0.08)
+                                          : Theme.of(context).cardColor,
+                                      child: InkWell(
+                                        borderRadius: BorderRadius.circular(10),
+                                        onTap: () {
+                                          ref.read(connectionStatusProvider.notifier).switchNode(node.id);
+                                        },
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Row(
+                                                children: [
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                                    decoration: BoxDecoration(
+                                                      color: AppTheme.primaryAccent.withValues(alpha: 0.15),
+                                                      borderRadius: BorderRadius.circular(4),
+                                                    ),
+                                                    child: Text(
+                                                      node.protocol.name.toUpperCase(),
+                                                      style: const TextStyle(
+                                                        color: AppTheme.primaryAccent,
+                                                        fontSize: 9.5,
+                                                        fontWeight: FontWeight.bold,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 6),
+                                                  Expanded(
+                                                    child: Text(
+                                                      node.name,
+                                                      style: TextStyle(
+                                                        fontWeight: node.isActive ? FontWeight.bold : FontWeight.w600,
+                                                        fontSize: 12.5,
+                                                        color: node.isActive ? Colors.white : Colors.white.withValues(alpha: 0.9),
+                                                      ),
+                                                      maxLines: 1,
+                                                      overflow: TextOverflow.ellipsis,
+                                                    ),
+                                                  ),
+                                                  if (cdn != null) ...[
+                                                    const SizedBox(width: 4),
+                                                    CdnBadge(cdn: cdn),
+                                                  ],
+                                                  const SizedBox(width: 4),
+                                                  PopupMenuButton<String>(
+                                                    icon: const Icon(Icons.more_vert_rounded, size: 18),
+                                                    padding: EdgeInsets.zero,
+                                                    onSelected: (val) {
+                                                      if (val == 'ping') {
+                                                        _testNodeLatency(node);
+                                                      } else if (val == 'edit') {
+                                                        EditConfigDialog.show(context, node, locale);
+                                                      } else if (val == 'share') {
+                                                        Clipboard.setData(ClipboardData(text: node.toShareUrl()));
+                                                        ScaffoldMessenger.of(context).showSnackBar(
+                                                          SnackBar(content: Text(AppStrings.get("share_copied", locale: locale))),
+                                                        );
+                                                      }
+                                                    },
+                                                    itemBuilder: (ctx) => [
+                                                      const PopupMenuItem(
+                                                        value: 'ping',
+                                                        child: Row(
+                                                          children: [
+                                                            Icon(Icons.bolt_rounded, size: 18, color: Colors.cyanAccent),
+                                                            SizedBox(width: 8),
+                                                            Text('Ping test'),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                      PopupMenuItem(
+                                                        value: 'edit',
+                                                        child: Row(
+                                                          children: [
+                                                            const Icon(Icons.edit, size: 18, color: Colors.amberAccent),
+                                                            const SizedBox(width: 8),
+                                                            Text(AppStrings.get('edit_config', locale: locale)),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                      PopupMenuItem(
+                                                        value: 'share',
+                                                        child: Row(
+                                                          children: [
+                                                            const Icon(Icons.share, size: 18, color: Colors.purpleAccent),
+                                                            const SizedBox(width: 8),
+                                                            Text(AppStrings.get('share_config', locale: locale)),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 5),
+                                              Row(
+                                                children: [
+                                                  Expanded(
+                                                    child: Row(
+                                                      children: [
+                                                        Icon(Icons.link_rounded, size: 12, color: Colors.grey.shade500),
+                                                        const SizedBox(width: 4),
+                                                        Flexible(
+                                                          child: Text(
+                                                            '${IpMaskUtil.mask(node.address, showFull: showFullIp)}:${node.port}',
+                                                            style: TextStyle(fontSize: 10.5, color: Colors.grey.shade400),
+                                                            overflow: TextOverflow.ellipsis,
+                                                          ),
+                                                        ),
+                                                        const SizedBox(width: 6),
+                                                        Container(
+                                                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                                          decoration: BoxDecoration(
+                                                            color: Colors.white.withValues(alpha: 0.05),
+                                                            borderRadius: BorderRadius.circular(3),
+                                                          ),
+                                                          child: Text(
+                                                            node.network.name.toUpperCase(),
+                                                            style: TextStyle(fontSize: 8.5, color: Colors.grey.shade400, fontWeight: FontWeight.bold),
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 8),
+                                                  if (isTesting)
+                                                    const SizedBox(
+                                                      width: 14,
+                                                      height: 14,
+                                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                                    )
+                                                  else ...[
+                                                    if (displayCountryCode != null && displayCountryCode.isNotEmpty) ...[
+                                                      CountryPillBadge(
+                                                        countryCode: displayCountryCode,
+                                                        country: displayCountry,
+                                                      ),
+                                                      const SizedBox(width: 5),
+                                                    ],
+                                                    if (node.hasValidPing)
+                                                      Container(
+                                                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                                        decoration: BoxDecoration(
+                                                          color: AppTheme.successColor.withValues(alpha: 0.15),
+                                                          borderRadius: BorderRadius.circular(4),
+                                                          border: Border.all(color: AppTheme.successColor.withValues(alpha: 0.3), width: 0.8),
+                                                        ),
+                                                        child: Text(
+                                                          "${node.latencyMs} ms",
+                                                          style: const TextStyle(
+                                                            color: AppTheme.successColor,
+                                                            fontSize: 10.5,
+                                                            fontWeight: FontWeight.bold,
+                                                          ),
+                                                        ),
+                                                      )
+                                                    else if (node.hasTimedOut)
+                                                      Container(
+                                                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                                        decoration: BoxDecoration(
+                                                          color: AppTheme.errorColor.withValues(alpha: 0.15),
+                                                          borderRadius: BorderRadius.circular(4),
+                                                          border: Border.all(color: AppTheme.errorColor.withValues(alpha: 0.4), width: 0.8),
+                                                        ),
+                                                        child: Row(
+                                                          mainAxisSize: MainAxisSize.min,
+                                                          children: [
+                                                            const Icon(Icons.cloud_off_rounded, size: 10, color: AppTheme.errorColor),
+                                                            const SizedBox(width: 3),
+                                                            Text(
+                                                              AppStrings.get("timeout", locale: locale),
+                                                              style: const TextStyle(
+                                                                color: AppTheme.errorColor,
+                                                                fontSize: 9.5,
+                                                                fontWeight: FontWeight.bold,
+                                                              ),
+                                                            ),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                  ],
+                                                ],
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                }
 
                                 return ListTile(
                                   dense: true,

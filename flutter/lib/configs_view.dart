@@ -409,6 +409,96 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
     );
   }
 
+  void _showAddConfigBottomSheet(String locale) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                locale == 'fa' ? 'افزودن کانفیگ جدید' : 'Add New Config',
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryAccent.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.edit_note_rounded, color: AppTheme.primaryAccent),
+                ),
+                title: Text(locale == 'fa' ? 'افزودن دستی (Add Config)' : 'Add Config Manually'),
+                subtitle: Text(
+                  locale == 'fa' ? 'ساخت کانفیگ سفارشی با وارد کردن پارامترها' : 'Build custom configuration manually',
+                  style: const TextStyle(fontSize: 11),
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  AddConfigDialog.show(context, locale);
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.tealAccent.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.content_paste_rounded, color: Colors.tealAccent),
+                ),
+                title: Text(locale == 'fa' ? 'از کلیپ‌بورد (Import from Clipboard)' : 'Import from Clipboard'),
+                subtitle: Text(
+                  locale == 'fa' ? 'خواندن لینک‌های vless، vmess و trojan کپی‌شده' : 'Paste copied vless, vmess, trojan configs',
+                  style: const TextStyle(fontSize: 11),
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pasteFromClipboard();
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.qr_code_scanner_rounded, color: Colors.amber),
+                ),
+                title: Text(locale == 'fa' ? 'اسکن بارکد (Scan QR Code)' : 'Scan QR Code'),
+                subtitle: Text(
+                  locale == 'fa' ? 'اسکن تصویر یا درج متن بارکد' : 'Scan QR image or enter QR link',
+                  style: const TextStyle(fontSize: 11),
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showQrDialog(locale);
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final allNodes = ref.watch(nodesProvider);
@@ -452,8 +542,19 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
       child: Focus(
         autofocus: true,
         child: Scaffold(
+          floatingActionButton: Platform.isAndroid
+              ? FloatingActionButton(
+                  backgroundColor: AppTheme.primaryAccent,
+                  foregroundColor: Colors.white,
+                  elevation: 4,
+                  shape: const CircleBorder(),
+                  tooltip: locale == 'fa' ? 'افزودن کانفیگ' : 'Add Config',
+                  onPressed: () => _showAddConfigBottomSheet(locale),
+                  child: const Icon(Icons.add, size: 28),
+                )
+              : null,
           body: Padding(
-            padding: const EdgeInsets.all(24),
+            padding: EdgeInsets.all(Platform.isAndroid ? 12 : 24),
             child: Column(
               children: [
                 LayoutBuilder(
@@ -487,69 +588,34 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
                                   widget.onNavigateToFreeConfigs?.call();
                                 },
                               ),
-                              const SizedBox(width: 6),
-                              // + Menu
-                              PopupMenuButton<String>(
-                                icon: Container(
-                                  padding: const EdgeInsets.all(7),
-                                  decoration: BoxDecoration(
-                                    color: AppTheme.primaryAccent,
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: const Icon(Icons.add, color: Colors.white, size: 18),
-                                ),
-                                tooltip: locale == 'fa' ? 'افزودن کانفیگ' : 'Add Config',
-                                onSelected: (val) {
-                                  if (val == 'add') {
-                                    AddConfigDialog.show(context, locale);
-                                  } else if (val == 'clipboard') {
-                                    _pasteFromClipboard();
-                                  } else if (val == 'qr') {
-                                    _showQrDialog(locale);
-                                  }
-                                },
-                                itemBuilder: (ctx) => [
-                                  PopupMenuItem(
-                                    value: 'add',
-                                    child: Row(
-                                      children: [
-                                        const Icon(Icons.edit_note_rounded, size: 20, color: AppTheme.primaryAccent),
-                                        const SizedBox(width: 10),
-                                        Text(locale == 'fa' ? 'افزودن دستی (add config)' : 'Add Config'),
-                                      ],
-                                    ),
-                                  ),
-                                  PopupMenuItem(
-                                    value: 'clipboard',
-                                    child: Row(
-                                      children: [
-                                        const Icon(Icons.content_paste_rounded, size: 20, color: Colors.tealAccent),
-                                        const SizedBox(width: 10),
-                                        Text(locale == 'fa' ? 'از کلیپ‌بورد (import from clipboard)' : 'Import from Clipboard'),
-                                      ],
-                                    ),
-                                  ),
-                                  PopupMenuItem(
-                                    value: 'qr',
-                                    child: Row(
-                                      children: [
-                                        const Icon(Icons.qr_code_scanner_rounded, size: 20, color: Colors.amber),
-                                        const SizedBox(width: 10),
-                                        Text(locale == 'fa' ? 'اسکن بارکد (scan Qr code)' : 'Scan QR Code'),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
                               const SizedBox(width: 4),
-                              // Options Menu
+                              // Test All Ping button (OUTSIDE options menu)
+                              IconButton(
+                                visualDensity: VisualDensity.compact,
+                                icon: _isTestingAll
+                                    ? SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          value: progress > 0 ? progress : null,
+                                          strokeWidth: 2,
+                                          color: Colors.amber,
+                                        ),
+                                      )
+                                    : const Icon(Icons.speed_rounded, color: Colors.blueAccent),
+                                tooltip: _isTestingAll
+                                    ? (_testRemainingEta != null
+                                        ? '$progressPercent% ($_testRemainingEta)'
+                                        : '$progressPercent% (${AppStrings.get("cancel_scan", locale: locale)})')
+                                    : (locale == 'fa' ? 'تست پینگ همه' : 'Test all configs'),
+                                onPressed: nodes.isEmpty ? null : () => _testAllNodes(nodes),
+                              ),
+                              // Options Menu: delete dead & delete all
                               PopupMenuButton<String>(
                                 icon: const Icon(Icons.more_vert_rounded),
                                 tooltip: locale == 'fa' ? 'منو عملیات' : 'Options',
                                 onSelected: (val) {
-                                  if (val == 'test_all') {
-                                    _testAllNodes(nodes);
-                                  } else if (val == 'delete_dead') {
+                                  if (val == 'delete_dead') {
                                     _deleteDeadNodes(nodes, locale);
                                   } else if (val == 'delete_all') {
                                     _deleteAllNodes(locale);
@@ -557,26 +623,12 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
                                 },
                                 itemBuilder: (ctx) => [
                                   PopupMenuItem(
-                                    value: 'test_all',
-                                    child: Row(
-                                      children: [
-                                        Icon(Icons.speed_rounded, size: 20, color: _isTestingAll ? Colors.amber : Colors.blueAccent),
-                                        const SizedBox(width: 10),
-                                        Text(
-                                          _isTestingAll
-                                              ? (locale == 'fa' ? 'لغو تست پینگ' : 'Cancel Test All')
-                                              : (locale == 'fa' ? 'تست پینگ همه (Test all configs)' : 'Test all configs'),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  PopupMenuItem(
                                     value: 'delete_dead',
                                     child: Row(
                                       children: [
                                         const Icon(Icons.delete_sweep_rounded, size: 20, color: Colors.orangeAccent),
                                         const SizedBox(width: 10),
-                                        Text(locale == 'fa' ? 'حذف تایم‌اوت‌ها (Delete death configs)' : 'Delete death configs'),
+                                        Text(locale == 'fa' ? 'حذف تایم‌اوت‌ها' : 'Delete death configs'),
                                       ],
                                     ),
                                   ),
@@ -586,7 +638,7 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
                                       children: [
                                         const Icon(Icons.delete_forever_rounded, size: 20, color: Colors.redAccent),
                                         const SizedBox(width: 10),
-                                        Text(locale == 'fa' ? 'حذف همه کانفیگ‌ها (Delete all configs)' : 'Delete all configs'),
+                                        Text(locale == 'fa' ? 'حذف همه کانفیگ‌ها' : 'Delete all configs'),
                                       ],
                                     ),
                                   ),
@@ -730,6 +782,223 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
                         final displayCountry = isThisNodeConnected
                             ? (outbound.country ?? node.country ?? (displayCountryCode != null ? CountryService.getCountryName(displayCountryCode) : null))
                             : node.country;
+
+                        if (Platform.isAndroid) {
+                          return Card(
+                            margin: EdgeInsets.zero,
+                            elevation: node.isActive ? 2 : 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              side: node.isActive
+                                  ? const BorderSide(color: AppTheme.primaryAccent, width: 2.0)
+                                  : BorderSide(color: Colors.white.withValues(alpha: 0.08), width: 1.0),
+                            ),
+                            color: node.isActive
+                                ? AppTheme.primaryAccent.withValues(alpha: 0.08)
+                                : Theme.of(context).cardColor,
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(12),
+                              onTap: () {
+                                ref.read(connectionStatusProvider.notifier).switchNode(node.id);
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: AppTheme.primaryAccent.withValues(alpha: 0.15),
+                                            borderRadius: BorderRadius.circular(4),
+                                          ),
+                                          child: Text(
+                                            node.protocol.name.toUpperCase(),
+                                            style: const TextStyle(
+                                              color: AppTheme.primaryAccent,
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            node.name,
+                                            style: TextStyle(
+                                              fontWeight: node.isActive ? FontWeight.bold : FontWeight.w600,
+                                              fontSize: 13,
+                                              color: node.isActive ? Colors.white : Colors.white.withValues(alpha: 0.9),
+                                            ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        if (cdn != null) ...[
+                                          const SizedBox(width: 4),
+                                          CdnBadge(cdn: cdn),
+                                        ],
+                                        const SizedBox(width: 4),
+                                        PopupMenuButton<String>(
+                                          icon: const Icon(Icons.more_vert_rounded, size: 18),
+                                          padding: EdgeInsets.zero,
+                                          onSelected: (val) {
+                                            if (val == 'ping') {
+                                              _testNodeLatency(node);
+                                            } else if (val == 'edit') {
+                                              EditConfigDialog.show(context, node, locale);
+                                            } else if (val == 'share') {
+                                              Clipboard.setData(ClipboardData(text: node.toShareUrl()));
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                SnackBar(content: Text(AppStrings.get('share_copied', locale: locale))),
+                                              );
+                                            } else if (val == 'delete') {
+                                              ref.read(nodesProvider.notifier).removeNode(node.id);
+                                            }
+                                          },
+                                          itemBuilder: (ctx) => [
+                                            const PopupMenuItem(
+                                              value: 'ping',
+                                              child: Row(
+                                                children: [
+                                                  Icon(Icons.bolt_rounded, size: 18, color: Colors.cyanAccent),
+                                                  SizedBox(width: 8),
+                                                  Text('Ping test'),
+                                                ],
+                                              ),
+                                            ),
+                                            PopupMenuItem(
+                                              value: 'edit',
+                                              child: Row(
+                                                children: [
+                                                  const Icon(Icons.edit, size: 18, color: Colors.amberAccent),
+                                                  const SizedBox(width: 8),
+                                                  Text(AppStrings.get('edit_config', locale: locale)),
+                                                ],
+                                              ),
+                                            ),
+                                            PopupMenuItem(
+                                              value: 'share',
+                                              child: Row(
+                                                children: [
+                                                  const Icon(Icons.share, size: 18, color: Colors.purpleAccent),
+                                                  const SizedBox(width: 8),
+                                                  Text(AppStrings.get('share_config', locale: locale)),
+                                                ],
+                                              ),
+                                            ),
+                                            const PopupMenuItem(
+                                              value: 'delete',
+                                              child: Row(
+                                                children: [
+                                                  Icon(Icons.delete_outline_rounded, size: 18, color: Colors.redAccent),
+                                                  SizedBox(width: 8),
+                                                  Text('Delete'),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Row(
+                                            children: [
+                                              Icon(Icons.link_rounded, size: 12, color: Colors.grey.shade500),
+                                              const SizedBox(width: 4),
+                                              Flexible(
+                                                child: Text(
+                                                  '${IpMaskUtil.mask(node.address, showFull: showFullIp)}:${node.port}',
+                                                  style: TextStyle(fontSize: 11, color: Colors.grey.shade400),
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 6),
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.white.withValues(alpha: 0.05),
+                                                  borderRadius: BorderRadius.circular(3),
+                                                ),
+                                                child: Text(
+                                                  node.network.name.toUpperCase(),
+                                                  style: TextStyle(fontSize: 9, color: Colors.grey.shade400, fontWeight: FontWeight.bold),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        if (isTesting)
+                                          const SizedBox(
+                                            width: 14,
+                                            height: 14,
+                                            child: CircularProgressIndicator(strokeWidth: 2),
+                                          )
+                                        else ...[
+                                          if (displayCountryCode != null && displayCountryCode.isNotEmpty) ...[
+                                            CountryPillBadge(
+                                              countryCode: displayCountryCode,
+                                              country: displayCountry,
+                                            ),
+                                            const SizedBox(width: 6),
+                                          ],
+                                          if (node.hasValidPing)
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: AppTheme.successColor.withValues(alpha: 0.15),
+                                                borderRadius: BorderRadius.circular(4),
+                                                border: Border.all(color: AppTheme.successColor.withValues(alpha: 0.3), width: 0.8),
+                                              ),
+                                              child: Text(
+                                                '${node.latencyMs} ms',
+                                                style: const TextStyle(
+                                                  color: AppTheme.successColor,
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            )
+                                          else if (node.hasTimedOut)
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: AppTheme.errorColor.withValues(alpha: 0.15),
+                                                borderRadius: BorderRadius.circular(4),
+                                                border: Border.all(color: AppTheme.errorColor.withValues(alpha: 0.4), width: 0.8),
+                                              ),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  const Icon(Icons.cloud_off_rounded, size: 10, color: AppTheme.errorColor),
+                                                  const SizedBox(width: 3),
+                                                  Text(
+                                                    AppStrings.get('timeout', locale: locale),
+                                                    style: const TextStyle(
+                                                      color: AppTheme.errorColor,
+                                                      fontSize: 10,
+                                                      fontWeight: FontWeight.bold,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                        ],
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        }
 
                         return Card(
                           child: ListTile(
