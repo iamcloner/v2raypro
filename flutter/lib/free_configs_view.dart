@@ -14,7 +14,8 @@ import 'widgets/country_flag_badge.dart';
 import 'widgets/country_filter_bar.dart';
 
 class FreeConfigsView extends ConsumerStatefulWidget {
-  const FreeConfigsView({super.key});
+  final VoidCallback? onOpenDrawer;
+  const FreeConfigsView({super.key, this.onOpenDrawer});
 
   @override
   ConsumerState<FreeConfigsView> createState() => _FreeConfigsViewState();
@@ -96,109 +97,106 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
     }).toList();
 
     return Scaffold(
+      appBar: Platform.isAndroid
+          ? AppBar(
+              leading: IconButton(
+                icon: const Icon(Icons.menu_rounded),
+                tooltip: AppStrings.get('more', locale: locale),
+                onPressed: widget.onOpenDrawer,
+              ),
+              titleSpacing: 0,
+              title: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(7),
+                      border: Border.all(
+                        color: const Color(0xFF00D2FF).withValues(alpha: 0.4),
+                        width: 1.2,
+                      ),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: Image.asset('assets/app_icon.png', fit: BoxFit.cover),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    AppStrings.get('free_configs', locale: locale),
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                ],
+              ),
+              actions: [
+                IconButton(
+                  icon: Icon(_isSearchExpanded ? Icons.close : Icons.search, size: 20),
+                  tooltip: AppStrings.get('search_nodes', locale: locale),
+                  onPressed: () {
+                    setState(() {
+                      _isSearchExpanded = !_isSearchExpanded;
+                      if (!_isSearchExpanded) {
+                        _searchController.clear();
+                      }
+                    });
+                  },
+                ),
+                if (freeState.isScanning)
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    icon: const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.amber),
+                    ),
+                    tooltip: AppStrings.get('cancel_scan', locale: locale),
+                    onPressed: () => ref.read(freeConfigsProvider.notifier).cancelScan(),
+                  )
+                else
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.autorenew_rounded, color: AppTheme.primaryAccent),
+                    tooltip: AppStrings.get('get_new_configs', locale: locale),
+                    onPressed: () {
+                      setState(() => _selectedCountryCode = null);
+                      ref.read(freeConfigsProvider.notifier).startScan();
+                    },
+                  ),
+                const SizedBox(width: 4),
+              ],
+            )
+          : null,
       body: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: EdgeInsets.all(Platform.isAndroid ? 12 : 24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Top Bar
-            LayoutBuilder(
-              builder: (context, constraints) {
-                if (Platform.isAndroid) {
-                  final actionBtn = freeState.isScanning
-                      ? OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: Colors.amber, width: 1.2),
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          ),
-                          icon: const SizedBox(
-                            width: 12,
-                            height: 12,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.amber),
-                          ),
-                          label: Text(
-                            AppStrings.get('cancel_scan', locale: locale),
-                            style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 11),
-                          ),
-                          onPressed: () => ref.read(freeConfigsProvider.notifier).cancelScan(),
-                        )
-                      : FilledButton.icon(
-                          style: FilledButton.styleFrom(
-                            backgroundColor: AppTheme.primaryAccent,
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          ),
-                          icon: const Icon(Icons.autorenew_rounded, size: 16),
-                          label: Text(
-                            AppStrings.get('get_new_configs', locale: locale),
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                          ),
-                          onPressed: () {
-                            setState(() => _selectedCountryCode = null);
-                            ref.read(freeConfigsProvider.notifier).startScan();
-                          },
-                        );
-
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
-                            children: [
-                              const Icon(Icons.card_giftcard_rounded, color: AppTheme.primaryAccent, size: 22),
-                              const SizedBox(width: 8),
-                              Text(
-                                AppStrings.get('free_configs', locale: locale),
-                                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                              ),
-                            ],
-                          ),
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                icon: Icon(_isSearchExpanded ? Icons.close : Icons.search, size: 20),
-                                tooltip: AppStrings.get('search_nodes', locale: locale),
-                                onPressed: () {
-                                  setState(() {
-                                    _isSearchExpanded = !_isSearchExpanded;
-                                    if (!_isSearchExpanded) {
-                                      _searchController.clear();
-                                    }
-                                  });
-                                },
-                              ),
-                              const SizedBox(width: 4),
-                              actionBtn,
-                            ],
-                          ),
-                        ],
-                      ),
-                      if (_isSearchExpanded) ...[
-                        const SizedBox(height: 8),
-                        SizedBox(
-                          height: 38,
-                          child: TextField(
-                            controller: _searchController,
-                            autofocus: true,
-                            decoration: InputDecoration(
-                              hintText: AppStrings.get('search_nodes', locale: locale),
-                              prefixIcon: const Icon(Icons.search, size: 16),
-                              suffixIcon: _searchFilter.isNotEmpty
-                                  ? IconButton(
-                                      icon: const Icon(Icons.clear, size: 14),
-                                      onPressed: () => _searchController.clear(),
-                                    )
-                                  : null,
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  );
-                }
+            if (Platform.isAndroid) ...[
+              if (_isSearchExpanded) ...[
+                SizedBox(
+                  height: 38,
+                  child: TextField(
+                    controller: _searchController,
+                    autofocus: true,
+                    decoration: InputDecoration(
+                      hintText: AppStrings.get('search_nodes', locale: locale),
+                      prefixIcon: const Icon(Icons.search, size: 16),
+                      suffixIcon: _searchFilter.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear, size: 14),
+                              onPressed: () => _searchController.clear(),
+                            )
+                          : null,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ] else
+              // Top Bar for Desktop
+              LayoutBuilder(
+                builder: (context, constraints) {
 
                 final isNarrow = constraints.maxWidth < 600;
                 final titleCol = Column(
@@ -428,31 +426,44 @@ class _FreeConfigsViewState extends ConsumerState<FreeConfigsView> {
                             ref.read(nodeCdnMapProvider.notifier).detectCdn(node.address);
 
                         return Card(
+                          margin: Platform.isAndroid ? EdgeInsets.zero : const EdgeInsets.symmetric(vertical: 4),
+                          elevation: Platform.isAndroid ? (isThisNodeActive ? 2 : 0) : null,
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            side: BorderSide(
-                              color: isThisNodeConnected
-                                  ? AppTheme.primaryAccent
-                                  : (isThisNodeActive ? Colors.cyanAccent.withValues(alpha: 0.5) : Colors.transparent),
-                              width: isThisNodeConnected ? 1.5 : 1,
-                            ),
+                            borderRadius: BorderRadius.circular(Platform.isAndroid ? 12 : 10),
+                            side: Platform.isAndroid
+                                ? (isThisNodeActive
+                                    ? const BorderSide(color: AppTheme.primaryAccent, width: 2.0)
+                                    : BorderSide(color: Colors.white.withValues(alpha: 0.08), width: 1.0))
+                                : BorderSide(
+                                    color: isThisNodeConnected
+                                        ? AppTheme.primaryAccent
+                                        : (isThisNodeActive ? Colors.cyanAccent.withValues(alpha: 0.5) : Colors.transparent),
+                                    width: isThisNodeConnected ? 1.5 : 1,
+                                  ),
                           ),
+                          color: Platform.isAndroid
+                              ? (isThisNodeActive
+                                  ? AppTheme.primaryAccent.withValues(alpha: 0.08)
+                                  : Theme.of(context).cardColor)
+                              : null,
                           child: InkWell(
-                            borderRadius: BorderRadius.circular(10),
+                            borderRadius: BorderRadius.circular(Platform.isAndroid ? 12 : 10),
                             onTap: () => _handleConnect(node),
                             child: Padding(
                               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                               child: Row(
                                 children: [
-                                  // Active Indicator
-                                  Icon(
-                                    isThisNodeConnected
-                                        ? Icons.radio_button_checked
-                                        : (isThisNodeActive ? Icons.radio_button_checked : Icons.radio_button_off),
-                                    color: isThisNodeConnected ? AppTheme.primaryAccent : Colors.grey,
-                                    size: 22,
-                                  ),
-                                  const SizedBox(width: 12),
+                                  // Active Indicator (Desktop only)
+                                  if (!Platform.isAndroid) ...[
+                                    Icon(
+                                      isThisNodeConnected
+                                          ? Icons.radio_button_checked
+                                          : (isThisNodeActive ? Icons.radio_button_checked : Icons.radio_button_off),
+                                      color: isThisNodeConnected ? AppTheme.primaryAccent : Colors.grey,
+                                      size: 22,
+                                    ),
+                                    const SizedBox(width: 12),
+                                  ],
 
                                   // Country Flag / Unknown Pill Badge
                                   CountryPillBadge(

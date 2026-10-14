@@ -19,10 +19,12 @@ import 'widgets/country_flag_badge.dart';
 import 'widgets/country_filter_bar.dart';
 import 'services/country_service.dart';
 import 'services/storage_service.dart';
+import 'widgets/qr_scanner_dialog.dart';
 
 class ConfigsView extends ConsumerStatefulWidget {
   final VoidCallback? onNavigateToFreeConfigs;
-  const ConfigsView({super.key, this.onNavigateToFreeConfigs});
+  final VoidCallback? onOpenDrawer;
+  const ConfigsView({super.key, this.onNavigateToFreeConfigs, this.onOpenDrawer});
 
   @override
   ConsumerState<ConfigsView> createState() => _ConfigsViewState();
@@ -333,6 +335,34 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
   }
 
   Future<void> _showQrDialog(String locale) async {
+    if (Platform.isAndroid) {
+      final code = await QrScannerDialog.show(context, locale: locale);
+      if (code != null && code.isNotEmpty && mounted) {
+        final nodes = await ConfigParser.parseBatchAsync(code);
+        if (nodes.isNotEmpty && mounted) {
+          ref.read(nodesProvider.notifier).addNodes(nodes);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(locale == 'fa'
+                  ? '${nodes.length} کانفیگ با موفقیت اضافه شد.'
+                  : '${nodes.length} configuration(s) added successfully.'),
+              backgroundColor: AppTheme.successColor,
+            ),
+          );
+        } else if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(locale == 'fa'
+                  ? 'کانفیگ معتبری در بارکد اسکن شده یافت نشد.'
+                  : 'No valid proxy config found in QR code.'),
+              backgroundColor: Colors.orangeAccent,
+            ),
+          );
+        }
+      }
+      return;
+    }
+
     final controller = TextEditingController();
     await showDialog(
       context: context,
@@ -542,6 +572,104 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
       child: Focus(
         autofocus: true,
         child: Scaffold(
+          appBar: Platform.isAndroid
+              ? AppBar(
+                  leading: IconButton(
+                    icon: const Icon(Icons.menu_rounded),
+                    tooltip: AppStrings.get('more', locale: locale),
+                    onPressed: widget.onOpenDrawer,
+                  ),
+                  titleSpacing: 0,
+                  title: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(7),
+                          border: Border.all(
+                            color: const Color(0xFF00D2FF).withValues(alpha: 0.4),
+                            width: 1.2,
+                          ),
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: Image.asset('assets/app_icon.png', fit: BoxFit.cover),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        AppStrings.get('configs', locale: locale),
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                    ],
+                  ),
+                  actions: [
+                    // Small Free Configs button
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(Icons.card_giftcard_rounded, color: Colors.orangeAccent, size: 22),
+                      tooltip: locale == 'fa' ? 'کانفیگ رایگان' : 'Free Configs',
+                      onPressed: () => widget.onNavigateToFreeConfigs?.call(),
+                    ),
+                    // Test All Ping button
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      icon: _isTestingAll
+                          ? SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                value: progress > 0 ? progress : null,
+                                strokeWidth: 2,
+                                color: Colors.amber,
+                              ),
+                            )
+                          : const Icon(Icons.speed_rounded, color: Colors.blueAccent),
+                      tooltip: _isTestingAll
+                          ? (_testRemainingEta != null
+                              ? '$progressPercent% ($_testRemainingEta)'
+                              : '$progressPercent% (${AppStrings.get("cancel_scan", locale: locale)})')
+                          : (locale == 'fa' ? 'تست پینگ همه' : 'Test all configs'),
+                      onPressed: nodes.isEmpty ? null : () => _testAllNodes(nodes),
+                    ),
+                    // Options Menu
+                    PopupMenuButton<String>(
+                      icon: const Icon(Icons.more_vert_rounded),
+                      tooltip: locale == 'fa' ? 'منو عملیات' : 'Options',
+                      onSelected: (val) {
+                        if (val == 'delete_dead') {
+                          _deleteDeadNodes(nodes, locale);
+                        } else if (val == 'delete_all') {
+                          _deleteAllNodes(locale);
+                        }
+                      },
+                      itemBuilder: (ctx) => [
+                        PopupMenuItem(
+                          value: 'delete_dead',
+                          child: Row(
+                            children: [
+                              const Icon(Icons.delete_sweep_rounded, color: Colors.redAccent, size: 20),
+                              const SizedBox(width: 8),
+                              Text(locale == 'fa' ? 'حذف کانفیگ‌های نامعتبر' : 'Delete Dead Configs'),
+                            ],
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: 'delete_all',
+                          child: Row(
+                            children: [
+                              const Icon(Icons.delete_forever_rounded, color: Colors.redAccent, size: 20),
+                              const SizedBox(width: 8),
+                              Text(locale == 'fa' ? 'حذف تمامی کانفیگ‌ها' : 'Delete All Configs'),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(width: 4),
+                  ],
+                )
+              : null,
           floatingActionButton: Platform.isAndroid
               ? FloatingActionButton(
                   backgroundColor: AppTheme.primaryAccent,
@@ -557,100 +685,12 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
             padding: EdgeInsets.all(Platform.isAndroid ? 12 : 24),
             child: Column(
               children: [
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    if (Platform.isAndroid) {
-                      return Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              AppStrings.get('configs', locale: locale),
-                              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              // Free Configs button
-                              FilledButton.tonalIcon(
-                                style: FilledButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                                ),
-                                icon: const Icon(Icons.card_giftcard_rounded, size: 18),
-                                label: Text(
-                                  locale == 'fa' ? 'کانفیگ رایگان' : 'Free Configs',
-                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                                ),
-                                onPressed: () {
-                                  widget.onNavigateToFreeConfigs?.call();
-                                },
-                              ),
-                              const SizedBox(width: 4),
-                              // Test All Ping button (OUTSIDE options menu)
-                              IconButton(
-                                visualDensity: VisualDensity.compact,
-                                icon: _isTestingAll
-                                    ? SizedBox(
-                                        width: 18,
-                                        height: 18,
-                                        child: CircularProgressIndicator(
-                                          value: progress > 0 ? progress : null,
-                                          strokeWidth: 2,
-                                          color: Colors.amber,
-                                        ),
-                                      )
-                                    : const Icon(Icons.speed_rounded, color: Colors.blueAccent),
-                                tooltip: _isTestingAll
-                                    ? (_testRemainingEta != null
-                                        ? '$progressPercent% ($_testRemainingEta)'
-                                        : '$progressPercent% (${AppStrings.get("cancel_scan", locale: locale)})')
-                                    : (locale == 'fa' ? 'تست پینگ همه' : 'Test all configs'),
-                                onPressed: nodes.isEmpty ? null : () => _testAllNodes(nodes),
-                              ),
-                              // Options Menu: delete dead & delete all
-                              PopupMenuButton<String>(
-                                icon: const Icon(Icons.more_vert_rounded),
-                                tooltip: locale == 'fa' ? 'منو عملیات' : 'Options',
-                                onSelected: (val) {
-                                  if (val == 'delete_dead') {
-                                    _deleteDeadNodes(nodes, locale);
-                                  } else if (val == 'delete_all') {
-                                    _deleteAllNodes(locale);
-                                  }
-                                },
-                                itemBuilder: (ctx) => [
-                                  PopupMenuItem(
-                                    value: 'delete_dead',
-                                    child: Row(
-                                      children: [
-                                        const Icon(Icons.delete_sweep_rounded, size: 20, color: Colors.orangeAccent),
-                                        const SizedBox(width: 10),
-                                        Text(locale == 'fa' ? 'حذف تایم‌اوت‌ها' : 'Delete death configs'),
-                                      ],
-                                    ),
-                                  ),
-                                  PopupMenuItem(
-                                    value: 'delete_all',
-                                    child: Row(
-                                      children: [
-                                        const Icon(Icons.delete_forever_rounded, size: 20, color: Colors.redAccent),
-                                        const SizedBox(width: 10),
-                                        Text(locale == 'fa' ? 'حذف همه کانفیگ‌ها' : 'Delete all configs'),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ],
-                      );
-                    }
-
-                    final isNarrow = constraints.maxWidth < 640;
+                if (Platform.isAndroid)
+                  const SizedBox.shrink()
+                else
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final isNarrow = constraints.maxWidth < 640;
                     final buttons = [
                       if (nodes.isNotEmpty) ...[
                         OutlinedButton.icon(
@@ -735,7 +775,7 @@ class _ConfigsViewState extends ConsumerState<ConfigsView> {
                     }
                   },
                 ),
-                const SizedBox(height: 16),
+                if (!Platform.isAndroid) const SizedBox(height: 16),
                 if (nodes.isNotEmpty)
                   CountryFilterBar(
                     nodes: nodes,

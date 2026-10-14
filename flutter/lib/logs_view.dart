@@ -1,3 +1,4 @@
+import "dart:io";
 import "package:flutter/material.dart";
 import "package:flutter/services.dart";
 import "package:flutter_riverpod/flutter_riverpod.dart";
@@ -7,7 +8,8 @@ import "models/log_entry.dart";
 import "providers/app_providers.dart";
 
 class LogsView extends ConsumerStatefulWidget {
-  const LogsView({super.key});
+  final VoidCallback? onOpenDrawer;
+  const LogsView({super.key, this.onOpenDrawer});
 
   @override
   ConsumerState<LogsView> createState() => _LogsViewState();
@@ -117,106 +119,72 @@ class _LogsViewState extends ConsumerState<LogsView> {
     });
 
     return Scaffold(
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Top Bar: Title, Count, Action buttons
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: AppTheme.primaryAccent.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(10),
+      appBar: Platform.isAndroid
+          ? AppBar(
+              leading: IconButton(
+                icon: const Icon(Icons.menu_rounded),
+                tooltip: AppStrings.get('more', locale: locale),
+                onPressed: widget.onOpenDrawer,
+              ),
+              titleSpacing: 0,
+              title: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(7),
+                      border: Border.all(
+                        color: const Color(0xFF00D2FF).withValues(alpha: 0.4),
+                        width: 1.2,
+                      ),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: Image.asset('assets/app_icon.png', fit: BoxFit.cover),
                   ),
-                  child: const Icon(Icons.article_rounded, color: AppTheme.primaryAccent, size: 22),
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  AppStrings.get("logs", locale: locale),
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).colorScheme.onSurface,
+                  const SizedBox(width: 8),
+                  Text(
+                    AppStrings.get('logs', locale: locale),
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
-                ),
-                const SizedBox(width: 10),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(12),
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      '${filteredLogs.length}',
+                      style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant, fontWeight: FontWeight.bold),
+                    ),
                   ),
-                  child: Text(
-                    "${filteredLogs.length}",
-                    style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant, fontWeight: FontWeight.bold),
+                ],
+              ),
+              actions: [
+                IconButton(
+                  tooltip: AppStrings.get("autoscroll", locale: locale),
+                  icon: Icon(
+                    Icons.arrow_downward_rounded,
+                    size: 20,
+                    color: _autoScroll ? AppTheme.primaryAccent : Colors.grey,
                   ),
-                ),
-                const Spacer(),
-                // Auto-scroll toggle
-                InkWell(
-                  onTap: () {
+                  onPressed: () {
                     setState(() {
                       _autoScroll = !_autoScroll;
                       if (_autoScroll) _scrollToBottom();
                     });
                   },
-                  borderRadius: BorderRadius.circular(8),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: _autoScroll
-                          ? AppTheme.primaryAccent.withValues(alpha: 0.2)
-                          : Theme.of(context).colorScheme.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: _autoScroll ? AppTheme.primaryAccent : Colors.transparent,
-                        width: 1,
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.arrow_downward_rounded,
-                          size: 16,
-                          color: _autoScroll ? AppTheme.primaryAccent : Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          AppStrings.get("autoscroll", locale: locale),
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: _autoScroll ? AppTheme.primaryAccent : Theme.of(context).colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
                 ),
-                const SizedBox(width: 8),
-                // Copy all button
                 IconButton(
                   tooltip: AppStrings.get("copy_logs", locale: locale),
-                  icon: Icon(Icons.copy_rounded, size: 19, color: Theme.of(context).colorScheme.onSurfaceVariant),
-                  style: IconButton.styleFrom(
-                    backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  ),
+                  icon: const Icon(Icons.copy_rounded, size: 19),
                   onPressed: filteredLogs.isEmpty ? null : () => _copyAllLogs(filteredLogs, locale),
                 ),
-                const SizedBox(width: 8),
-                // Clear logs button
                 IconButton(
                   tooltip: AppStrings.get("clear_logs", locale: locale),
                   icon: const Icon(Icons.delete_outline_rounded, size: 19, color: Colors.redAccent),
-                  style: IconButton.styleFrom(
-                    backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  ),
                   onPressed: allLogs.isEmpty
                       ? null
                       : () {
@@ -224,8 +192,119 @@ class _LogsViewState extends ConsumerState<LogsView> {
                         },
                 ),
               ],
-            ),
-            const SizedBox(height: 14),
+            )
+          : null,
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (!Platform.isAndroid) ...[
+              // Top Bar: Title, Count, Action buttons
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryAccent.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.article_rounded, color: AppTheme.primaryAccent, size: 22),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    AppStrings.get("logs", locale: locale),
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      "${filteredLogs.length}",
+                      style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  const Spacer(),
+                  // Auto-scroll toggle
+                  InkWell(
+                    onTap: () {
+                      setState(() {
+                        _autoScroll = !_autoScroll;
+                        if (_autoScroll) _scrollToBottom();
+                      });
+                    },
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: _autoScroll
+                            ? AppTheme.primaryAccent.withValues(alpha: 0.2)
+                            : Theme.of(context).colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: _autoScroll ? AppTheme.primaryAccent : Colors.transparent,
+                          width: 1,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.arrow_downward_rounded,
+                            size: 16,
+                            color: _autoScroll ? AppTheme.primaryAccent : Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            AppStrings.get("autoscroll", locale: locale),
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: _autoScroll ? AppTheme.primaryAccent : Theme.of(context).colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  // Copy all button
+                  IconButton(
+                    tooltip: AppStrings.get("copy_logs", locale: locale),
+                    icon: Icon(Icons.copy_rounded, size: 19, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                    style: IconButton.styleFrom(
+                      backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    onPressed: filteredLogs.isEmpty ? null : () => _copyAllLogs(filteredLogs, locale),
+                  ),
+                  const SizedBox(width: 8),
+                  // Clear logs button
+                  IconButton(
+                    tooltip: AppStrings.get("clear_logs", locale: locale),
+                    icon: const Icon(Icons.delete_outline_rounded, size: 19, color: Colors.redAccent),
+                    style: IconButton.styleFrom(
+                      backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    onPressed: allLogs.isEmpty
+                        ? null
+                        : () {
+                            ref.read(logsProvider.notifier).clear();
+                          },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+            ],
 
             // Controls Row: Search Input & Filter Chips
             Wrap(

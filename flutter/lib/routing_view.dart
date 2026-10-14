@@ -1,4 +1,7 @@
+import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:uuid/uuid.dart';
@@ -8,7 +11,8 @@ import 'models/routing_rule.dart';
 import 'providers/app_providers.dart';
 
 class RoutingView extends ConsumerStatefulWidget {
-  const RoutingView({super.key});
+  final VoidCallback? onOpenDrawer;
+  const RoutingView({super.key, this.onOpenDrawer});
 
   @override
   ConsumerState<RoutingView> createState() => _RoutingViewState();
@@ -83,8 +87,10 @@ class _RoutingViewState extends ConsumerState<RoutingView> with SingleTickerProv
               ),
             ],
           ),
-          content: SizedBox(
-            width: 480,
+          content: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: math.min(480.0, MediaQuery.of(context).size.width * 0.88),
+            ),
             child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -95,28 +101,38 @@ class _RoutingViewState extends ConsumerState<RoutingView> with SingleTickerProv
                     style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey),
                   ),
                   const SizedBox(height: 8),
-                  SegmentedButton<RoutingAction>(
-                    segments: [
-                      ButtonSegment<RoutingAction>(
-                        value: RoutingAction.direct,
-                        label: Text(AppStrings.get('routing_action_direct', locale: locale)),
-                        icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      ChoiceChip(
+                        avatar: const Icon(Icons.arrow_forward_rounded, size: 16),
+                        label: Text(AppStrings.get('routing_action_direct', locale: locale), style: const TextStyle(fontSize: 12)),
+                        selected: selectedAction == RoutingAction.direct,
+                        selectedColor: AppTheme.primaryAccent.withValues(alpha: 0.2),
+                        onSelected: (val) {
+                          if (val) setDialogState(() => selectedAction = RoutingAction.direct);
+                        },
                       ),
-                      ButtonSegment<RoutingAction>(
-                        value: RoutingAction.proxy,
-                        label: Text(AppStrings.get('routing_action_proxy', locale: locale)),
-                        icon: const Icon(Icons.vpn_lock_rounded, size: 16),
+                      ChoiceChip(
+                        avatar: const Icon(Icons.vpn_lock_rounded, size: 16),
+                        label: Text(AppStrings.get('routing_action_proxy', locale: locale), style: const TextStyle(fontSize: 12)),
+                        selected: selectedAction == RoutingAction.proxy,
+                        selectedColor: Colors.cyanAccent.withValues(alpha: 0.2),
+                        onSelected: (val) {
+                          if (val) setDialogState(() => selectedAction = RoutingAction.proxy);
+                        },
                       ),
-                      ButtonSegment<RoutingAction>(
-                        value: RoutingAction.block,
-                        label: Text(AppStrings.get('routing_action_block', locale: locale)),
-                        icon: const Icon(Icons.block_rounded, size: 16),
+                      ChoiceChip(
+                        avatar: const Icon(Icons.block_rounded, size: 16),
+                        label: Text(AppStrings.get('routing_action_block', locale: locale), style: const TextStyle(fontSize: 12)),
+                        selected: selectedAction == RoutingAction.block,
+                        selectedColor: Colors.redAccent.withValues(alpha: 0.2),
+                        onSelected: (val) {
+                          if (val) setDialogState(() => selectedAction = RoutingAction.block);
+                        },
                       ),
                     ],
-                    selected: {selectedAction},
-                    onSelectionChanged: (val) {
-                      setDialogState(() => selectedAction = val.first);
-                    },
                   ),
                   const SizedBox(height: 16),
                   TextField(
@@ -133,64 +149,106 @@ class _RoutingViewState extends ConsumerState<RoutingView> with SingleTickerProv
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          AppStrings.get('routing_app_file_label', locale: locale),
-                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                        Flexible(
+                          child: Text(
+                            Platform.isAndroid
+                                ? (locale == 'fa' ? 'برنامه اندروید:' : 'Android Application:')
+                                : AppStrings.get('routing_app_file_label', locale: locale),
+                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
-                        OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: AppTheme.primaryAccent, width: 1.2),
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          ),
-                          icon: const Icon(Icons.folder_open_rounded, size: 16, color: AppTheme.primaryAccent),
-                          label: Text(
-                            AppStrings.get('routing_open_exe', locale: locale),
-                            style: const TextStyle(fontSize: 12, color: AppTheme.primaryAccent, fontWeight: FontWeight.bold),
-                          ),
-                          onPressed: () async {
-                            try {
-                              final result = await FilePicker.platform.pickFiles(
-                                type: FileType.custom,
-                                allowedExtensions: ['exe'],
-                                dialogTitle: locale == 'fa' ? 'انتخاب فایل اجرایی برنامه (.exe)' : 'Select Executable (.exe)',
-                              );
-                              if (result != null && result.files.isNotEmpty) {
-                                final fileName = result.files.single.name;
-                                if (fileName.isNotEmpty) {
-                                  setDialogState(() {
-                                    final current = valuesController.text.trim();
-                                    if (current.isEmpty) {
-                                      valuesController.text = fileName;
-                                    } else {
-                                      final lines = current
-                                          .split(RegExp(r'[\r\n,]+'))
-                                          .map((s) => s.trim())
-                                          .where((s) => s.isNotEmpty)
-                                          .toList();
-                                      if (!lines.any((l) => l.toLowerCase() == fileName.toLowerCase())) {
-                                        lines.add(fileName);
-                                        valuesController.text = lines.join('\n');
-                                      }
+                        const SizedBox(width: 8),
+                        if (Platform.isAndroid)
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: AppTheme.primaryAccent, width: 1.2),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            ),
+                            icon: const Icon(Icons.apps_rounded, size: 16, color: AppTheme.primaryAccent),
+                            label: Text(
+                              locale == 'fa' ? 'انتخاب از برنامه‌ها' : 'Select App',
+                              style: const TextStyle(fontSize: 12, color: AppTheme.primaryAccent, fontWeight: FontWeight.bold),
+                            ),
+                            onPressed: () {
+                              _showInstalledAppsPicker(context, locale, (appName, packageName) {
+                                setDialogState(() {
+                                  final current = valuesController.text.trim();
+                                  if (current.isEmpty) {
+                                    valuesController.text = packageName;
+                                  } else {
+                                    final lines = current
+                                        .split(RegExp(r'[\r\n,]+'))
+                                        .map((s) => s.trim())
+                                        .where((s) => s.isNotEmpty)
+                                        .toList();
+                                    if (!lines.contains(packageName)) {
+                                      lines.add(packageName);
+                                      valuesController.text = lines.join('\n');
                                     }
-                                    if (remarkController.text.trim().isEmpty) {
-                                      final base = fileName.replaceAll(RegExp(r'\.exe$', caseSensitive: false), '');
-                                      if (base.isNotEmpty) {
-                                        remarkController.text = base[0].toUpperCase() + base.substring(1);
+                                  }
+                                  if (remarkController.text.trim().isEmpty) {
+                                    remarkController.text = appName;
+                                  }
+                                });
+                              });
+                            },
+                          )
+                        else
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: AppTheme.primaryAccent, width: 1.2),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            ),
+                            icon: const Icon(Icons.folder_open_rounded, size: 16, color: AppTheme.primaryAccent),
+                            label: Text(
+                              AppStrings.get('routing_open_exe', locale: locale),
+                              style: const TextStyle(fontSize: 12, color: AppTheme.primaryAccent, fontWeight: FontWeight.bold),
+                            ),
+                            onPressed: () async {
+                              try {
+                                final result = await FilePicker.platform.pickFiles(
+                                  type: FileType.custom,
+                                  allowedExtensions: ['exe'],
+                                  dialogTitle: locale == 'fa' ? 'انتخاب فایل اجرایی برنامه (.exe)' : 'Select Executable (.exe)',
+                                );
+                                if (result != null && result.files.isNotEmpty) {
+                                  final fileName = result.files.single.name;
+                                  if (fileName.isNotEmpty) {
+                                    setDialogState(() {
+                                      final current = valuesController.text.trim();
+                                      if (current.isEmpty) {
+                                        valuesController.text = fileName;
+                                      } else {
+                                        final lines = current
+                                            .split(RegExp(r'[\r\n,]+'))
+                                            .map((s) => s.trim())
+                                            .where((s) => s.isNotEmpty)
+                                            .toList();
+                                        if (!lines.any((l) => l.toLowerCase() == fileName.toLowerCase())) {
+                                          lines.add(fileName);
+                                          valuesController.text = lines.join('\n');
+                                        }
                                       }
-                                    }
-                                  });
+                                      if (remarkController.text.trim().isEmpty) {
+                                        final base = fileName.replaceAll(RegExp(r'\.exe$', caseSensitive: false), '');
+                                        if (base.isNotEmpty) {
+                                          remarkController.text = base[0].toUpperCase() + base.substring(1);
+                                        }
+                                      }
+                                    });
+                                  }
                                 }
-                              }
-                            } catch (_) {}
-                          },
-                        ),
+                              } catch (_) {}
+                            },
+                          ),
                       ],
                     ),
                     const SizedBox(height: 8),
                   ],
                   TextField(
                     controller: valuesController,
-                    maxLines: 6,
+                    maxLines: 5,
                     style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
                     decoration: InputDecoration(
                       labelText: locale == 'fa' ? 'مقادیر (یک مورد در هر سطر یا با ویرگول)' : 'Values (one per line or comma-separated)',
@@ -265,6 +323,142 @@ class _RoutingViewState extends ConsumerState<RoutingView> with SingleTickerProv
           ],
         ),
       ),
+    );
+  }
+
+  void _showInstalledAppsPicker(
+    BuildContext context,
+    String locale,
+    void Function(String appName, String packageName) onSelected,
+  ) {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        String filter = '';
+        return StatefulBuilder(
+          builder: (dialogCtx, setModalState) {
+            return AlertDialog(
+              backgroundColor: Theme.of(context).cardColor,
+              title: Row(
+                children: [
+                  const Icon(Icons.apps_rounded, color: AppTheme.primaryAccent),
+                  const SizedBox(width: 8),
+                  Text(
+                    locale == 'fa' ? 'انتخاب برنامه' : 'Select Application',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: math.min(420.0, MediaQuery.of(context).size.width * 0.9),
+                height: 400,
+                child: Column(
+                  children: [
+                    TextField(
+                      autofocus: false,
+                      decoration: InputDecoration(
+                        prefixIcon: const Icon(Icons.search_rounded, size: 18),
+                        hintText: locale == 'fa' ? 'جستجوی برنامه...' : 'Search app...',
+                        isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onChanged: (val) {
+                        setModalState(() {
+                          filter = val.trim().toLowerCase();
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    Expanded(
+                      child: FutureBuilder<List<dynamic>?>(
+                        future: const MethodChannel('com.v2raypro.app/native').invokeMethod<List<dynamic>>('getInstalledApps'),
+                        builder: (fCtx, snapshot) {
+                          if (snapshot.connectionState == ConnectionState.waiting) {
+                            return const Center(child: CircularProgressIndicator());
+                          }
+                          if (snapshot.hasError || !snapshot.hasData) {
+                            return Center(
+                              child: Text(
+                                locale == 'fa' ? 'خطا در بارگذاری برنامه‌ها' : 'Failed to load apps',
+                                style: const TextStyle(color: Colors.redAccent),
+                              ),
+                            );
+                          }
+                          final rawApps = snapshot.data!;
+                          final apps = rawApps.map((item) {
+                            final map = Map<String, dynamic>.from(item as Map);
+                            return {
+                              'name': map['name']?.toString() ?? '',
+                              'packageName': map['packageName']?.toString() ?? '',
+                            };
+                          }).where((app) {
+                            if (filter.isEmpty) return true;
+                            final n = app['name']!.toLowerCase();
+                            final p = app['packageName']!.toLowerCase();
+                            return n.contains(filter) || p.contains(filter);
+                          }).toList();
+
+                          if (apps.isEmpty) {
+                            return Center(
+                              child: Text(
+                                locale == 'fa' ? 'برنامه‌ای یافت نشد' : 'No applications found',
+                                style: const TextStyle(color: Colors.grey),
+                              ),
+                            );
+                          }
+
+                          return ListView.separated(
+                            itemCount: apps.length,
+                            separatorBuilder: (_, __) => const Divider(height: 1),
+                            itemBuilder: (_, idx) {
+                              final app = apps[idx];
+                              return ListTile(
+                                dense: true,
+                                leading: Container(
+                                  width: 32,
+                                  height: 32,
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.primaryAccent.withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: const Icon(Icons.android_rounded, color: AppTheme.primaryAccent, size: 18),
+                                ),
+                                title: Text(
+                                  app['name']!,
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                subtitle: Text(
+                                  app['packageName']!,
+                                  style: const TextStyle(fontSize: 10, color: Colors.grey, fontFamily: 'monospace'),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                onTap: () {
+                                  Navigator.pop(dialogCtx);
+                                  onSelected(app['name']!, app['packageName']!);
+                                },
+                              );
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogCtx),
+                  child: Text(AppStrings.get('cancel', locale: locale)),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
@@ -356,43 +550,70 @@ class _RoutingViewState extends ConsumerState<RoutingView> with SingleTickerProv
                             onPressed: () => _showRuleDialog(defaultType: type),
                           ),
                           if (type == RoutingRuleType.app)
-                            OutlinedButton.icon(
-                              style: OutlinedButton.styleFrom(
-                                side: const BorderSide(color: AppTheme.primaryAccent, width: 1.2),
-                              ),
-                              icon: const Icon(Icons.folder_open_rounded, size: 18, color: AppTheme.primaryAccent),
-                              label: Text(
-                                AppStrings.get('routing_open_exe', locale: locale),
-                                style: const TextStyle(color: AppTheme.primaryAccent, fontWeight: FontWeight.bold),
-                              ),
-                              onPressed: () async {
-                                try {
-                                  final result = await FilePicker.platform.pickFiles(
-                                    type: FileType.custom,
-                                    allowedExtensions: ['exe'],
-                                    dialogTitle: locale == 'fa' ? 'انتخاب فایل اجرایی برنامه (.exe)' : 'Select Executable (.exe)',
-                                  );
-                                  if (result != null && result.files.isNotEmpty) {
-                                    final fileName = result.files.single.name;
-                                    if (fileName.isNotEmpty) {
-                                      final base = fileName.replaceAll(RegExp(r'\.exe$', caseSensitive: false), '');
-                                      final remark = base.isNotEmpty ? base[0].toUpperCase() + base.substring(1) : null;
-                                      _showRuleDialog(
-                                        defaultType: RoutingRuleType.app,
-                                        existingRule: RoutingRule(
-                                          id: const Uuid().v4(),
-                                          type: RoutingRuleType.app,
-                                          values: [fileName],
-                                          action: RoutingAction.direct,
-                                          enabled: true,
-                                          remark: remark,
-                                        ),
-                                      );
+                            if (Platform.isAndroid)
+                              OutlinedButton.icon(
+                                style: OutlinedButton.styleFrom(
+                                  side: const BorderSide(color: AppTheme.primaryAccent, width: 1.2),
+                                ),
+                                icon: const Icon(Icons.apps_rounded, size: 18, color: AppTheme.primaryAccent),
+                                label: Text(
+                                  locale == 'fa' ? 'انتخاب از برنامه‌ها' : 'Select App',
+                                  style: const TextStyle(color: AppTheme.primaryAccent, fontWeight: FontWeight.bold),
+                                ),
+                                onPressed: () {
+                                  _showInstalledAppsPicker(context, locale, (appName, packageName) {
+                                    _showRuleDialog(
+                                      defaultType: RoutingRuleType.app,
+                                      existingRule: RoutingRule(
+                                        id: const Uuid().v4(),
+                                        type: RoutingRuleType.app,
+                                        values: [packageName],
+                                        action: RoutingAction.direct,
+                                        enabled: true,
+                                        remark: appName,
+                                      ),
+                                    );
+                                  });
+                                },
+                              )
+                            else
+                              OutlinedButton.icon(
+                                style: OutlinedButton.styleFrom(
+                                  side: const BorderSide(color: AppTheme.primaryAccent, width: 1.2),
+                                ),
+                                icon: const Icon(Icons.folder_open_rounded, size: 18, color: AppTheme.primaryAccent),
+                                label: Text(
+                                  AppStrings.get('routing_open_exe', locale: locale),
+                                  style: const TextStyle(color: AppTheme.primaryAccent, fontWeight: FontWeight.bold),
+                                ),
+                                onPressed: () async {
+                                  try {
+                                    final result = await FilePicker.platform.pickFiles(
+                                      type: FileType.custom,
+                                      allowedExtensions: ['exe'],
+                                      dialogTitle: locale == 'fa' ? 'انتخاب فایل اجرایی برنامه (.exe)' : 'Select Executable (.exe)',
+                                    );
+                                    if (result != null && result.files.isNotEmpty) {
+                                      final fileName = result.files.single.name;
+                                      if (fileName.isNotEmpty) {
+                                        final base = fileName.replaceAll(RegExp(r'\.exe$', caseSensitive: false), '');
+                                        final remark = base.isNotEmpty ? base[0].toUpperCase() + base.substring(1) : null;
+                                        _showRuleDialog(
+                                          defaultType: RoutingRuleType.app,
+                                          existingRule: RoutingRule(
+                                            id: const Uuid().v4(),
+                                            type: RoutingRuleType.app,
+                                            values: [fileName],
+                                            action: RoutingAction.direct,
+                                            enabled: true,
+                                            remark: remark,
+                                          ),
+                                        );
+                                      }
                                     }
-                                  }
-                                } catch (_) {}
-                              },
-                            ),
+                                  } catch (_) {}
+                                },
+                              ),
                         ],
                       ),
                     ],
@@ -520,40 +741,81 @@ class _RoutingViewState extends ConsumerState<RoutingView> with SingleTickerProv
     final locale = ref.watch(currentLocaleProvider);
 
     return Scaffold(
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      AppStrings.get('routing', locale: locale),
-                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+      appBar: Platform.isAndroid
+          ? AppBar(
+              leading: IconButton(
+                icon: const Icon(Icons.menu_rounded),
+                tooltip: AppStrings.get('more', locale: locale),
+                onPressed: widget.onOpenDrawer,
+              ),
+              titleSpacing: 0,
+              title: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(7),
+                      border: Border.all(
+                        color: const Color(0xFF00D2FF).withValues(alpha: 0.4),
+                        width: 1.2,
+                      ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      AppStrings.get('routing_desc', locale: locale),
-                      style: const TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
-                  ],
-                ),
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.primaryAccent,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    clipBehavior: Clip.antiAlias,
+                    child: Image.asset('assets/app_icon.png', fit: BoxFit.cover),
                   ),
-                  icon: const Icon(Icons.add_rounded, size: 18),
-                  label: Text(AppStrings.get('routing_add_rule', locale: locale)),
+                  const SizedBox(width: 8),
+                  Text(
+                    AppStrings.get('routing', locale: locale),
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+              actions: [
+                IconButton(
+                  tooltip: AppStrings.get('routing_add_rule', locale: locale),
+                  icon: const Icon(Icons.add_rounded, color: AppTheme.primaryAccent),
                   onPressed: () => _showRuleDialog(),
                 ),
               ],
+            )
+          : null,
+      body: Column(
+        children: [
+          if (!Platform.isAndroid)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        AppStrings.get('routing', locale: locale),
+                        style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        AppStrings.get('routing_desc', locale: locale),
+                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.primaryAccent,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    ),
+                    icon: const Icon(Icons.add_rounded, size: 18),
+                    label: Text(AppStrings.get('routing_add_rule', locale: locale)),
+                    onPressed: () => _showRuleDialog(),
+                  ),
+                ],
+              ),
             ),
-          ),
           TabBar(
             controller: _tabController,
             tabs: [

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/l10n/translations.dart';
@@ -9,7 +10,8 @@ import 'services/update_service.dart';
 import 'services/xray_process_service.dart';
 
 class SettingsView extends ConsumerStatefulWidget {
-  const SettingsView({super.key});
+  final VoidCallback? onOpenDrawer;
+  const SettingsView({super.key, this.onOpenDrawer});
 
   @override
   ConsumerState<SettingsView> createState() => _SettingsViewState();
@@ -332,6 +334,115 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
     );
   }
 
+  Widget _buildAndroidThemeChip({
+    required String label,
+    required IconData icon,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? AppTheme.primaryAccent.withValues(alpha: 0.18)
+              : Theme.of(context).cardColor,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isSelected ? AppTheme.primaryAccent : Colors.white.withValues(alpha: 0.1),
+            width: isSelected ? 1.6 : 1.0,
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 18,
+              color: isSelected ? AppTheme.primaryAccent : Colors.grey,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                color: isSelected ? AppTheme.primaryAccent : Theme.of(context).colorScheme.onSurface,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAndroidModeChip({
+    required String label,
+    required String desc,
+    required IconData icon,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? AppTheme.primaryAccent.withValues(alpha: 0.18)
+              : Theme.of(context).cardColor,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isSelected ? AppTheme.primaryAccent : Colors.grey.withValues(alpha: 0.25),
+            width: isSelected ? 1.6 : 1.0,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              size: 20,
+              color: isSelected ? AppTheme.primaryAccent : Colors.grey,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                      color: isSelected ? AppTheme.primaryAccent : Theme.of(context).colorScheme.onSurface,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    desc,
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: isSelected ? AppTheme.primaryAccent.withValues(alpha: 0.8) : Colors.grey,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final locale = ref.watch(currentLocaleProvider);
@@ -341,6 +452,7 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
     final cdnRanges = ref.watch(cdnRangesProvider);
 
     final themeMode = ref.watch(appThemeModeProvider);
+    final isTun = ref.watch(isTunEnabledProvider);
     final startOnBoot = ref.watch(startOnBootProvider);
     final autoConnectOnLaunch = ref.watch(autoConnectOnLaunchProvider);
     final autoSysProxy = ref.watch(autoEnableSysProxyOnConnectProvider);
@@ -363,77 +475,187 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
     }
 
     return Scaffold(
+      appBar: Platform.isAndroid
+          ? AppBar(
+              leading: IconButton(
+                icon: const Icon(Icons.menu_rounded),
+                tooltip: AppStrings.get('more', locale: locale),
+                onPressed: widget.onOpenDrawer,
+              ),
+              titleSpacing: 0,
+              title: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(7),
+                      border: Border.all(
+                        color: const Color(0xFF00D2FF).withValues(alpha: 0.4),
+                        width: 1.2,
+                      ),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: Image.asset('assets/app_icon.png', fit: BoxFit.cover),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    AppStrings.get('settings', locale: locale),
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+              actions: [
+                Container(
+                  margin: const EdgeInsets.only(right: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryAccent.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppTheme.primaryAccent.withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.verified_rounded, size: 12, color: AppTheme.primaryAccent),
+                      const SizedBox(width: 4),
+                      Text(
+                        UpdateService.currentAppVersion,
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.primaryAccent),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            )
+          : null,
       body: ListView(
         padding: const EdgeInsets.all(24),
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                AppStrings.get('settings', locale: locale),
-                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: AppTheme.primaryAccent.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppTheme.primaryAccent.withValues(alpha: 0.3)),
+          if (!Platform.isAndroid) ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  AppStrings.get('settings', locale: locale),
+                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                 ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.verified_rounded, size: 14, color: AppTheme.primaryAccent),
-                    const SizedBox(width: 6),
-                    Text(
-                      '${AppStrings.get('app_version', locale: locale)}: ${UpdateService.currentAppVersion}',
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.primaryAccent),
-                    ),
-                  ],
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryAccent.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppTheme.primaryAccent.withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.verified_rounded, size: 14, color: AppTheme.primaryAccent),
+                      const SizedBox(width: 6),
+                      Text(
+                        '${AppStrings.get('app_version', locale: locale)}: ${UpdateService.currentAppVersion}',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.primaryAccent),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
+              ],
+            ),
+            const SizedBox(height: 16),
+          ],
 
           // 1. Appearance & Language
           _buildCategoryHeader(Icons.palette_rounded, AppStrings.get('settings_cat_appearance', locale: locale)),
           Card(
             child: Column(
               children: [
-                ListTile(
-                  leading: const Icon(Icons.brightness_6_rounded, color: AppTheme.primaryAccent),
-                  title: Row(
-                    children: [
-                      Text(AppStrings.get('theme_mode', locale: locale)),
-                      const SizedBox(width: 6),
-                      _buildInfoTooltip(AppStrings.get('tooltip_theme', locale: locale)),
-                    ],
+                if (Platform.isAndroid)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.brightness_6_rounded, color: AppTheme.primaryAccent, size: 20),
+                            const SizedBox(width: 8),
+                            Text(
+                              AppStrings.get('theme_mode', locale: locale),
+                              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                            ),
+                            const SizedBox(width: 6),
+                            _buildInfoTooltip(AppStrings.get('tooltip_theme', locale: locale)),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildAndroidThemeChip(
+                                label: AppStrings.get('theme_dark', locale: locale),
+                                icon: Icons.dark_mode_rounded,
+                                isSelected: themeMode == ThemeMode.dark,
+                                onTap: () => ref.read(appThemeModeProvider.notifier).setTheme(ThemeMode.dark),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: _buildAndroidThemeChip(
+                                label: AppStrings.get('theme_light', locale: locale),
+                                icon: Icons.light_mode_rounded,
+                                isSelected: themeMode == ThemeMode.light,
+                                onTap: () => ref.read(appThemeModeProvider.notifier).setTheme(ThemeMode.light),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: _buildAndroidThemeChip(
+                                label: AppStrings.get('theme_system', locale: locale),
+                                icon: Icons.brightness_auto_rounded,
+                                isSelected: themeMode == ThemeMode.system,
+                                onTap: () => ref.read(appThemeModeProvider.notifier).setTheme(ThemeMode.system),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  ListTile(
+                    leading: const Icon(Icons.brightness_6_rounded, color: AppTheme.primaryAccent),
+                    title: Row(
+                      children: [
+                        Text(AppStrings.get('theme_mode', locale: locale)),
+                        const SizedBox(width: 6),
+                        _buildInfoTooltip(AppStrings.get('tooltip_theme', locale: locale)),
+                      ],
+                    ),
+                    trailing: SegmentedButton<ThemeMode>(
+                      segments: [
+                        ButtonSegment(
+                          value: ThemeMode.dark,
+                          label: Text(AppStrings.get('theme_dark', locale: locale), style: const TextStyle(fontSize: 11)),
+                          icon: const Icon(Icons.dark_mode_rounded, size: 16),
+                        ),
+                        ButtonSegment(
+                          value: ThemeMode.light,
+                          label: Text(AppStrings.get('theme_light', locale: locale), style: const TextStyle(fontSize: 11)),
+                          icon: const Icon(Icons.light_mode_rounded, size: 16),
+                        ),
+                        ButtonSegment(
+                          value: ThemeMode.system,
+                          label: Text(AppStrings.get('theme_system', locale: locale), style: const TextStyle(fontSize: 11)),
+                          icon: const Icon(Icons.brightness_auto_rounded, size: 16),
+                        ),
+                      ],
+                      selected: {themeMode},
+                      onSelectionChanged: (Set<ThemeMode> newSelection) {
+                        ref.read(appThemeModeProvider.notifier).setTheme(newSelection.first);
+                      },
+                    ),
                   ),
-                  trailing: SegmentedButton<ThemeMode>(
-                    segments: [
-                      ButtonSegment(
-                        value: ThemeMode.dark,
-                        label: Text(AppStrings.get('theme_dark', locale: locale), style: const TextStyle(fontSize: 11)),
-                        icon: const Icon(Icons.dark_mode_rounded, size: 16),
-                      ),
-                      ButtonSegment(
-                        value: ThemeMode.light,
-                        label: Text(AppStrings.get('theme_light', locale: locale), style: const TextStyle(fontSize: 11)),
-                        icon: const Icon(Icons.light_mode_rounded, size: 16),
-                      ),
-                      ButtonSegment(
-                        value: ThemeMode.system,
-                        label: Text(AppStrings.get('theme_system', locale: locale), style: const TextStyle(fontSize: 11)),
-                        icon: const Icon(Icons.brightness_auto_rounded, size: 16),
-                      ),
-                    ],
-                    selected: {themeMode},
-                    onSelectionChanged: (Set<ThemeMode> newSelection) {
-                      ref.read(appThemeModeProvider.notifier).setTheme(newSelection.first);
-                    },
-                  ),
-                ),
                 const Divider(height: 1),
                 ListTile(
                   leading: const Icon(Icons.language_rounded, color: AppTheme.secondaryAccent),
@@ -444,7 +666,10 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                       _buildInfoTooltip(AppStrings.get('tooltip_language', locale: locale)),
                     ],
                   ),
-                  subtitle: Text(locale == 'fa' ? 'فارسی' : 'English'),
+                  subtitle: Text(
+                    locale == 'fa' ? 'فارسی' : 'English',
+                    style: TextStyle(fontSize: Platform.isAndroid ? 11 : 12, color: Colors.grey),
+                  ),
                   trailing: DropdownButton<String>(
                     value: locale,
                     underline: const SizedBox(),
@@ -469,22 +694,24 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
           Card(
             child: Column(
               children: [
-                SwitchListTile(
-                  secondary: const Icon(Icons.power_settings_new_rounded, color: AppTheme.primaryAccent),
-                  title: Row(
-                    children: [
-                      Text(AppStrings.get('start_on_boot', locale: locale)),
-                      const SizedBox(width: 6),
-                      _buildInfoTooltip(AppStrings.get('tooltip_start_on_boot', locale: locale)),
-                    ],
+                if (!Platform.isAndroid) ...[
+                  SwitchListTile(
+                    secondary: const Icon(Icons.power_settings_new_rounded, color: AppTheme.primaryAccent),
+                    title: Row(
+                      children: [
+                        Text(AppStrings.get('start_on_boot', locale: locale)),
+                        const SizedBox(width: 6),
+                        _buildInfoTooltip(AppStrings.get('tooltip_start_on_boot', locale: locale)),
+                      ],
+                    ),
+                    subtitle: Text(AppStrings.get('start_on_boot_desc', locale: locale), style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                    value: startOnBoot,
+                    onChanged: (val) {
+                      ref.read(startOnBootProvider.notifier).toggle(val);
+                    },
                   ),
-                  subtitle: Text(AppStrings.get('start_on_boot_desc', locale: locale), style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                  value: startOnBoot,
-                  onChanged: (val) {
-                    ref.read(startOnBootProvider.notifier).toggle(val);
-                  },
-                ),
-                const Divider(height: 1),
+                  const Divider(height: 1),
+                ],
                 SwitchListTile(
                   secondary: const Icon(Icons.flash_on_rounded, color: Colors.amber),
                   title: Row(
@@ -494,65 +721,72 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                       _buildInfoTooltip(AppStrings.get('tooltip_auto_connect', locale: locale)),
                     ],
                   ),
-                  subtitle: Text(AppStrings.get('auto_connect_on_launch_desc', locale: locale), style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                  subtitle: Text(
+                    AppStrings.get('auto_connect_on_launch_desc', locale: locale),
+                    style: TextStyle(fontSize: Platform.isAndroid ? 11 : 12, color: Colors.grey),
+                    maxLines: Platform.isAndroid ? 2 : null,
+                    overflow: Platform.isAndroid ? TextOverflow.ellipsis : null,
+                  ),
                   value: autoConnectOnLaunch,
                   onChanged: (val) {
                     ref.read(autoConnectOnLaunchProvider.notifier).toggle(val);
                   },
                 ),
-                const Divider(height: 1),
-                SwitchListTile(
-                  secondary: const Icon(Icons.shield_outlined, color: AppTheme.successColor),
-                  title: Row(
-                    children: [
-                      Text(AppStrings.get('auto_sysproxy_on_connect', locale: locale)),
-                      const SizedBox(width: 6),
-                      _buildInfoTooltip(AppStrings.get('tooltip_auto_sysproxy', locale: locale)),
-                    ],
+                if (!Platform.isAndroid) ...[
+                  const Divider(height: 1),
+                  SwitchListTile(
+                    secondary: const Icon(Icons.shield_outlined, color: AppTheme.successColor),
+                    title: Row(
+                      children: [
+                        Text(AppStrings.get('auto_sysproxy_on_connect', locale: locale)),
+                        const SizedBox(width: 6),
+                        _buildInfoTooltip(AppStrings.get('tooltip_auto_sysproxy', locale: locale)),
+                      ],
+                    ),
+                    subtitle: Text(AppStrings.get('auto_sysproxy_on_connect_desc', locale: locale), style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                    value: autoSysProxy,
+                    onChanged: (val) {
+                      ref.read(autoEnableSysProxyOnConnectProvider.notifier).toggle(val);
+                    },
                   ),
-                  subtitle: Text(AppStrings.get('auto_sysproxy_on_connect_desc', locale: locale), style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                  value: autoSysProxy,
-                  onChanged: (val) {
-                    ref.read(autoEnableSysProxyOnConnectProvider.notifier).toggle(val);
-                  },
-                ),
-                const Divider(height: 1),
-                SwitchListTile(
-                  secondary: const Icon(Icons.vpn_lock_rounded, color: AppTheme.primaryAccent),
-                  title: Row(
-                    children: [
-                      Text(AppStrings.get('auto_tun_on_connect', locale: locale)),
-                      const SizedBox(width: 6),
-                      _buildInfoTooltip(AppStrings.get('tooltip_auto_tun', locale: locale)),
-                    ],
+                  const Divider(height: 1),
+                  SwitchListTile(
+                    secondary: const Icon(Icons.vpn_lock_rounded, color: AppTheme.primaryAccent),
+                    title: Row(
+                      children: [
+                        Text(AppStrings.get('auto_tun_on_connect', locale: locale)),
+                        const SizedBox(width: 6),
+                        _buildInfoTooltip(AppStrings.get('tooltip_auto_tun', locale: locale)),
+                      ],
+                    ),
+                    subtitle: Text(AppStrings.get('auto_tun_on_connect_desc', locale: locale), style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                    value: autoTun,
+                    onChanged: (val) {
+                      if (val && !XrayProcessService.instance.isRunningAsAdmin()) {
+                        showDialog(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            backgroundColor: Theme.of(context).cardColor,
+                            title: Text(AppStrings.get('tun_admin_required_title', locale: locale)),
+                            content: Text(AppStrings.get('tun_admin_required_desc', locale: locale)),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(ctx), child: Text(AppStrings.get('cancel', locale: locale))),
+                              ElevatedButton(
+                                onPressed: () {
+                                  Navigator.pop(ctx);
+                                  XrayProcessService.instance.restartAsAdmin();
+                                },
+                                child: Text(AppStrings.get('restart_as_admin', locale: locale)),
+                              ),
+                            ],
+                          ),
+                        );
+                        return;
+                      }
+                      ref.read(autoEnableTunOnConnectProvider.notifier).toggle(val);
+                    },
                   ),
-                  subtitle: Text(AppStrings.get('auto_tun_on_connect_desc', locale: locale), style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                  value: autoTun,
-                  onChanged: (val) {
-                    if (val && !XrayProcessService.instance.isRunningAsAdmin()) {
-                      showDialog(
-                        context: context,
-                        builder: (ctx) => AlertDialog(
-                          backgroundColor: Theme.of(context).cardColor,
-                          title: Text(AppStrings.get('tun_admin_required_title', locale: locale)),
-                          content: Text(AppStrings.get('tun_admin_required_desc', locale: locale)),
-                          actions: [
-                            TextButton(onPressed: () => Navigator.pop(ctx), child: Text(AppStrings.get('cancel', locale: locale))),
-                            ElevatedButton(
-                              onPressed: () {
-                                Navigator.pop(ctx);
-                                XrayProcessService.instance.restartAsAdmin();
-                              },
-                              child: Text(AppStrings.get('restart_as_admin', locale: locale)),
-                            ),
-                          ],
-                        ),
-                      );
-                      return;
-                    }
-                    ref.read(autoEnableTunOnConnectProvider.notifier).toggle(val);
-                  },
-                ),
+                ],
               ],
             ),
           ),
@@ -563,6 +797,63 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
           Card(
             child: Column(
               children: [
+                if (Platform.isAndroid) ...[
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.hub_rounded, color: AppTheme.primaryAccent, size: 20),
+                            const SizedBox(width: 8),
+                            Text(
+                              locale == 'fa' ? 'حالت اتصال' : 'Connection Mode',
+                              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildAndroidModeChip(
+                                label: locale == 'fa' ? 'وی‌پی‌ان (TUN)' : 'TUN (VPN)',
+                                desc: locale == 'fa' ? 'کل دستگاه' : 'Whole Device',
+                                icon: Icons.vpn_lock_rounded,
+                                isSelected: isTun,
+                                onTap: () {
+                                  ref.read(isTunEnabledProvider.notifier).toggle(true);
+                                  ref.read(autoEnableTunOnConnectProvider.notifier).toggle(true);
+                                  if (ref.read(connectionStatusProvider) == ConnectionStateEnum.connected) {
+                                    ref.read(connectionStatusProvider.notifier).reconnectWithUpdatedSettings();
+                                  }
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: _buildAndroidModeChip(
+                                label: locale == 'fa' ? 'پروکسی (Proxy)' : 'Proxy Mode',
+                                desc: locale == 'fa' ? 'پورت محلی' : 'Local Inbound',
+                                icon: Icons.settings_ethernet_rounded,
+                                isSelected: !isTun,
+                                onTap: () {
+                                  ref.read(isTunEnabledProvider.notifier).toggle(false);
+                                  ref.read(autoEnableTunOnConnectProvider.notifier).toggle(false);
+                                  if (ref.read(connectionStatusProvider) == ConnectionStateEnum.connected) {
+                                    ref.read(connectionStatusProvider.notifier).reconnectWithUpdatedSettings();
+                                  }
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                ],
                 SwitchListTile(
                   secondary: const Icon(Icons.compare_arrows_rounded, color: Colors.tealAccent),
                   title: Row(
@@ -572,7 +863,12 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                       _buildInfoTooltip(AppStrings.get('tooltip_enable_udp', locale: locale)),
                     ],
                   ),
-                  subtitle: Text(AppStrings.get('enable_udp_desc', locale: locale), style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                  subtitle: Text(
+                    AppStrings.get('enable_udp_desc', locale: locale),
+                    style: TextStyle(fontSize: Platform.isAndroid ? 11 : 12, color: Colors.grey),
+                    maxLines: Platform.isAndroid ? 2 : null,
+                    overflow: Platform.isAndroid ? TextOverflow.ellipsis : null,
+                  ),
                   value: enableUdp,
                   onChanged: (val) {
                     ref.read(enableUdpProvider.notifier).toggle(val);
@@ -588,7 +884,12 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                       _buildInfoTooltip(AppStrings.get('tooltip_allow_insecure', locale: locale)),
                     ],
                   ),
-                  subtitle: Text(AppStrings.get('global_allow_insecure_desc', locale: locale), style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                  subtitle: Text(
+                    AppStrings.get('global_allow_insecure_desc', locale: locale),
+                    style: TextStyle(fontSize: Platform.isAndroid ? 11 : 12, color: Colors.grey),
+                    maxLines: Platform.isAndroid ? 2 : null,
+                    overflow: Platform.isAndroid ? TextOverflow.ellipsis : null,
+                  ),
                   value: globalAllowInsecure,
                   onChanged: (val) {
                     ref.read(globalAllowInsecureProvider.notifier).toggle(val);
@@ -607,7 +908,12 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                       _buildInfoTooltip(AppStrings.get('tooltip_enable_mux', locale: locale)),
                     ],
                   ),
-                  subtitle: Text(AppStrings.get('global_enable_mux_desc', locale: locale), style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                  subtitle: Text(
+                    AppStrings.get('global_enable_mux_desc', locale: locale),
+                    style: TextStyle(fontSize: Platform.isAndroid ? 11 : 12, color: Colors.grey),
+                    maxLines: Platform.isAndroid ? 2 : null,
+                    overflow: Platform.isAndroid ? TextOverflow.ellipsis : null,
+                  ),
                   value: globalEnableMux,
                   onChanged: (val) {
                     ref.read(globalEnableMuxProvider.notifier).toggle(val);
@@ -626,7 +932,12 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                       _buildInfoTooltip(AppStrings.get('tooltip_allow_lan', locale: locale)),
                     ],
                   ),
-                  subtitle: Text(AppStrings.get('allow_lan_desc', locale: locale), style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                  subtitle: Text(
+                    AppStrings.get('allow_lan_desc', locale: locale),
+                    style: TextStyle(fontSize: Platform.isAndroid ? 11 : 12, color: Colors.grey),
+                    maxLines: Platform.isAndroid ? 2 : null,
+                    overflow: Platform.isAndroid ? TextOverflow.ellipsis : null,
+                  ),
                   value: allowLan,
                   onChanged: (val) {
                     ref.read(allowLanProvider.notifier).toggle(val);
@@ -635,100 +946,108 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                     }
                   },
                 ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.settings_ethernet_rounded, color: AppTheme.primaryAccent),
-                  title: Row(
-                    children: [
-                      Text(AppStrings.get('http_port', locale: locale)),
-                      const SizedBox(width: 6),
-                      _buildInfoTooltip(AppStrings.get('tooltip_http_port', locale: locale)),
-                    ],
-                  ),
-                  subtitle: Text('Current: $httpPort  •  (Default: 10888)'),
-                  trailing: SizedBox(
-                    width: 140,
-                    child: TextField(
-                      controller: _httpPortController,
-                      keyboardType: TextInputType.number,
-                      textAlign: TextAlign.center,
-                      decoration: InputDecoration(
-                        isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
-                        suffixIcon: IconButton(
-                          icon: const Icon(Icons.check_rounded, size: 18, color: AppTheme.successColor),
-                          tooltip: "Save port",
-                          onPressed: () {
-                            final p = int.tryParse(_httpPortController.text.trim());
-                            if (p != null && p > 0 && p < 65536) {
-                              ref.read(httpPortProvider.notifier).setPort(p);
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('HTTP port updated to $p')),
-                              );
-                            }
-                          },
+                if (!Platform.isAndroid || !isTun) ...[
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(Icons.settings_ethernet_rounded, color: AppTheme.primaryAccent),
+                    title: Row(
+                      children: [
+                        Text(AppStrings.get('http_port', locale: locale)),
+                        const SizedBox(width: 6),
+                        _buildInfoTooltip(AppStrings.get('tooltip_http_port', locale: locale)),
+                      ],
+                    ),
+                    subtitle: Text(
+                      'Current: $httpPort  •  (Default: 10888)',
+                      style: TextStyle(fontSize: Platform.isAndroid ? 11 : 12, color: Colors.grey),
+                    ),
+                    trailing: SizedBox(
+                      width: 140,
+                      child: TextField(
+                        controller: _httpPortController,
+                        keyboardType: TextInputType.number,
+                        textAlign: TextAlign.center,
+                        decoration: InputDecoration(
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                          suffixIcon: IconButton(
+                            icon: const Icon(Icons.check_rounded, size: 18, color: AppTheme.successColor),
+                            tooltip: "Save port",
+                            onPressed: () {
+                              final p = int.tryParse(_httpPortController.text.trim());
+                              if (p != null && p > 0 && p < 65536) {
+                                ref.read(httpPortProvider.notifier).setPort(p);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('HTTP port updated to $p')),
+                                );
+                              }
+                            },
+                          ),
                         ),
+                        onSubmitted: (val) {
+                          final p = int.tryParse(val.trim());
+                          if (p != null && p > 0 && p < 65536) {
+                            ref.read(httpPortProvider.notifier).setPort(p);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('HTTP port updated to $p')),
+                            );
+                          }
+                        },
                       ),
-                      onSubmitted: (val) {
-                        final p = int.tryParse(val.trim());
-                        if (p != null && p > 0 && p < 65536) {
-                          ref.read(httpPortProvider.notifier).setPort(p);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('HTTP port updated to $p')),
-                          );
-                        }
-                      },
                     ),
                   ),
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.swap_calls_rounded, color: AppTheme.secondaryAccent),
-                  title: Row(
-                    children: [
-                      Text(AppStrings.get('socks_port', locale: locale)),
-                      const SizedBox(width: 6),
-                      _buildInfoTooltip(AppStrings.get('tooltip_socks_port', locale: locale)),
-                    ],
-                  ),
-                  subtitle: Text('Current: $socksPort  •  (Default: 10999)'),
-                  trailing: SizedBox(
-                    width: 140,
-                    child: TextField(
-                      controller: _socksPortController,
-                      keyboardType: TextInputType.number,
-                      textAlign: TextAlign.center,
-                      decoration: InputDecoration(
-                        isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
-                        suffixIcon: IconButton(
-                          icon: const Icon(Icons.check_rounded, size: 18, color: AppTheme.successColor),
-                          tooltip: "Save port",
-                          onPressed: () {
-                            final p = int.tryParse(_socksPortController.text.trim());
-                            if (p != null && p > 0 && p < 65536) {
-                              ref.read(socksPortProvider.notifier).setPort(p);
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('SOCKS port updated to $p')),
-                              );
-                            }
-                          },
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(Icons.swap_calls_rounded, color: AppTheme.secondaryAccent),
+                    title: Row(
+                      children: [
+                        Text(AppStrings.get('socks_port', locale: locale)),
+                        const SizedBox(width: 6),
+                        _buildInfoTooltip(AppStrings.get('tooltip_socks_port', locale: locale)),
+                      ],
+                    ),
+                    subtitle: Text(
+                      'Current: $socksPort  •  (Default: 10999)',
+                      style: TextStyle(fontSize: Platform.isAndroid ? 11 : 12, color: Colors.grey),
+                    ),
+                    trailing: SizedBox(
+                      width: 140,
+                      child: TextField(
+                        controller: _socksPortController,
+                        keyboardType: TextInputType.number,
+                        textAlign: TextAlign.center,
+                        decoration: InputDecoration(
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                          suffixIcon: IconButton(
+                            icon: const Icon(Icons.check_rounded, size: 18, color: AppTheme.successColor),
+                            tooltip: "Save port",
+                            onPressed: () {
+                              final p = int.tryParse(_socksPortController.text.trim());
+                              if (p != null && p > 0 && p < 65536) {
+                                ref.read(socksPortProvider.notifier).setPort(p);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('SOCKS port updated to $p')),
+                                );
+                              }
+                            },
+                          ),
                         ),
+                        onSubmitted: (val) {
+                          final p = int.tryParse(val.trim());
+                          if (p != null && p > 0 && p < 65536) {
+                            ref.read(socksPortProvider.notifier).setPort(p);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('SOCKS port updated to $p')),
+                            );
+                          }
+                        },
                       ),
-                      onSubmitted: (val) {
-                        final p = int.tryParse(val.trim());
-                        if (p != null && p > 0 && p < 65536) {
-                          ref.read(socksPortProvider.notifier).setPort(p);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('SOCKS port updated to $p')),
-                          );
-                        }
-                      },
                     ),
                   ),
-                ),
+                ],
               ],
             ),
           ),

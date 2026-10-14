@@ -23,6 +23,7 @@ dependencies:
   tray_manager: ^0.7.0
   window_manager: ^0.5.2
   local_notifier: ^0.1.6
+  mobile_scanner: ^7.4.2
 
 dev_dependencies:
   flutter_test:

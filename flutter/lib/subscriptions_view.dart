@@ -17,7 +17,8 @@ import 'services/country_service.dart';
 import 'services/storage_service.dart';
 
 class SubscriptionsView extends ConsumerStatefulWidget {
-  const SubscriptionsView({super.key});
+  final VoidCallback? onOpenDrawer;
+  const SubscriptionsView({super.key, this.onOpenDrawer});
 
   @override
   ConsumerState<SubscriptionsView> createState() => _SubscriptionsViewState();
@@ -470,6 +471,55 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
       child: Focus(
         autofocus: true,
         child: Scaffold(
+          appBar: Platform.isAndroid
+              ? AppBar(
+                  leading: IconButton(
+                    icon: const Icon(Icons.menu_rounded),
+                    tooltip: AppStrings.get('more', locale: locale),
+                    onPressed: widget.onOpenDrawer,
+                  ),
+                  titleSpacing: 0,
+                  title: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(7),
+                          border: Border.all(
+                            color: const Color(0xFF00D2FF).withValues(alpha: 0.4),
+                            width: 1.2,
+                          ),
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: Image.asset('assets/app_icon.png', fit: BoxFit.cover),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        AppStrings.get("subscriptions", locale: locale),
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                    ],
+                  ),
+                  actions: [
+                    if (subs.isNotEmpty)
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        icon: _isUpdatingAll
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.sync_rounded, color: Colors.cyanAccent),
+                        tooltip: AppStrings.get("update_all_subs", locale: locale),
+                        onPressed: _isUpdatingAll ? null : _updateAllSubs,
+                      ),
+                    const SizedBox(width: 4),
+                  ],
+                )
+              : null,
           floatingActionButton: Platform.isAndroid
               ? FloatingActionButton(
                   backgroundColor: AppTheme.primaryAccent,
@@ -485,32 +535,18 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
             padding: EdgeInsets.all(Platform.isAndroid ? 12 : 24),
             child: Column(
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        AppStrings.get("subscriptions", locale: locale),
-                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    if (Platform.isAndroid) ...[
-                      if (subs.isNotEmpty)
-                        IconButton(
-                          visualDensity: VisualDensity.compact,
-                          icon: _isUpdatingAll
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
-                                )
-                              : const Icon(Icons.sync_rounded, color: Colors.cyanAccent),
-                          tooltip: AppStrings.get("update_all_subs", locale: locale),
-                          onPressed: _isUpdatingAll ? null : _updateAllSubs,
+                if (!Platform.isAndroid) ...[
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          AppStrings.get("subscriptions", locale: locale),
+                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                    ] else ...[
+                      ),
                       Row(
                         children: [
                           if (subs.isNotEmpty)
@@ -537,9 +573,9 @@ class _SubscriptionsViewState extends ConsumerState<SubscriptionsView> {
                         ],
                       ),
                     ],
-                  ],
-                ),
-            const SizedBox(height: 20),
+                  ),
+                  const SizedBox(height: 20),
+                ],
             if (subs.isEmpty)
               Expanded(
                 child: Center(

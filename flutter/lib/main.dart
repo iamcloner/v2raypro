@@ -319,13 +319,27 @@ class _MainShellState extends ConsumerState<MainShell> {
       const DashboardView(),
       ConfigsView(
         onNavigateToFreeConfigs: () => setState(() => _selectedIndex = 3),
+        onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
       ),
-      const SubscriptionsView(),
-      const FreeConfigsView(),
-      if (hasCdn) const ScannerView(),
-      const RoutingView(),
-      const LogsView(),
-      const SettingsView(),
+      SubscriptionsView(
+        onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+      ),
+      FreeConfigsView(
+        onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+      ),
+      if (hasCdn)
+        ScannerView(
+          onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+        ),
+      RoutingView(
+        onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+      ),
+      LogsView(
+        onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+      ),
+      SettingsView(
+        onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+      ),
     ];
 
     if (_selectedIndex >= pages.length) {
@@ -472,59 +486,61 @@ class _MainShellState extends ConsumerState<MainShell> {
     return Scaffold(
       key: _scaffoldKey,
       drawer: _buildMobileDrawer(context, locale, hasCdn, scannerLabel),
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.menu_rounded),
-          tooltip: AppStrings.get('more', locale: locale),
-          onPressed: () => _scaffoldKey.currentState?.openDrawer(),
-        ),
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 30,
-              height: 30,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: const Color(0xFF00D2FF).withValues(alpha: 0.4),
-                  width: 1.2,
-                ),
+      appBar: (Platform.isAndroid && _selectedIndex != 0)
+          ? null
+          : AppBar(
+              leading: IconButton(
+                icon: const Icon(Icons.menu_rounded),
+                tooltip: AppStrings.get('more', locale: locale),
+                onPressed: () => _scaffoldKey.currentState?.openDrawer(),
               ),
-              clipBehavior: Clip.antiAlias,
-              child: Image.asset('assets/app_icon.png', fit: BoxFit.cover),
+              title: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 30,
+                    height: 30,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: const Color(0xFF00D2FF).withValues(alpha: 0.4),
+                        width: 1.2,
+                      ),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: Image.asset('assets/app_icon.png', fit: BoxFit.cover),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
+                    "V2Ray",
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 17,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  const SizedBox(width: 5),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF00D2FF), Color(0xFFFF7A00)],
+                      ),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Text(
+                      "PRO",
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 9,
+                        color: Colors.white,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(width: 8),
-            const Text(
-              "V2Ray",
-              style: TextStyle(
-                fontWeight: FontWeight.w900,
-                fontSize: 17,
-                letterSpacing: 0.5,
-              ),
-            ),
-            const SizedBox(width: 5),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF00D2FF), Color(0xFFFF7A00)],
-                ),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: const Text(
-                "PRO",
-                style: TextStyle(
-                  fontWeight: FontWeight.w900,
-                  fontSize: 9,
-                  color: Colors.white,
-                  letterSpacing: 0.8,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
       body: pages[_selectedIndex],
       bottomNavigationBar: NavigationBar(
         selectedIndex: bottomNavIndex,

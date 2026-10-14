@@ -92,6 +92,31 @@ class MainActivity : FlutterActivity() {
                     startService(stopIntent)
                     result.success(true)
                 }
+                "getInstalledApps" -> {
+                    Thread {
+                        try {
+                            val pm = packageManager
+                            val intent = Intent(Intent.ACTION_MAIN, null).apply {
+                                addCategory(Intent.CATEGORY_LAUNCHER)
+                            }
+                            val resolveInfos = pm.queryIntentActivities(intent, 0)
+                            val apps = ArrayList<Map<String, String>>()
+                            val seen = HashSet<String>()
+                            for (ri in resolveInfos) {
+                                val pkg = ri.activityInfo.packageName
+                                if (pkg != packageName && !seen.contains(pkg)) {
+                                    seen.add(pkg)
+                                    val label = ri.loadLabel(pm)?.toString() ?: pkg
+                                    apps.add(mapOf("name" to label, "packageName" to pkg))
+                                }
+                            }
+                            apps.sortBy { (it["name"] ?: "").lowercase() }
+                            runOnUiThread { result.success(apps) }
+                        } catch (e: Exception) {
+                            runOnUiThread { result.error("ERROR", e.message, null) }
+                        }
+                    }.start()
+                }
                 else -> result.notImplemented()
             }
         }

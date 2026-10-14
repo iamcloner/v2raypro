@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,7 +10,8 @@ import 'services/cdn_scanner_service.dart';
 import 'widgets/country_flag_badge.dart';
 
 class ScannerView extends ConsumerStatefulWidget {
-  const ScannerView({super.key});
+  final VoidCallback? onOpenDrawer;
+  const ScannerView({super.key, this.onOpenDrawer});
 
   @override
   ConsumerState<ScannerView> createState() => _ScannerViewState();
@@ -88,49 +90,128 @@ class _ScannerViewState extends ConsumerState<ScannerView>
       }
     }
 
+    final isPortrait = MediaQuery.of(context).orientation == Orientation.portrait;
+    final scannerTitle = locale == 'fa'
+        ? 'اسکنر ${currentCdn.displayNameFa}'
+        : '${currentCdn.displayName} Scanner';
+
     return Scaffold(
+      appBar: Platform.isAndroid
+          ? AppBar(
+              leading: IconButton(
+                icon: const Icon(Icons.menu_rounded),
+                tooltip: AppStrings.get('more', locale: locale),
+                onPressed: widget.onOpenDrawer,
+              ),
+              titleSpacing: 0,
+              title: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(7),
+                      border: Border.all(
+                        color: const Color(0xFF00D2FF).withValues(alpha: 0.4),
+                        width: 1.2,
+                      ),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: Image.asset('assets/app_icon.png', fit: BoxFit.cover),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    scannerTitle,
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                ],
+              ),
+              actions: [
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(Icons.restart_alt_rounded, size: 20),
+                  tooltip: AppStrings.get('reset_scan', locale: locale),
+                  onPressed: () {
+                    ref.read(scannerProvider.notifier).resetScan();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(AppStrings.get('scan_reset_done', locale: locale))),
+                    );
+                  },
+                ),
+                if (activeNode?.originalAddress != null)
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.restore_rounded, size: 20),
+                    tooltip: AppStrings.get('restore_original', locale: locale),
+                    onPressed: () {
+                      ref.read(nodesProvider.notifier).restoreAddress(activeNode!.id);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(AppStrings.get('original_restored', locale: locale))),
+                      );
+                    },
+                  ),
+                const SizedBox(width: 4),
+              ],
+            )
+          : null,
       body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        padding: EdgeInsets.symmetric(
+          horizontal: Platform.isAndroid ? 12 : 20,
+          vertical: Platform.isAndroid ? 10 : 14,
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // 1. Header with Title & Action buttons (no config name/ip under title)
-            _buildNodeHeaderCard(activeNode, currentCdn, locale),
-            const SizedBox(height: 12),
+            // 1. Header with Title & Action buttons (Desktop only)
+            if (!Platform.isAndroid) ...[
+              _buildNodeHeaderCard(activeNode, currentCdn, locale),
+              const SizedBox(height: 12),
+            ],
 
-            // 2. Top Half: 50% Metric Cards + Progress Bar & 50% Strategy + Controls (Equal Height 280px)
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: _buildTopLeftDashboard(state, locale),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: _buildStrategyAndControlsCard(
-                      state, activeNode, locale),
-                ),
+            if (isPortrait) ...[
+              // Portrait mobile layout: stacked vertically
+              _buildScannerStatsDashboard(state, locale),
+              if (state.isScanning) ...[
+                const SizedBox(height: 10),
+                _buildProgressCard(state, locale),
               ],
-            ),
-            const SizedBox(height: 12),
+              const SizedBox(height: 12),
+              _buildStrategyAndControlsCard(state, activeNode, locale, isPortrait: true),
+              const SizedBox(height: 12),
+              _buildConnectedIpDisplayCard(state, activeNode, locale, isPortrait: true),
+              const SizedBox(height: 12),
+              _buildDualAccordionCard(state, locale, isPortrait: true),
+            ] else ...[
+              // Landscape / Desktop layout: 2 equal columns
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: _buildTopLeftDashboard(state, locale),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: _buildStrategyAndControlsCard(state, activeNode, locale),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: _buildConnectedIpDisplayCard(state, activeNode, locale),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: _buildDualAccordionCard(state, locale),
+                  ),
+                ],
+              ),
+            ],
 
-            // 3. Bottom Half: 50% Connected IP Card & 50% Dual Accordion Card (Equal Height 280px)
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: _buildConnectedIpDisplayCard(
-                      state, activeNode, locale),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: _buildDualAccordionCard(state, locale),
-                ),
-              ],
-            ),
-
-            // 4. Bottom padding
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
           ],
         ),
       ),
@@ -239,12 +320,13 @@ class _ScannerViewState extends ConsumerState<ScannerView>
   Widget _buildStrategyAndControlsCard(
     ScannerState state,
     dynamic activeNode,
-    String locale,
-  ) {
+    String locale, {
+    bool isPortrait = false,
+  }) {
     final isRadar = state.strategy == ScannerStrategy.radar;
 
     return SizedBox(
-      height: 280,
+      height: isPortrait ? null : 280,
       child: Card(
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(14),
@@ -658,15 +740,16 @@ class _ScannerViewState extends ConsumerState<ScannerView>
   Widget _buildConnectedIpDisplayCard(
     ScannerState state,
     dynamic activeNode,
-    String locale,
-  ) {
+    String locale, {
+    bool isPortrait = false,
+  }) {
     final hasConnectedIp =
         state.connectedIp != null && state.currentBestLatency != null;
     final showTrafficNotice =
         state.isScanning && state.showRadarTrafficWarning;
 
     return SizedBox(
-      height: 280,
+      height: isPortrait ? null : 280,
       child: Card(
         color: hasConnectedIp
             ? AppTheme.primaryAccent.withValues(alpha: 0.08)
@@ -855,7 +938,7 @@ class _ScannerViewState extends ConsumerState<ScannerView>
                   ),
                 ),
               ],
-              const Spacer(),
+              if (!isPortrait) const Spacer() else const SizedBox(height: 12),
             ],
           ),
         ),
@@ -863,9 +946,13 @@ class _ScannerViewState extends ConsumerState<ScannerView>
     );
   }
 
-  Widget _buildDualAccordionCard(ScannerState state, String locale) {
+  Widget _buildDualAccordionCard(
+    ScannerState state,
+    String locale, {
+    bool isPortrait = false,
+  }) {
     return SizedBox(
-      height: 280,
+      height: isPortrait ? 380 : 280,
       child: Card(
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(14),
