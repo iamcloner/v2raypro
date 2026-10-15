@@ -1,12 +1,14 @@
-# V2RayPro
+# V2RayPro (Windows)
 
 <p align="center">
-  <img src="flutter/assets/app_icon.png" alt="V2RayPro Logo" width="100" height="100" />
+  <img src="assets/app_icon.png" alt="V2RayPro Logo" width="100" height="100" />
 </p>
 
 <p align="center">
-  <strong>High-performance GUI client for V2Ray / Xray & Sing-box with Cloudflare Clean IP Scanner</strong>
+  <strong>High-performance Windows client for V2Ray / Xray & Sing-box with Cloudflare Clean IP Scanner</strong>
 </p>
+
+> 📱 **Looking for the Android version?** Check out the standalone [V2RayPro Android](https://github.com/iamcloner/v2raypro-android) repository!
 
 <p align="center">
   English • <a href="README-fa.md">فارسی</a> • <a href="README-ch.md">中文</a> • <a href="README-ru.md">Русский</a> • <a href="README-fr.md">Français</a> • <a href="README-sp.md">Español</a>
@@ -30,27 +32,27 @@
 ## 📸 Screenshots
 
 <p align="center">
-  <img src="docs/screenshots/Dashboard.png" alt="Dashboard" width="820" />
+  <img src="screenshots/Dashboard.png" alt="Dashboard" width="820" />
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/CDN-scanner.png" alt="Cloudflare Scanner" width="410" />
-  <img src="docs/screenshots/Configs.png" alt="Configs" width="410" />
+  <img src="screenshots/CDN-scanner.png" alt="Cloudflare Scanner" width="410" />
+  <img src="screenshots/Configs.png" alt="Configs" width="410" />
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/Free-configs.png" alt="Free Configs" width="410" />
-  <img src="docs/screenshots/Subs.png" alt="Subscriptions" width="410" />
+  <img src="screenshots/Free-configs.png" alt="Free Configs" width="410" />
+  <img src="screenshots/Subs.png" alt="Subscriptions" width="410" />
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/Routing.png" alt="Routing" width="410" />
-  <img src="docs/screenshots/Settings-1.png" alt="Settings General" width="410" />
+  <img src="screenshots/Routing.png" alt="Routing" width="410" />
+  <img src="screenshots/Settings-1.png" alt="Settings General" width="410" />
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/Settings-2.png" alt="Settings Core" width="410" />
-  <img src="docs/screenshots/Logs.png" alt="Core Logs" width="410" />
+  <img src="screenshots/Settings-2.png" alt="Settings Core" width="410" />
+  <img src="screenshots/Logs.png" alt="Core Logs" width="410" />
 </p>
 
 ---
