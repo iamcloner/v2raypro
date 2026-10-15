@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -425,6 +426,32 @@ void main() {
         uuidOrPassword: 'test',
       );
       expect(notifier.detectCdnForNode(nonCdnNode), isNull);
+    });
+  });
+
+  group('v1.7.5 Background VPN Lifecycle & Real Delay Tests', () {
+    test('startAndroidVpn accepts xrayBinary and configPath arguments safely', () async {
+      // In unit test environment (not Android runtime), startAndroidVpn gracefully returns false
+      final res = await XrayProcessService.instance.startAndroidVpn(
+        'Test Config',
+        xrayBinary: '/dummy/libxray.so',
+        configPath: '/dummy/config.json',
+        isTun: true,
+      );
+      expect(res, isFalse);
+    });
+
+    test('pingGoogleViaProxy handles unconnectable client without uncaught exception', () async {
+      final client = HttpClient();
+      client.connectionTimeout = const Duration(milliseconds: 100);
+      client.findProxy = (uri) => 'PROXY 127.0.0.1:65531';
+      final res = await XrayProcessService.instance.pingGoogleViaProxy(
+        client,
+        count: 1,
+        timeout: const Duration(milliseconds: 150),
+      );
+      client.close(force: true);
+      expect(res, isNull);
     });
   });
 }

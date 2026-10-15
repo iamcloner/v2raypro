@@ -143,6 +143,9 @@ class XrayProcessService {
 
   Future<bool> startAndroidVpn(
     String configName, {
+    String xrayBinary = '',
+    String configPath = '',
+    String? assetDir,
     bool isTun = true,
     String? notificationTitle,
     String? disconnectText,
@@ -161,6 +164,9 @@ class XrayProcessService {
         'disconnectText': disconnectText ?? 'قطع اتصال',
         'appRoutingMode': appRoutingMode,
         'appRoutingList': appRoutingList,
+        'xrayBinary': xrayBinary,
+        'configPath': configPath,
+        'assetDir': assetDir,
       });
       return res ?? false;
     } catch (e) {
@@ -693,60 +699,6 @@ class XrayProcessService {
       _currentConfigFile = File("${tmpDir.path}/v2raypro_active_config.json");
       await _currentConfigFile!.writeAsString(jsonEncode(configJson));
 
-      final workDir = _getWorkingDirectory(binaryPath);
-      final env = _getXrayEnvironment();
-
-      _process = await Process.start(
-        binaryPath,
-        ["run", "-c", _currentConfigFile!.path],
-        workingDirectory: workDir,
-        environment: env,
-        mode: ProcessStartMode.normal,
-      );
-
-      bool processExitedEarly = false;
-      int? earlyExitCode;
-      final capturedLines = <String>[];
-
-      _process!.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
-        lastLog = line;
-        capturedLines.add(line);
-        LogService.instance.addFromRawLine(line, source: "xray");
-      });
-      _process!.stderr.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
-        lastErrorLog = line;
-        capturedLines.add(line);
-        LogService.instance.addFromRawLine(line, source: "xray");
-      });
-
-      _process!.exitCode.then((code) {
-        if (_state == EngineState.starting) {
-          processExitedEarly = true;
-          earlyExitCode = code;
-          _state = EngineState.error;
-        } else if (_state == EngineState.running) {
-          _state = EngineState.stopped;
-        }
-        final level = code == 0 ? LogLevel.info : LogLevel.error;
-        LogService.instance.add("Xray core exited with code $code", level: level, source: "xray");
-      });
-
-      // Allow 400ms to verify process initialized and did not immediately crash
-      await Future.delayed(const Duration(milliseconds: 400));
-      if (processExitedEarly || _state != EngineState.starting) {
-        _state = EngineState.error;
-        final errorMsg = capturedLines.isNotEmpty
-            ? capturedLines.last
-            : "Process terminated unexpectedly with exit code $earlyExitCode";
-        LogService.instance.add("Xray failed to initialize: $errorMsg", level: LogLevel.error, source: "system");
-        return false;
-      }
-
-      // Enable system proxy on Windows only if requested
-      if (Platform.isWindows && setSysProxy) {
-        setWindowsSystemProxy(true);
-      }
-
       if (Platform.isAndroid) {
         final appRules = routingRules
             .where((r) => r.type == RoutingRuleType.app && r.enabled)
@@ -756,14 +708,81 @@ class XrayProcessService {
             .toSet()
             .toList();
 
-        await startAndroidVpn(
+        final started = await startAndroidVpn(
           node.name,
+          xrayBinary: binaryPath,
+          configPath: _currentConfigFile!.path,
+          assetDir: _androidAssetDir?.path,
           isTun: enableTun,
           notificationTitle: notificationTitle,
           disconnectText: disconnectText,
           appRoutingMode: appRoutingMode.name,
           appRoutingList: appRules,
         );
+
+        if (!started) {
+          _state = EngineState.error;
+          LogService.instance.add("Failed to start Android VPN service.", level: LogLevel.error, source: "system");
+          return false;
+        }
+
+        // Allow 350ms for Xray socket binding and service readiness
+        await Future.delayed(const Duration(milliseconds: 350));
+      } else {
+        // Windows Desktop
+        final workDir = _getWorkingDirectory(binaryPath);
+        final env = _getXrayEnvironment();
+
+        _process = await Process.start(
+          binaryPath,
+          ["run", "-c", _currentConfigFile!.path],
+          workingDirectory: workDir,
+          environment: env,
+          mode: ProcessStartMode.normal,
+        );
+
+        bool processExitedEarly = false;
+        int? earlyExitCode;
+        final capturedLines = <String>[];
+
+        _process!.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
+          lastLog = line;
+          capturedLines.add(line);
+          LogService.instance.addFromRawLine(line, source: "xray");
+        });
+        _process!.stderr.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
+          lastErrorLog = line;
+          capturedLines.add(line);
+          LogService.instance.addFromRawLine(line, source: "xray");
+        });
+
+        _process!.exitCode.then((code) {
+          if (_state == EngineState.starting) {
+            processExitedEarly = true;
+            earlyExitCode = code;
+            _state = EngineState.error;
+          } else if (_state == EngineState.running) {
+            _state = EngineState.stopped;
+          }
+          final level = code == 0 ? LogLevel.info : LogLevel.error;
+          LogService.instance.add("Xray core exited with code $code", level: level, source: "xray");
+        });
+
+        // Allow 400ms to verify process initialized and did not immediately crash
+        await Future.delayed(const Duration(milliseconds: 400));
+        if (processExitedEarly || _state != EngineState.starting) {
+          _state = EngineState.error;
+          final errorMsg = capturedLines.isNotEmpty
+              ? capturedLines.last
+              : "Process terminated unexpectedly with exit code $earlyExitCode";
+          LogService.instance.add("Xray failed to initialize: $errorMsg", level: LogLevel.error, source: "system");
+          return false;
+        }
+
+        // Enable system proxy on Windows only if requested
+        if (setSysProxy) {
+          setWindowsSystemProxy(true);
+        }
       }
 
       _state = EngineState.running;
@@ -1129,22 +1148,8 @@ class XrayProcessService {
   }) async {
     int? lowestPing;
     for (int attempt = 0; attempt < count; attempt++) {
-      // 1. Primary: http://www.google.com/generate_204 gives authentic pure proxy roundtrip time (matching v2rayNG)
-      final sw = Stopwatch()..start();
-      try {
-        final r = await client.getUrl(Uri.parse('http://www.google.com/generate_204')).timeout(timeout);
-        final resp = await r.close().timeout(timeout);
-        sw.stop();
-        if (resp.statusCode == 204 || resp.statusCode == 200) {
-          final lat = sw.elapsedMilliseconds;
-          if (lowestPing == null || lat < lowestPing) {
-            lowestPing = lat;
-          }
-          continue;
-        }
-      } catch (_) {}
-
-      // 2. Fallback: https://www.google.com/generate_204 (google.com:443)
+      // 1. Primary: https://www.google.com/generate_204 (google.com:443)
+      // Provides authentic TLS end-to-end roundtrip delay through proxy without plain-HTTP filtering
       final swHttps = Stopwatch()..start();
       try {
         final r = await client.getUrl(Uri.parse('https://www.google.com/generate_204')).timeout(timeout);
@@ -1152,6 +1157,36 @@ class XrayProcessService {
         swHttps.stop();
         if (resp.statusCode == 204 || resp.statusCode == 200) {
           final lat = swHttps.elapsedMilliseconds;
+          if (lowestPing == null || lat < lowestPing) {
+            lowestPing = lat;
+          }
+          continue;
+        }
+      } catch (_) {}
+
+      // 2. Secondary fallback: https://www.gstatic.com/generate_204
+      final swGstatic = Stopwatch()..start();
+      try {
+        final r = await client.getUrl(Uri.parse('https://www.gstatic.com/generate_204')).timeout(timeout);
+        final resp = await r.close().timeout(timeout);
+        swGstatic.stop();
+        if (resp.statusCode == 204 || resp.statusCode == 200) {
+          final lat = swGstatic.elapsedMilliseconds;
+          if (lowestPing == null || lat < lowestPing) {
+            lowestPing = lat;
+          }
+          continue;
+        }
+      } catch (_) {}
+
+      // 3. Third fallback: https://cp.cloudflare.com/generate_204
+      final swCf = Stopwatch()..start();
+      try {
+        final r = await client.getUrl(Uri.parse('https://cp.cloudflare.com/generate_204')).timeout(timeout);
+        final resp = await r.close().timeout(timeout);
+        swCf.stop();
+        if (resp.statusCode == 204 || resp.statusCode == 200) {
+          final lat = swCf.elapsedMilliseconds;
           if (lowestPing == null || lat < lowestPing) {
             lowestPing = lat;
           }
@@ -1169,8 +1204,9 @@ class XrayProcessService {
     Duration timeout = const Duration(milliseconds: 2800),
     bool isTurbo = false,
   }) async {
-    // 1. If this node is currently connected and active in Xray, test real end-to-end internet ping via running local proxy
-    if (_state == EngineState.running && _activeRunningNode?.id == node.id) {
+    // 1. If this node is currently connected and active in Xray / Android VPN, test real end-to-end internet ping via running local proxy
+    final isRunningLocally = _state == EngineState.running || (Platform.isAndroid && await isAndroidVpnRunning());
+    if (isRunningLocally && (node.isActive || _activeRunningNode?.id == node.id)) {
       final activeRes = await _testHttpViaLocalProxy(timeout);
       if (activeRes != null && activeRes.isSuccess) {
         final cCode = CountryService.extractCountryCodeFromName(node.name) ?? node.countryCode;
@@ -1364,7 +1400,7 @@ class XrayProcessService {
                   !isCdnError;
 
               if (isAcceptableStatus) {
-                completer.complete(handshakeLatency);
+                completer.complete(sw.elapsedMilliseconds);
               } else {
                 completer.complete(null);
               }
@@ -1397,7 +1433,7 @@ class XrayProcessService {
           (data) {
             sw.stop();
             if (!completer.isCompleted) {
-              completer.complete(handshakeLatency);
+              completer.complete(sw.elapsedMilliseconds);
             }
           },
           onError: (_) {
@@ -1417,7 +1453,7 @@ class XrayProcessService {
       // Standard TCP / Direct / Reality: Socket connect (+ TLS if available) is successful!
       sw.stop();
       activeSocket.destroy();
-      return handshakeLatency;
+      return sw.elapsedMilliseconds;
     } catch (_) {
       try {
         rawSocket?.destroy();
@@ -1442,11 +1478,8 @@ class XrayProcessService {
       if (remaining <= Duration.zero) break;
       final curTimeout = remaining < perProbeTimeout ? remaining : perProbeTimeout;
 
-      // Probe 0: full protocol handshake & verification
-      // Subsequent probes: rapid TCP connect to find lowest jitter
-      final res = i == 0
-          ? await _singleProtocolProbe(node, curTimeout)
-          : await tcpPing(node.address, node.port, count: 1, timeout: curTimeout);
+      // Authentic protocol probes to measure genuine origin roundtrip delay across attempts
+      final res = await _singleProtocolProbe(node, curTimeout);
 
       if (res != null && res > 0) {
         if (lowest == null || res < lowest) {

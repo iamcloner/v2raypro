@@ -649,33 +649,41 @@ class _MainShellState extends ConsumerState<MainShell> {
       ),
     ];
 
-    return Container(
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF0F131D) : Colors.white,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.45 : 0.08),
-            blurRadius: 20,
-            offset: const Offset(0, -5),
-          ),
-        ],
-        border: Border(
-          top: BorderSide(
+    final nodes = ref.watch(nodesProvider);
+    final subs = ref.watch(subscriptionsProvider);
+
+    return SafeArea(
+      top: false,
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        height: 64,
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF17212B) : Colors.white,
+          borderRadius: BorderRadius.circular(32),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: isDark ? 0.45 : 0.08),
+              blurRadius: 20,
+              offset: const Offset(0, 4),
+            ),
+          ],
+          border: Border.all(
             color: isDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.06),
             width: 1,
           ),
         ),
-      ),
-      child: SafeArea(
-        top: false,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: List.generate(items.length, (idx) {
               final isSelected = bottomNavIndex == idx;
               final item = items[idx];
+
+              int? badgeCount;
+              if (idx == 1 && nodes.isNotEmpty) badgeCount = nodes.length;
+              if (idx == 2 && subs.isNotEmpty) badgeCount = subs.length;
+
               return Expanded(
                 child: Material(
                   color: Colors.transparent,
@@ -692,82 +700,82 @@ class _MainShellState extends ConsumerState<MainShell> {
                         _scaffoldKey.currentState?.openDrawer();
                       }
                     },
-                    borderRadius: BorderRadius.circular(20),
-                    splashColor: primaryColor.withValues(alpha: 0.1),
-                    highlightColor: primaryColor.withValues(alpha: 0.05),
+                    borderRadius: BorderRadius.circular(24),
+                    splashColor: const Color(0xFF2AABEE).withValues(alpha: 0.15),
+                    highlightColor: const Color(0xFF2AABEE).withValues(alpha: 0.08),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      padding: const EdgeInsets.symmetric(vertical: 3),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          AnimatedContainer(
-                            duration: const Duration(milliseconds: 250),
-                            curve: Curves.easeOutCubic,
-                            height: 34,
-                            padding: const EdgeInsets.symmetric(horizontal: 18),
-                            decoration: BoxDecoration(
-                              gradient: isSelected
-                                  ? const LinearGradient(
-                                      colors: [Color(0xFF00D2FF), Color(0xFF0072FF)],
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                    )
-                                  : null,
-                              borderRadius: BorderRadius.circular(18),
-                              boxShadow: isSelected
-                                  ? [
-                                      BoxShadow(
-                                        color: const Color(0xFF00D2FF).withValues(alpha: isDark ? 0.45 : 0.35),
-                                        blurRadius: 10,
-                                        spreadRadius: 1,
-                                        offset: const Offset(0, 2),
-                                      ),
-                                    ]
-                                  : null,
-                            ),
-                            child: Center(
-                              child: Icon(
-                                isSelected ? item.activeIcon : item.inactiveIcon,
-                                size: 22,
-                                color: isSelected
-                                    ? Colors.white
-                                    : (isDark ? Colors.white54 : Colors.black45),
+                          Stack(
+                            clipBehavior: Clip.none,
+                            alignment: Alignment.center,
+                            children: [
+                              AnimatedContainer(
+                                duration: const Duration(milliseconds: 220),
+                                curve: Curves.easeOutCubic,
+                                width: isSelected ? 56 : 36,
+                                height: 30,
+                                decoration: BoxDecoration(
+                                  color: isSelected
+                                      ? (isDark ? const Color(0x332AABEE) : const Color(0x220088CC))
+                                      : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(15),
+                                ),
+                                child: Center(
+                                  child: Icon(
+                                    isSelected ? item.activeIcon : item.inactiveIcon,
+                                    size: 22,
+                                    color: isSelected
+                                        ? const Color(0xFF2AABEE)
+                                        : (isDark ? const Color(0xFFB4C1CE) : const Color(0xFF707E8C)),
+                                  ),
+                                ),
                               ),
-                            ),
+                              if (badgeCount != null && badgeCount > 0)
+                                Positioned(
+                                  top: -2,
+                                  right: isSelected ? -4 : -6,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 4.5, vertical: 1.5),
+                                    constraints: const BoxConstraints(minWidth: 16),
+                                    decoration: BoxDecoration(
+                                      color: isSelected
+                                          ? const Color(0xFF2AABEE)
+                                          : (isDark ? const Color(0xFF242F3D) : const Color(0xFFE4E7EA)),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Text(
+                                      badgeCount > 99 ? '99+' : '$badgeCount',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w800,
+                                        color: isSelected
+                                            ? Colors.white
+                                            : (isDark ? const Color(0xFFB4C1CE) : const Color(0xFF506070)),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(height: 3),
                           AnimatedDefaultTextStyle(
                             duration: const Duration(milliseconds: 200),
                             style: TextStyle(
-                              fontSize: isSelected ? 11.5 : 11,
-                              fontWeight: isSelected ? FontWeight.w800 : FontWeight.w500,
+                              fontSize: isSelected ? 11 : 10.5,
+                              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
                               color: isSelected
-                                  ? (isDark ? const Color(0xFF00D2FF) : const Color(0xFF0072FF))
-                                  : (isDark ? Colors.white60 : Colors.black54),
+                                  ? const Color(0xFF2AABEE)
+                                  : (isDark ? const Color(0xFFB4C1CE) : const Color(0xFF707E8C)),
                             ),
                             child: Text(
                               item.label,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          AnimatedContainer(
-                            duration: const Duration(milliseconds: 250),
-                            width: isSelected ? 5 : 0,
-                            height: isSelected ? 5 : 0,
-                            decoration: BoxDecoration(
-                              color: isDark ? const Color(0xFF00D2FF) : const Color(0xFF0072FF),
-                              shape: BoxShape.circle,
-                              boxShadow: isSelected
-                                  ? [
-                                      BoxShadow(
-                                        color: const Color(0xFF00D2FF).withValues(alpha: 0.8),
-                                        blurRadius: 6,
-                                        spreadRadius: 1,
-                                      ),
-                                    ]
-                                  : null,
                             ),
                           ),
                         ],

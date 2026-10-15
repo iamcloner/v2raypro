@@ -31,6 +31,7 @@ class V2RayVpnService : VpnService() {
 
     private var vpnInterface: ParcelFileDescriptor? = null
     private var wakeLock: android.os.PowerManager.WakeLock? = null
+    private var xrayProcess: java.lang.Process? = null
 
     private val disconnectReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -70,8 +71,11 @@ class V2RayVpnService : VpnService() {
             val disconnectText = intent.getStringExtra("disconnectText") ?: "قطع اتصال"
             val appRoutingMode = intent.getStringExtra("appRoutingMode") ?: "exclusive"
             val appRoutingList = intent.getStringArrayListExtra("appRoutingList") ?: arrayListOf<String>()
+            val xrayBinary = intent.getStringExtra("xrayBinary") ?: ""
+            val configPath = intent.getStringExtra("configPath") ?: ""
+            val assetDir = intent.getStringExtra("assetDir")
 
-            startVpn(configName, httpPort, socksPort, isTun, notificationTitle, disconnectText, appRoutingMode, appRoutingList)
+            startVpn(configName, httpPort, socksPort, isTun, notificationTitle, disconnectText, appRoutingMode, appRoutingList, xrayBinary, configPath, assetDir)
             return START_STICKY
         }
 
@@ -127,6 +131,56 @@ class V2RayVpnService : VpnService() {
             .build()
     }
 
+    private fun startXray(xrayBinary: String, configPath: String, assetDir: String?) {
+        stopXray()
+        try {
+            val cmd = arrayListOf(xrayBinary, "run", "-c", configPath)
+            val pb = ProcessBuilder(cmd)
+            if (!assetDir.isNullOrEmpty()) {
+                val dir = java.io.File(assetDir)
+                if (dir.exists() && dir.isDirectory) {
+                    pb.directory(dir)
+                }
+                pb.environment()["XRAY_LOCATION_ASSET"] = assetDir
+            }
+            xrayProcess = pb.start()
+
+            // Concurrently drain stdout and stderr so pipes never block
+            Thread {
+                try {
+                    xrayProcess?.inputStream?.bufferedReader()?.useLines { lines ->
+                        lines.forEach { android.util.Log.d("V2RayProXray", it) }
+                    }
+                } catch (_: Exception) {}
+            }.start()
+
+            Thread {
+                try {
+                    xrayProcess?.errorStream?.bufferedReader()?.useLines { lines ->
+                        lines.forEach { android.util.Log.e("V2RayProXray", it) }
+                    }
+                } catch (_: Exception) {}
+            }.start()
+
+            // Small delay to allow initial socket binding
+            try {
+                Thread.sleep(60)
+            } catch (_: Exception) {}
+        } catch (e: Exception) {
+            android.util.Log.e("V2RayProXray", "Failed to start Xray process: ${e.message}", e)
+        }
+    }
+
+    private fun stopXray() {
+        try {
+            xrayProcess?.destroy()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                xrayProcess?.destroyForcibly()
+            }
+        } catch (_: Exception) {}
+        xrayProcess = null
+    }
+
     private fun startVpn(
         configName: String,
         httpPort: Int,
@@ -135,7 +189,10 @@ class V2RayVpnService : VpnService() {
         notificationTitle: String,
         disconnectText: String,
         appRoutingMode: String = "exclusive",
-        appRoutingList: ArrayList<String> = arrayListOf()
+        appRoutingList: ArrayList<String> = arrayListOf(),
+        xrayBinary: String = "",
+        configPath: String = "",
+        assetDir: String? = null
     ) {
         val notification = createNotification(configName, notificationTitle, disconnectText)
         startForeground(NOTIFICATION_ID, notification)
@@ -145,6 +202,10 @@ class V2RayVpnService : VpnService() {
             wakeLock = pm?.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "V2RayPro:VpnWakeLock")
             wakeLock?.acquire(24 * 60 * 60 * 1000L) // 24h safety limit
         } catch (_: Exception) {}
+
+        if (xrayBinary.isNotEmpty() && configPath.isNotEmpty()) {
+            startXray(xrayBinary, configPath, assetDir)
+        }
 
         if (isTun) {
             try {
@@ -223,6 +284,9 @@ misc:
 
     private fun stopVpn() {
         isRunning = false
+        try {
+            stopXray()
+        } catch (_: Exception) {}
         try {
             hev.htproxy.TProxyService.TProxyStopService()
         } catch (_: Exception) {}

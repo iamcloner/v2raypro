@@ -26,6 +26,9 @@ class MainActivity : FlutterActivity() {
     private var pendingDisconnectText: String = "قطع اتصال"
     private var pendingAppRoutingMode: String = "exclusive"
     private var pendingAppRoutingList: ArrayList<String> = arrayListOf()
+    private var pendingXrayBinary: String = ""
+    private var pendingConfigPath: String = ""
+    private var pendingAssetDir: String? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -105,6 +108,9 @@ class MainActivity : FlutterActivity() {
                     val disconnectText = call.argument<String>("disconnectText") ?: "قطع اتصال"
                     val appRoutingMode = call.argument<String>("appRoutingMode") ?: "exclusive"
                     val appRoutingList = call.argument<ArrayList<String>>("appRoutingList") ?: arrayListOf<String>()
+                    val xrayBinary = call.argument<String>("xrayBinary") ?: ""
+                    val configPath = call.argument<String>("configPath") ?: ""
+                    val assetDir = call.argument<String>("assetDir")
 
                     if (isTun) {
                         val prepareIntent = VpnService.prepare(this)
@@ -118,14 +124,17 @@ class MainActivity : FlutterActivity() {
                             pendingDisconnectText = disconnectText
                             pendingAppRoutingMode = appRoutingMode
                             pendingAppRoutingList = appRoutingList
+                            pendingXrayBinary = xrayBinary
+                            pendingConfigPath = configPath
+                            pendingAssetDir = assetDir
                             startActivityForResult(prepareIntent, VPN_REQUEST_CODE)
                         } else {
-                            launchVpnService(configName, httpPort, socksPort, isTun, notificationTitle, disconnectText, appRoutingMode, appRoutingList)
+                            launchVpnService(configName, httpPort, socksPort, isTun, notificationTitle, disconnectText, appRoutingMode, appRoutingList, xrayBinary, configPath, assetDir)
                             result.success(true)
                         }
                     } else {
                         // Proxy Mode: No VPN interface needed, start purely as foreground service
-                        launchVpnService(configName, httpPort, socksPort, false, notificationTitle, disconnectText, appRoutingMode, appRoutingList)
+                        launchVpnService(configName, httpPort, socksPort, false, notificationTitle, disconnectText, appRoutingMode, appRoutingList, xrayBinary, configPath, assetDir)
                         result.success(true)
                     }
                 }
@@ -174,8 +183,17 @@ class MainActivity : FlutterActivity() {
         notificationTitle: String,
         disconnectText: String,
         appRoutingMode: String = "exclusive",
-        appRoutingList: ArrayList<String> = arrayListOf()
+        appRoutingList: ArrayList<String> = arrayListOf(),
+        xrayBinary: String = "",
+        configPath: String = "",
+        assetDir: String? = null
     ) {
+        val resolvedXrayBinary = if (xrayBinary.isNotEmpty()) xrayBinary else {
+            val libDir = applicationInfo.nativeLibraryDir
+            val xrayLib = File(libDir, "libxray.so")
+            if (xrayLib.exists()) xrayLib.absolutePath else File(applicationInfo.dataDir, "lib/libxray.so").absolutePath
+        }
+
         val startIntent = Intent(this, V2RayVpnService::class.java).apply {
             action = V2RayVpnService.ACTION_START
             putExtra("configName", configName)
@@ -186,6 +204,9 @@ class MainActivity : FlutterActivity() {
             putExtra("disconnectText", disconnectText)
             putExtra("appRoutingMode", appRoutingMode)
             putStringArrayListExtra("appRoutingList", appRoutingList)
+            putExtra("xrayBinary", resolvedXrayBinary)
+            putExtra("configPath", configPath)
+            if (assetDir != null) putExtra("assetDir", assetDir)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(startIntent)
@@ -206,7 +227,10 @@ class MainActivity : FlutterActivity() {
                     pendingNotificationTitle,
                     pendingDisconnectText,
                     pendingAppRoutingMode,
-                    pendingAppRoutingList
+                    pendingAppRoutingList,
+                    pendingXrayBinary,
+                    pendingConfigPath,
+                    pendingAssetDir
                 )
                 pendingVpnResult?.success(true)
             } else {
