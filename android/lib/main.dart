@@ -1,0 +1,2048 @@
+import 'configs_view.dart';
+import 'subscriptions_view.dart';
+import 'free_configs_view.dart';
+import 'scanner_view.dart';
+import 'routing_view.dart';
+import 'logs_view.dart';
+import 'settings_view.dart';
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:ui';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'models/proxy_node.dart';
+import 'models/scan_result.dart';
+import 'models/outbound_info.dart';
+import 'models/traffic_stats.dart';
+import 'core/ffi/rust_bridge.dart';
+import 'core/l10n/translations.dart';
+import 'core/theme/app_theme.dart';
+import 'providers/app_providers.dart';
+import 'services/cloudflare_scanner_service.dart';
+import 'services/cdn_scanner_service.dart';
+import 'services/tray_service.dart';
+import 'services/update_service.dart';
+import 'package:local_notifier/local_notifier.dart';
+import 'services/xray_process_service.dart';
+import 'utils/ip_mask_util.dart';
+import 'widgets/country_flag_badge.dart';
+import 'services/country_service.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  RustBridge.instance.initialize();
+
+  if (Platform.isAndroid) {
+    try {
+      await XrayProcessService.instance.initAndroid();
+    } catch (_) {}
+  }
+
+  // Startup safety check: If previous run left active proxy or orphan xray/TUN processes, clean them up immediately
+  // On Android: check if background VPN is running before cleanup, so we don't kill active connections!
+  try {
+    if (!Platform.isAndroid || !(await XrayProcessService.instance.isAndroidVpnRunning())) {
+      XrayProcessService.instance.cleanupSystemAndXray();
+    }
+  } catch (_) {}
+
+  final container = ProviderContainer();
+  await AppTrayService.instance.init(container);
+  runApp(UncontrolledProviderScope(container: container, child: const V2RayProApp()));
+}
+
+class V2RayProApp extends ConsumerStatefulWidget {
+  const V2RayProApp({super.key});
+
+  @override
+  ConsumerState<V2RayProApp> createState() => _V2RayProAppState();
+}
+
+class _V2RayProAppState extends ConsumerState<V2RayProApp> {
+  late final AppLifecycleListener _lifecycleListener;
+
+  @override
+  void initState() {
+    super.initState();
+    _lifecycleListener = AppLifecycleListener(
+      onExitRequested: () async {
+        if (!Platform.isAndroid) {
+          try {
+            XrayProcessService.instance.cleanupSystemAndXray();
+          } catch (_) {}
+        }
+        return AppExitResponse.exit;
+      },
+      onDetach: () {
+        if (!Platform.isAndroid) {
+          try {
+            XrayProcessService.instance.cleanupSystemAndXray();
+          } catch (_) {}
+        }
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _lifecycleListener.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final localeStr = ref.watch(currentLocaleProvider);
+    final locale = Locale(localeStr);
+    final themeMode = ref.watch(appThemeModeProvider);
+
+    return MaterialApp(
+      title: 'V2Ray Pro',
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.lightTheme,
+      darkTheme: AppTheme.darkTheme,
+      themeMode: themeMode,
+      locale: locale,
+      supportedLocales: const [
+        Locale('en', ''),
+        Locale('fa', ''),
+      ],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      home: const MainShell(),
+    );
+  }
+}
+
+class MainShell extends ConsumerStatefulWidget {
+  const MainShell({super.key});
+
+  @override
+  ConsumerState<MainShell> createState() => _MainShellState();
+}
+
+class _MainShellState extends ConsumerState<MainShell> {
+  int _selectedIndex = 0;
+  final List<int> _navigationHistory = [0];
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  void _navigateToTab(int index) {
+    if (_selectedIndex != index) {
+      setState(() {
+        _navigationHistory.add(index);
+        _selectedIndex = index;
+      });
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    if (Platform.isAndroid) {
+      XrayProcessService.instance.onAndroidNotificationDisconnect = () {
+        if (mounted) {
+          ref.read(connectionStatusProvider.notifier).setDisconnected();
+        }
+      };
+      ref.read(connectionStatusProvider.notifier).checkExistingConnection();
+      const MethodChannel('com.v2raypro.app/native').invokeMethod('requestNotificationPermission');
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkAutoConnect();
+      _checkStartupUpdate();
+    });
+  }
+
+  void _checkAutoConnect() {
+    final autoConnect = ref.read(autoConnectOnLaunchProvider);
+    final status = ref.read(connectionStatusProvider);
+    if (autoConnect && status == ConnectionStateEnum.disconnected) {
+      final nodes = ref.read(nodesProvider);
+      final activeNode = nodes.isEmpty ? null : nodes.firstWhere((n) => n.isActive, orElse: () => nodes.first);
+      if (activeNode != null) {
+        ref.read(connectionStatusProvider.notifier).connect(activeNode);
+      }
+    }
+  }
+
+  Future<void> _checkStartupUpdate() async {
+    // Wait briefly so UI mounts smoothly and startup connects if needed
+    await Future.delayed(const Duration(seconds: 3));
+    if (!mounted) return;
+
+    try {
+      final info = await UpdateService.instance.checkAppUpdate();
+      if (!mounted) return;
+
+      if (info.hasUpdate) {
+        final locale = ref.read(currentLocaleProvider);
+        try {
+          final notification = LocalNotification(
+            title: 'V2RayPro Update Available',
+            body: locale == 'fa'
+                ? 'نسخه جدید (${info.latestVersion}) برای برنامه در دسترس است.'
+                : 'A new version (${info.latestVersion}) is available.',
+          );
+          await notification.show();
+        } catch (_) {}
+
+        if (mounted) {
+          _showStartupUpdateDialog(info);
+        }
+      }
+    } catch (_) {
+      // Ignore network errors during silent background check on startup
+    }
+  }
+
+  void _showStartupUpdateDialog(UpdateInfo info) {
+    final locale = ref.read(currentLocaleProvider);
+    bool downloading = false;
+    double progress = 0.0;
+    String status = '';
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFF1E2230),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: Row(
+              children: [
+                const Icon(Icons.system_update_rounded, color: Colors.tealAccent, size: 28),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    locale == 'fa' ? 'به‌روزرسانی جدید موجود است' : 'New Update Available',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
+                ),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  locale == 'fa'
+                      ? 'نسخه جدید (${info.latestVersion}) در گیت‌هاب منتشر شده است.\nنسخه فعلی شما: ${UpdateService.currentAppVersion}\n\nآیا مایل به دانلود و نصب آخرین نسخه هستید؟'
+                      : 'A new version (${info.latestVersion}) is published.\nYour current version: ${UpdateService.currentAppVersion}\n\nWould you like to update now?',
+                  style: const TextStyle(fontSize: 13, height: 1.5, color: Colors.white70),
+                ),
+                if (status.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  Text(status, style: const TextStyle(fontSize: 12, color: Colors.tealAccent)),
+                  const SizedBox(height: 6),
+                  LinearProgressIndicator(
+                    value: progress > 0 ? progress : null,
+                    backgroundColor: Colors.white10,
+                    valueColor: const AlwaysStoppedAnimation<Color>(Colors.tealAccent),
+                  ),
+                ],
+              ],
+            ),
+            actions: [
+              if (!downloading)
+                TextButton(
+                  onPressed: () => Navigator.of(dialogCtx).pop(),
+                  child: Text(locale == 'fa' ? 'بعداً' : 'Later', style: const TextStyle(color: Colors.grey)),
+                ),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.successColor,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                ),
+                icon: downloading
+                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.downloading_rounded, size: 18),
+                label: Text(
+                  downloading
+                      ? (locale == 'fa' ? 'در حال نصب...' : 'Updating...')
+                      : (locale == 'fa' ? 'دانلود و نصب خودکار' : 'Update Now'),
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+                onPressed: downloading || info.downloadUrl == null
+                    ? null
+                    : () async {
+                        setDialogState(() {
+                          downloading = true;
+                          progress = 0.0;
+                          status = locale == 'fa' ? 'در حال دانلود بسته آپدیت...' : 'Downloading update package...';
+                        });
+
+                        try {
+                          final success = await UpdateService.instance.downloadAndApplyAppUpdate(
+                            info.downloadUrl!,
+                            onProgress: (phase, p) {
+                              setDialogState(() {
+                                progress = p;
+                                if (phase == 'downloading') {
+                                  status = locale == 'fa'
+                                      ? 'در حال دریافت بسته به‌روزرسانی (${(p * 100).toInt()}%)'
+                                      : 'Downloading update package (${(p * 100).toInt()}%)';
+                                } else if (phase == 'extracting') {
+                                  status = locale == 'fa' ? 'در حال استخراج فایل‌ها...' : 'Extracting files...';
+                                } else if (phase == 'applying') {
+                                  status = locale == 'fa' ? 'در حال جایگزینی و ریستارت برنامه...' : 'Applying update and restarting...';
+                                }
+                              });
+                            },
+                          );
+                          if (!success) {
+                            setDialogState(() {
+                              downloading = false;
+                              status = locale == 'fa' ? 'خطا در اعمال به‌روزرسانی.' : 'Failed to apply update.';
+                            });
+                          }
+                        } catch (e) {
+                          setDialogState(() {
+                            downloading = false;
+                            status = 'Error: $e';
+                          });
+                        }
+                      },
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final locale = ref.watch(currentLocaleProvider);
+    final isDesktop = MediaQuery.of(context).size.width >= 700;
+    final nodes = ref.watch(nodesProvider);
+    final activeNode = nodes.isEmpty ? null : nodes.firstWhere((n) => n.isActive, orElse: () => nodes.first);
+    ref.watch(nodeCdnMapProvider);
+    final activeCdn = activeNode != null
+        ? ref.read(nodeCdnMapProvider.notifier).detectCdnForNode(activeNode)
+        : null;
+    final hasCdn = activeCdn != null;
+    final scannerLabel = hasCdn
+        ? (locale == 'fa' ? 'اسکنر ${activeCdn.displayNameFa}' : '${activeCdn.displayName} Scanner')
+        : (locale == 'fa' ? 'اسکنر' : 'Scanner');
+
+    // Build pages and nav items dynamically: Scanner is completely excluded if active node is not a CDN node
+    final pages = <Widget>[
+      const DashboardView(),
+      ConfigsView(
+        onNavigateToFreeConfigs: () => _navigateToTab(3),
+        onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+      ),
+      SubscriptionsView(
+        onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+      ),
+      FreeConfigsView(
+        onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+      ),
+      if (hasCdn)
+        ScannerView(
+          onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+        ),
+      RoutingView(
+        onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+      ),
+      LogsView(
+        onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+      ),
+      SettingsView(
+        onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+      ),
+    ];
+
+    if (_selectedIndex >= pages.length) {
+      _selectedIndex = 0;
+    }
+
+    if (isDesktop) {
+      return Scaffold(
+        body: Row(
+          children: [
+            NavigationRail(
+              selectedIndex: _selectedIndex,
+              onDestinationSelected: (idx) => setState(() => _selectedIndex = idx),
+              labelType: NavigationRailLabelType.all,
+              backgroundColor: Theme.of(context).cardColor,
+              leading: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 8),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 46,
+                      height: 46,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: const Color(0xFF00D2FF).withValues(alpha: 0.4),
+                          width: 1.5,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF00D2FF).withValues(alpha: 0.25),
+                            blurRadius: 14,
+                            spreadRadius: 1,
+                          ),
+                        ],
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: Image.asset(
+                        'assets/app_icon.png',
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          "V2Ray",
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 12,
+                            letterSpacing: 0.5,
+                            color: Theme.of(context).colorScheme.onSurface,
+                          ),
+                        ),
+                        const SizedBox(width: 3),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 4, vertical: 1.5),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF00D2FF), Color(0xFFFF7A00)],
+                            ),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text(
+                            "PRO",
+                            style: TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 8,
+                              color: Colors.white,
+                              letterSpacing: 0.6,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              destinations: [
+                NavigationRailDestination(
+                  icon: const Icon(Icons.dashboard_rounded),
+                  label: Text(AppStrings.get('dashboard', locale: locale)),
+                ),
+                NavigationRailDestination(
+                  icon: const Icon(Icons.hub_rounded),
+                  label: Text(AppStrings.get('configs', locale: locale)),
+                ),
+                NavigationRailDestination(
+                  icon: const Icon(Icons.rss_feed_rounded),
+                  label: Text(AppStrings.get('subscriptions', locale: locale)),
+                ),
+                NavigationRailDestination(
+                  icon: const Icon(Icons.card_giftcard_rounded),
+                  label: Text(AppStrings.get('free_configs', locale: locale)),
+                ),
+                if (hasCdn)
+                  NavigationRailDestination(
+                    icon: const Icon(Icons.radar_rounded),
+                    label: Text(scannerLabel),
+                  ),
+                NavigationRailDestination(
+                  icon: const Icon(Icons.alt_route_rounded),
+                  label: Text(AppStrings.get('routing', locale: locale)),
+                ),
+                NavigationRailDestination(
+                  icon: const Icon(Icons.article_rounded),
+                  label: Text(AppStrings.get('logs', locale: locale)),
+                ),
+                NavigationRailDestination(
+                  icon: const Icon(Icons.settings_rounded),
+                  label: Text(AppStrings.get('settings', locale: locale)),
+                ),
+              ],
+            ),
+            VerticalDivider(thickness: 1, width: 1, color: Theme.of(context).dividerColor),
+            Expanded(child: pages[_selectedIndex]),
+          ],
+        ),
+      );
+    }
+
+    int bottomNavIndex = 3;
+    if (Platform.isAndroid) {
+      if (_selectedIndex == 0) {
+        bottomNavIndex = 0;
+      } else if (_selectedIndex == 1) {
+        bottomNavIndex = 1;
+      } else if (_selectedIndex == 2) {
+        bottomNavIndex = 2;
+      }
+    } else {
+      if (_selectedIndex == 0) {
+        bottomNavIndex = 0;
+      } else if (_selectedIndex == 1) {
+        bottomNavIndex = 1;
+      } else if (_selectedIndex == 3) {
+        bottomNavIndex = 2;
+      }
+    }
+
+    return PopScope(
+      canPop: _selectedIndex == 0 && !(_scaffoldKey.currentState?.isDrawerOpen ?? false),
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        if (_scaffoldKey.currentState?.isDrawerOpen ?? false) {
+          _scaffoldKey.currentState?.closeDrawer();
+          return;
+        }
+        if (_selectedIndex != 0) {
+          setState(() {
+            while (_navigationHistory.isNotEmpty && _navigationHistory.last == _selectedIndex) {
+              _navigationHistory.removeLast();
+            }
+            if (_navigationHistory.isNotEmpty) {
+              _selectedIndex = _navigationHistory.removeLast();
+            } else {
+              _selectedIndex = 0;
+            }
+          });
+        }
+      },
+      child: Scaffold(
+        key: _scaffoldKey,
+        drawer: _buildMobileDrawer(context, locale, hasCdn, scannerLabel),
+        appBar: (Platform.isAndroid && _selectedIndex != 0)
+            ? null
+            : AppBar(
+                leading: IconButton(
+                  icon: const Icon(Icons.menu_rounded),
+                  tooltip: AppStrings.get('more', locale: locale),
+                  onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+                ),
+                title: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 30,
+                      height: 30,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: const Color(0xFF00D2FF).withValues(alpha: 0.4),
+                          width: 1.2,
+                        ),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: Image.asset('assets/app_icon.png', fit: BoxFit.cover),
+                    ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      "V2Ray",
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 17,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const SizedBox(width: 5),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF00D2FF), Color(0xFFFF7A00)],
+                        ),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Text(
+                        "PRO",
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 9,
+                          color: Colors.white,
+                          letterSpacing: 0.8,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+        body: pages[_selectedIndex],
+        bottomNavigationBar: _buildBottomNavBar(context, bottomNavIndex, locale, hasCdn, scannerLabel),
+      ),
+    );
+  }
+
+  Widget _buildBottomNavBar(BuildContext context, int bottomNavIndex, String locale, bool hasCdn, String scannerLabel) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final primaryColor = theme.colorScheme.primary;
+
+    // Dynamically show the active sub-page icon and label when navigated from drawer
+    IconData moreActiveIcon = Icons.grid_view_rounded;
+    IconData moreInactiveIcon = Icons.grid_view_outlined;
+    String moreLabel = AppStrings.get('more', locale: locale);
+
+    if (_selectedIndex >= 3) {
+      if (_selectedIndex == 3) {
+        moreActiveIcon = Icons.card_giftcard_rounded;
+        moreInactiveIcon = Icons.card_giftcard_outlined;
+        moreLabel = AppStrings.get('free_configs', locale: locale);
+      } else if (hasCdn && _selectedIndex == 4) {
+        moreActiveIcon = Icons.radar_rounded;
+        moreInactiveIcon = Icons.radar_outlined;
+        moreLabel = scannerLabel;
+      } else if ((hasCdn && _selectedIndex == 5) || (!hasCdn && _selectedIndex == 4)) {
+        moreActiveIcon = Icons.alt_route_rounded;
+        moreInactiveIcon = Icons.alt_route_outlined;
+        moreLabel = AppStrings.get('routing', locale: locale);
+      } else if ((hasCdn && _selectedIndex == 6) || (!hasCdn && _selectedIndex == 5)) {
+        moreActiveIcon = Icons.article_rounded;
+        moreInactiveIcon = Icons.article_outlined;
+        moreLabel = AppStrings.get('logs', locale: locale);
+      } else if ((hasCdn && _selectedIndex == 7) || (!hasCdn && _selectedIndex == 6)) {
+        moreActiveIcon = Icons.settings_rounded;
+        moreInactiveIcon = Icons.settings_outlined;
+        moreLabel = AppStrings.get('settings', locale: locale);
+      }
+    }
+
+    final items = [
+      (
+        activeIcon: Icons.dashboard_rounded,
+        inactiveIcon: Icons.dashboard_outlined,
+        label: AppStrings.get('dashboard', locale: locale),
+      ),
+      (
+        activeIcon: Icons.hub_rounded,
+        inactiveIcon: Icons.hub_outlined,
+        label: AppStrings.get('configs', locale: locale),
+      ),
+      Platform.isAndroid
+          ? (
+              activeIcon: Icons.rss_feed_rounded,
+              inactiveIcon: Icons.rss_feed_outlined,
+              label: locale == 'fa' ? 'اشتراک‌ها' : 'Sub',
+            )
+          : (
+              activeIcon: Icons.card_giftcard_rounded,
+              inactiveIcon: Icons.card_giftcard_outlined,
+              label: AppStrings.get('free_configs', locale: locale),
+            ),
+      (
+        activeIcon: moreActiveIcon,
+        inactiveIcon: moreInactiveIcon,
+        label: moreLabel,
+      ),
+    ];
+
+    final nodes = ref.watch(nodesProvider);
+    final subs = ref.watch(subscriptionsProvider);
+
+    return SafeArea(
+      top: false,
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        height: 64,
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF17212B) : Colors.white,
+          borderRadius: BorderRadius.circular(32),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: isDark ? 0.45 : 0.08),
+              blurRadius: 20,
+              offset: const Offset(0, 4),
+            ),
+          ],
+          border: Border.all(
+            color: isDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.06),
+            width: 1,
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: List.generate(items.length, (idx) {
+              final isSelected = bottomNavIndex == idx;
+              final item = items[idx];
+
+              int? badgeCount;
+              final customConfigsCount = nodes.where((n) => n.subscriptionId == null && !n.isFree).length;
+              if (idx == 1 && customConfigsCount > 0) badgeCount = customConfigsCount;
+              if (idx == 2 && subs.isNotEmpty) badgeCount = subs.length;
+
+              return Expanded(
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      if (idx == 0) {
+                        _navigateToTab(0);
+                      } else if (idx == 1) {
+                        _navigateToTab(1);
+                      } else if (idx == 2) {
+                        _navigateToTab(Platform.isAndroid ? 2 : 3);
+                      } else if (idx == 3) {
+                        _scaffoldKey.currentState?.openDrawer();
+                      }
+                    },
+                    borderRadius: BorderRadius.circular(18),
+                    splashColor: const Color(0xFF2AABEE).withValues(alpha: 0.15),
+                    highlightColor: const Color(0xFF2AABEE).withValues(alpha: 0.08),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 220),
+                      curve: Curves.easeOutCubic,
+                      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? (isDark ? const Color(0x332AABEE) : const Color(0x220088CC))
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Stack(
+                            clipBehavior: Clip.none,
+                            alignment: Alignment.center,
+                            children: [
+                              Icon(
+                                isSelected ? item.activeIcon : item.inactiveIcon,
+                                size: 22,
+                                color: isSelected
+                                    ? const Color(0xFF2AABEE)
+                                    : (isDark ? const Color(0xFFB4C1CE) : const Color(0xFF707E8C)),
+                              ),
+                              if (badgeCount != null && badgeCount > 0)
+                                Positioned(
+                                  top: -4,
+                                  right: -10,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 4.5, vertical: 1.5),
+                                    constraints: const BoxConstraints(minWidth: 16),
+                                    decoration: BoxDecoration(
+                                      color: isSelected
+                                          ? const Color(0xFF2AABEE)
+                                          : (isDark ? const Color(0xFF242F3D) : const Color(0xFFE4E7EA)),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Text(
+                                      badgeCount > 99 ? '99+' : '$badgeCount',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w800,
+                                        color: isSelected
+                                            ? Colors.white
+                                            : (isDark ? const Color(0xFFB4C1CE) : const Color(0xFF506070)),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 3),
+                          AnimatedDefaultTextStyle(
+                            duration: const Duration(milliseconds: 200),
+                            style: TextStyle(
+                              fontSize: isSelected ? 11 : 10.5,
+                              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                              color: isSelected
+                                  ? const Color(0xFF2AABEE)
+                                  : (isDark ? const Color(0xFFB4C1CE) : const Color(0xFF707E8C)),
+                            ),
+                            child: Text(
+                              item.label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMobileDrawer(BuildContext context, String locale, bool hasCdn, String scannerLabel) {
+    final routingIdx = hasCdn ? 5 : 4;
+    final logsIdx = hasCdn ? 6 : 5;
+    final settingsIdx = hasCdn ? 7 : 6;
+
+    return Drawer(
+      child: SafeArea(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+              child: Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: const Color(0xFF00D2FF).withValues(alpha: 0.5),
+                        width: 1.5,
+                      ),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: Image.asset('assets/app_icon.png', fit: BoxFit.cover),
+                  ),
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          const Text(
+                            "V2Ray",
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                          ),
+                          const SizedBox(width: 5),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFF00D2FF), Color(0xFFFF7A00)],
+                              ),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text(
+                              "PRO",
+                              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 8, color: Colors.white),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        UpdateService.currentAppVersion,
+                        style: const TextStyle(fontSize: 11, color: Colors.grey, fontFamily: 'monospace'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.dashboard_rounded),
+              title: Text(AppStrings.get('dashboard', locale: locale)),
+              selected: _selectedIndex == 0,
+              onTap: () {
+                Navigator.of(context).pop();
+                _navigateToTab(0);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.hub_rounded),
+              title: Text(AppStrings.get('configs', locale: locale)),
+              selected: _selectedIndex == 1,
+              onTap: () {
+                Navigator.of(context).pop();
+                _navigateToTab(1);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.card_giftcard_rounded),
+              title: Text(AppStrings.get('free_configs', locale: locale)),
+              selected: _selectedIndex == 3,
+              onTap: () {
+                Navigator.of(context).pop();
+                _navigateToTab(3);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.rss_feed_rounded),
+              title: Text(AppStrings.get('subscriptions', locale: locale)),
+              selected: _selectedIndex == 2,
+              onTap: () {
+                Navigator.of(context).pop();
+                _navigateToTab(2);
+              },
+            ),
+            if (hasCdn)
+              ListTile(
+                leading: const Icon(Icons.radar_rounded),
+                title: Text(scannerLabel),
+                selected: _selectedIndex == 4,
+                onTap: () {
+                  Navigator.of(context).pop();
+                  _navigateToTab(4);
+                },
+              ),
+            const Divider(height: 16),
+            ListTile(
+              leading: const Icon(Icons.alt_route_rounded),
+              title: Text(AppStrings.get('routing', locale: locale)),
+              selected: _selectedIndex == routingIdx,
+              onTap: () {
+                Navigator.of(context).pop();
+                _navigateToTab(routingIdx);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.article_rounded),
+              title: Text(AppStrings.get('logs', locale: locale)),
+              selected: _selectedIndex == logsIdx,
+              onTap: () {
+                Navigator.of(context).pop();
+                _navigateToTab(logsIdx);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.settings_rounded),
+              title: Text(AppStrings.get('settings', locale: locale)),
+              selected: _selectedIndex == settingsIdx,
+              onTap: () {
+                Navigator.of(context).pop();
+                _navigateToTab(settingsIdx);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class DashboardView extends ConsumerStatefulWidget {
+  const DashboardView({super.key});
+
+  @override
+  ConsumerState<DashboardView> createState() => _DashboardViewState();
+}
+
+class _DashboardViewState extends ConsumerState<DashboardView> {
+  Timer? _ticker;
+  bool _isTestingPing = false;
+  bool _hasOtherVpn = false;
+  int _tickCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) {
+        setState(() {});
+        if (Platform.isAndroid && _tickCount++ % 2 == 0) {
+          final status = ref.read(connectionStatusProvider);
+          if (status == ConnectionStateEnum.disconnected) {
+            XrayProcessService.instance.isAnotherVpnActive().then((active) {
+              if (mounted && _hasOtherVpn != active) {
+                setState(() => _hasOtherVpn = active);
+              }
+            });
+          } else if (_hasOtherVpn) {
+            setState(() => _hasOtherVpn = false);
+          }
+        }
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  String _formatDuration(DateTime? connectedAt) {
+    if (connectedAt == null) return "00:00:00";
+    final diff = DateTime.now().difference(connectedAt);
+    final h = diff.inHours.toString().padLeft(2, '0');
+    final m = (diff.inMinutes % 60).toString().padLeft(2, '0');
+    final s = (diff.inSeconds % 60).toString().padLeft(2, '0');
+    return "$h:$m:$s";
+  }
+
+  Future<void> _retestPing(ProxyNode node) async {
+    if (_isTestingPing) return;
+    setState(() => _isTestingPing = true);
+    final res = await XrayProcessService.instance.testNodeRealDelay(node);
+    if (mounted) {
+      ref.read(nodesProvider.notifier).updateLatency(
+        node.id,
+        res.latencyMs,
+        countryCode: res.countryCode,
+        country: res.country,
+      );
+      setState(() => _isTestingPing = false);
+    }
+  }
+
+  Color _latencyColor(int? lat) {
+    if (lat == null) return Colors.grey;
+    if (lat < 150) return AppTheme.successColor;
+    if (lat < 300) return Colors.amber;
+    return AppTheme.errorColor;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final status = ref.watch(connectionStatusProvider);
+    final nodes = ref.watch(nodesProvider);
+    final activeNode = nodes.isEmpty ? null : nodes.firstWhere((n) => n.isActive, orElse: () => nodes.first);
+    final locale = ref.watch(currentLocaleProvider);
+    final isSysProxy = ref.watch(isSystemProxyEnabledProvider);
+    final isTun = ref.watch(isTunEnabledProvider);
+    final connectedAt = ref.watch(connectedAtProvider);
+    final outbound = ref.watch(outboundInfoProvider);
+    final traffic = ref.watch(trafficStatsProvider);
+    final cdnMap = ref.watch(nodeCdnMapProvider);
+    final showFullIp = ref.watch(showFullIpProvider);
+
+    final isConnected = status == ConnectionStateEnum.connected;
+    final isConnecting = status == ConnectionStateEnum.connecting;
+    final activeCdn = activeNode != null
+        ? (cdnMap[activeNode.address.trim().toLowerCase()] ??
+            ref.read(nodeCdnMapProvider.notifier).detectCdn(activeNode.address))
+        : null;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // 0. Top Brand Header (Desktop/Windows only)
+          if (!Platform.isAndroid) ...[
+            _buildBrandHeader(context, status, isConnected, isConnecting, locale),
+            const SizedBox(height: 16),
+          ],
+
+          // Android Warning: Another external VPN is active
+          if (Platform.isAndroid && _hasOtherVpn && !isConnected) ...[
+            Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.amber.shade900.withValues(alpha: 0.22),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.amber.shade700, width: 1.2),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 22),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      locale == 'fa'
+                          ? 'یک فیلترشکن دیگر در دستگاه شما فعال است. لطفاً برای جلوگیری از تداخل، آن را قطع کنید.'
+                          : 'Another VPN is currently active on your device. Please disconnect it to avoid conflicts.',
+                      style: const TextStyle(
+                        color: Colors.amber,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        height: 1.3,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          // 1. Top Section: Connect Card (50% width) and IP Info Card (50% width) side-by-side
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isDesktop = constraints.maxWidth >= 640;
+              final connectCard = _buildConnectCard(
+                context,
+                ref,
+                status: status,
+                nodes: nodes,
+                activeNode: activeNode,
+                locale: locale,
+                isConnected: isConnected,
+                isConnecting: isConnecting,
+                activeCdn: activeCdn,
+                showFullIp: showFullIp,
+              );
+              final ipCard = _buildIpInfoCard(
+                context,
+                ref,
+                outbound: outbound,
+                activeNode: activeNode,
+                locale: locale,
+                isConnected: isConnected,
+                connectedAt: connectedAt,
+                showFullIp: showFullIp,
+              );
+
+              if (isDesktop) {
+                return IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(child: connectCard),
+                      const SizedBox(width: 16),
+                      Expanded(child: ipCard),
+                    ],
+                  ),
+                );
+              } else {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    connectCard,
+                    const SizedBox(height: 16),
+                    ipCard,
+                  ],
+                );
+              }
+            },
+          ),
+          const SizedBox(height: 16),
+
+          // 2. System Proxy & TUN Mode Toggles (Desktop/Windows only)
+          if (!Platform.isAndroid) ...[
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final isWide = constraints.maxWidth >= 640;
+                final sysProxyCard = Opacity(
+                  opacity: isConnected ? 1.0 : 0.45,
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.shield_outlined,
+                            color: (isConnected && isSysProxy) ? AppTheme.successColor : Colors.grey,
+                            size: 24,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  AppStrings.get('system_proxy', locale: locale),
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                Text(
+                                  isConnected
+                                      ? AppStrings.get('system_proxy_desc', locale: locale)
+                                      : AppStrings.get('connect_first_hint', locale: locale),
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: isConnected ? Colors.grey : AppTheme.secondaryAccent.withValues(alpha: 0.8),
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Switch(
+                            value: isConnected && isSysProxy,
+                            activeColor: AppTheme.successColor,
+                            onChanged: isConnected
+                                ? (val) {
+                                    ref.read(isSystemProxyEnabledProvider.notifier).toggle(val);
+                                  }
+                                : null,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+
+                final tunCard = Opacity(
+                  opacity: isConnected ? 1.0 : 0.45,
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.vpn_lock_rounded,
+                            color: (isConnected && isTun) ? AppTheme.primaryAccent : Colors.grey,
+                            size: 24,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  AppStrings.get('tun_mode', locale: locale),
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                Text(
+                                  isConnected
+                                      ? AppStrings.get('tun_mode_desc', locale: locale)
+                                      : AppStrings.get('connect_first_hint', locale: locale),
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: isConnected ? Colors.grey : AppTheme.primaryAccent.withValues(alpha: 0.8),
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Switch(
+                            value: isConnected && isTun,
+                            activeColor: AppTheme.primaryAccent,
+                            onChanged: isConnected
+                                ? (val) async {
+                                    if (val && !XrayProcessService.instance.isRunningAsAdmin()) {
+                                      _showAdminElevationDialog(context, locale);
+                                      return;
+                                    }
+                                    ref.read(isTunEnabledProvider.notifier).toggle(val);
+                                    await ref.read(connectionStatusProvider.notifier).reconnectWithUpdatedSettings();
+                                  }
+                                : null,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+
+                if (isWide) {
+                  return Row(
+                    children: [
+                      Expanded(child: sysProxyCard),
+                      const SizedBox(width: 12),
+                      Expanded(child: tunCard),
+                    ],
+                  );
+                } else {
+                  return Column(
+                    children: [
+                      sysProxyCard,
+                      const SizedBox(height: 10),
+                      tunCard,
+                    ],
+                  );
+                }
+              },
+            ),
+            const SizedBox(height: 16),
+          ],
+
+          // 3. Traffic Metrics Tiles
+          Row(
+            children: [
+              Expanded(
+                child: _buildMetricTile(
+                  title: AppStrings.get('download', locale: locale),
+                  value: isConnected ? TrafficStats.formatBytes(traffic.downlinkBytes) : '0 B',
+                  icon: Icons.arrow_downward_rounded,
+                  color: AppTheme.successColor,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildMetricTile(
+                  title: AppStrings.get('upload', locale: locale),
+                  value: isConnected ? TrafficStats.formatBytes(traffic.uplinkBytes) : '0 B',
+                  icon: Icons.arrow_upward_rounded,
+                  color: AppTheme.secondaryAccent,
+                ),
+              ),
+              if (!Platform.isAndroid) ...[
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildMetricTile(
+                    title: activeNode?.protocol.name.toUpperCase() ?? 'PROTOCOL',
+                    value: activeNode?.network.name.toUpperCase() ?? '--',
+                    icon: Icons.cable_rounded,
+                    color: AppTheme.primaryAccent,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBrandHeader(
+    BuildContext context,
+    ConnectionStateEnum status,
+    bool isConnected,
+    bool isConnecting,
+    String locale,
+  ) {
+    Color statusColor;
+    String statusText;
+
+    if (isConnected) {
+      statusColor = AppTheme.successColor;
+      statusText = AppStrings.get('connected', locale: locale);
+    } else if (isConnecting) {
+      statusColor = Colors.amber;
+      statusText = AppStrings.get('connecting', locale: locale);
+    } else {
+      statusColor = Colors.grey.shade400;
+      statusText = AppStrings.get('disconnected', locale: locale);
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          if (isConnected)
+            BoxShadow(
+              color: const Color(0xFF00D2FF).withValues(alpha: 0.08),
+              blurRadius: 18,
+              offset: const Offset(0, 4),
+            ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: const Color(0xFF00D2FF).withValues(alpha: 0.5),
+                      width: 1.5,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF00D2FF).withValues(alpha: 0.25),
+                        blurRadius: 14,
+                        spreadRadius: 1,
+                      ),
+                    ],
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Image.asset('assets/app_icon.png', fit: BoxFit.cover),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            "V2Ray",
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.6,
+                              color: Theme.of(context).colorScheme.onSurface,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFF00D2FF), Color(0xFFFF7A00)],
+                              ),
+                              borderRadius: BorderRadius.circular(5),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFFFF7A00).withValues(alpha: 0.35),
+                                  blurRadius: 6,
+                                ),
+                              ],
+                            ),
+                            child: const Text(
+                              "PRO",
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 1.0,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 5, vertical: 1.5),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.06),
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: Colors.white12),
+                            ),
+                            child: Text(
+                              UpdateService.currentAppVersion,
+                              style: const TextStyle(
+                                fontSize: 9,
+                                fontFamily: 'monospace',
+                                color: Colors.grey,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        AppStrings.get('app_tagline', locale: locale),
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade400,
+                          letterSpacing: 0.2,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: statusColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: statusColor.withValues(alpha: 0.4),
+                width: 1.0,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: statusColor,
+                    boxShadow: [
+                      if (isConnected)
+                        BoxShadow(
+                          color: statusColor.withValues(alpha: 0.6),
+                          blurRadius: 8,
+                          spreadRadius: 2,
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  statusText,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: statusColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildConnectCard(
+    BuildContext context,
+    WidgetRef ref, {
+    required ConnectionStateEnum status,
+    required List<ProxyNode> nodes,
+    required ProxyNode? activeNode,
+    required String locale,
+    required bool isConnected,
+    required bool isConnecting,
+    required CdnProvider? activeCdn,
+    required bool showFullIp,
+  }) {
+    return Card(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 22, horizontal: 20),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 82,
+              height: 82,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: (isConnected ? AppTheme.successColor : (isConnecting ? AppTheme.primaryAccent : Colors.grey.shade800)).withValues(alpha: 0.15),
+                border: Border.all(
+                  color: isConnected ? AppTheme.successColor : (isConnecting ? AppTheme.primaryAccent : Colors.grey.shade700),
+                  width: 2.8,
+                ),
+              ),
+              child: Center(
+                child: IconButton(
+                  iconSize: 40,
+                  icon: isConnecting
+                      ? const SizedBox(
+                          width: 34,
+                          height: 34,
+                          child: CircularProgressIndicator(strokeWidth: 3, color: AppTheme.primaryAccent),
+                        )
+                      : Icon(
+                          isConnected ? Icons.power_settings_new_rounded : Icons.play_arrow_rounded,
+                          color: isConnected ? AppTheme.successColor : (Theme.of(context).brightness == Brightness.dark ? Colors.white : AppTheme.primaryAccent),
+                        ),
+                  onPressed: nodes.isEmpty || isConnecting
+                      ? null
+                      : () async {
+                          if (Platform.isAndroid && !isConnected) {
+                            final hasOtherVpn = await XrayProcessService.instance.isAnotherVpnActive();
+                            if (hasOtherVpn && context.mounted) {
+                              final proceed = await showDialog<bool>(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  backgroundColor: const Color(0xFF1E2230),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                  title: Row(
+                                    children: [
+                                      const Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 28),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Text(
+                                          locale == 'fa' ? 'هشدار اتصال وی‌پی‌ان' : 'VPN Conflict Warning',
+                                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  content: Text(
+                                    locale == 'fa'
+                                        ? 'یک وی‌پی‌ان دیگر در گوشی شما فعال است. اتصال همزمان به دو فیلترشکن ممکن است باعث قطع ارتباط اینترنت شود. آیا مایل به ادامه اتصال هستید؟'
+                                        : 'Another VPN connection is currently active on your device. Running multiple VPNs simultaneously may disrupt network access. Do you wish to continue?',
+                                    style: const TextStyle(fontSize: 13, height: 1.5, color: Colors.white70),
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.of(ctx).pop(false),
+                                      child: Text(locale == 'fa' ? 'انصراف' : 'Cancel', style: const TextStyle(color: Colors.grey)),
+                                    ),
+                                    ElevatedButton(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: AppTheme.primaryAccent,
+                                        foregroundColor: Colors.white,
+                                      ),
+                                      onPressed: () => Navigator.of(ctx).pop(true),
+                                      child: Text(locale == 'fa' ? 'ادامه اتصال' : 'Proceed'),
+                                    ),
+                                  ],
+                                ),
+                              );
+                              if (proceed != true) return;
+                            }
+                          }
+                          final isTun = ref.read(isTunEnabledProvider);
+                          if (!isConnected && isTun && !XrayProcessService.instance.isRunningAsAdmin()) {
+                            _showAdminElevationDialog(context, locale);
+                            return;
+                          }
+                          ref.read(connectionStatusProvider.notifier).toggleConnect();
+                        },
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              nodes.isEmpty
+                  ? AppStrings.get('no_nodes', locale: locale)
+                  : isConnected
+                      ? AppStrings.get('connected', locale: locale)
+                      : isConnecting
+                          ? AppStrings.get('connecting', locale: locale)
+                          : AppStrings.get('disconnected', locale: locale),
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: isConnected ? AppTheme.successColor : (isConnecting ? AppTheme.primaryAccent : Colors.grey.shade400),
+              ),
+              textAlign: TextAlign.center,
+            ),
+            if (activeNode != null) ...[
+              const SizedBox(height: 6),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CountryPillBadge(
+                    countryCode: isConnected
+                        ? (ref.watch(outboundInfoProvider).countryCode ?? activeNode.countryCode ?? CountryService.resolveSync(activeNode))
+                        : (activeNode.countryCode ?? CountryService.resolveSync(activeNode)),
+                    country: isConnected
+                        ? (ref.watch(outboundInfoProvider).country ?? activeNode.country ?? (ref.watch(outboundInfoProvider).countryCode != null ? CountryService.getCountryName(ref.watch(outboundInfoProvider).countryCode) : null))
+                        : activeNode.country,
+                  ),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      '${activeNode.name} (${IpMaskUtil.mask(activeNode.address, showFull: showFullIp)}:${activeNode.port})',
+                      style: const TextStyle(fontSize: 13, color: Colors.grey),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (activeCdn != null) ...[
+                    const SizedBox(width: 6),
+                    CdnBadge(cdn: activeCdn),
+                  ],
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildIpInfoCard(
+    BuildContext context,
+    WidgetRef ref, {
+    required OutboundInfo outbound,
+    required ProxyNode? activeNode,
+    required String locale,
+    required bool isConnected,
+    required DateTime? connectedAt,
+    required bool showFullIp,
+  }) {
+    return Card(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            // Header Row: Icon + Title/Location + Eye Button + Refresh Button
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(7),
+                  decoration: BoxDecoration(
+                    color: (isConnected ? AppTheme.primaryAccent : Colors.grey.shade700).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.public_rounded,
+                    size: 20,
+                    color: isConnected ? AppTheme.primaryAccent : Colors.grey,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        isConnected
+                            ? AppStrings.get('connected_country', locale: locale)
+                            : AppStrings.get('outbound_ip', locale: locale),
+                        style: const TextStyle(fontSize: 11, color: Colors.grey),
+                      ),
+                      if (isConnected)
+                        Row(
+                          children: [
+                            CountryFlagBadge(
+                              countryCode: outbound.countryCode ?? activeNode?.countryCode ?? (activeNode != null ? CountryService.resolveSync(activeNode) : null),
+                            ),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                outbound.country != null
+                                    ? '${outbound.country}${outbound.city != null ? ' (${outbound.city})' : ''}'
+                                    : (activeNode?.country != null
+                                        ? activeNode!.country!
+                                        : ((activeNode?.countryCode != null && CountryService.getCountryName(activeNode!.countryCode) != null)
+                                            ? CountryService.getCountryName(activeNode!.countryCode)!
+                                            : (outbound.isLoading
+                                                ? AppStrings.get('fetching_ip', locale: locale)
+                                                : AppStrings.get('unknown_location', locale: locale)))),
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  color: Theme.of(context).colorScheme.onSurface,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (outbound.isp != null) ...[
+                              const SizedBox(width: 6),
+                              Flexible(
+                                child: Text(
+                                  '•  ${outbound.isp}',
+                                  style: const TextStyle(fontSize: 11, color: Colors.grey),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ],
+                        )
+                      else
+                        Text(
+                          AppStrings.get('offline_hint', locale: locale),
+                          style: const TextStyle(fontSize: 12, color: Colors.grey),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                    ],
+                  ),
+                ),
+                // Eye button to toggle mask/unmask IP
+                IconButton(
+                  tooltip: AppStrings.get(showFullIp ? 'hide_ip' : 'show_full_ip', locale: locale),
+                  icon: Icon(
+                    showFullIp ? Icons.visibility_off_rounded : Icons.visibility_rounded,
+                    size: 19,
+                    color: showFullIp ? AppTheme.primaryAccent : Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                  onPressed: () {
+                    ref.read(showFullIpProvider.notifier).state = !showFullIp;
+                  },
+                ),
+                // Refresh button
+                IconButton(
+                  tooltip: AppStrings.get('refresh_ip', locale: locale),
+                  icon: outbound.isLoading
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primaryAccent),
+                        )
+                      : Icon(
+                          Icons.refresh_rounded,
+                          size: 18,
+                          color: isConnected ? Theme.of(context).colorScheme.onSurfaceVariant : Colors.grey.shade600,
+                        ),
+                  onPressed: (!isConnected || outbound.isLoading)
+                      ? null
+                      : () => ref.read(outboundInfoProvider.notifier).fetch(),
+                ),
+              ],
+            ),
+            Divider(height: 20, color: Theme.of(context).dividerColor),
+
+            // 4-Item Grid: 2 rows of 2 columns
+            Row(
+              children: [
+                Expanded(
+                  child: _buildInfoItem(
+                    title: AppStrings.get('ipv4_address', locale: locale),
+                    value: isConnected
+                        ? (outbound.ipv4 != null
+                            ? IpMaskUtil.mask(outbound.ipv4!, showFull: showFullIp)
+                            : (outbound.isLoading ? '...' : '--'))
+                        : '--',
+                    icon: Icons.lan_rounded,
+                    color: const Color(0xFF38BDF8),
+                    copyable: isConnected && outbound.ipv4 != null,
+                    copyValue: outbound.ipv4,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _buildInfoItem(
+                    title: AppStrings.get('ipv6_address', locale: locale),
+                    value: isConnected
+                        ? (outbound.ipv6 != null
+                            ? IpMaskUtil.mask(outbound.ipv6!, showFull: showFullIp)
+                            : (outbound.isLoading ? '...' : AppStrings.get('not_supported', locale: locale)))
+                        : '--',
+                    icon: Icons.alt_route_rounded,
+                    color: const Color(0xFFA78BFA),
+                    copyable: isConnected && outbound.ipv6 != null,
+                    copyValue: outbound.ipv6,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildPingItem(
+                    title: AppStrings.get('ping', locale: locale),
+                    latency: isConnected ? activeNode?.latencyMs : null,
+                    isTesting: _isTestingPing,
+                    onRetest: (isConnected && activeNode != null) ? () => _retestPing(activeNode) : null,
+                    locale: locale,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _buildInfoItem(
+                    title: AppStrings.get('connection_duration', locale: locale),
+                    value: isConnected ? _formatDuration(connectedAt) : "00:00:00",
+                    icon: Icons.timer_outlined,
+                    color: isConnected ? AppTheme.successColor : Colors.grey,
+                    copyable: false,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoItem({
+    required String title,
+    required String value,
+    required IconData icon,
+    required Color color,
+    required bool copyable,
+    String? copyValue,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Theme.of(context).brightness == Brightness.dark
+            ? const Color(0xFF192030)
+            : Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 14, color: color),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(fontSize: 11, color: Colors.grey),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (copyable)
+                InkWell(
+                  onTap: () {
+                    final textToCopy = copyValue ?? value;
+                    Clipboard.setData(ClipboardData(text: textToCopy));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('$textToCopy copied'), duration: const Duration(seconds: 1)),
+                    );
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.all(2.0),
+                    child: Icon(Icons.copy_rounded, size: 13, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              fontFamily: 'monospace',
+              color: color,
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPingItem({
+    required String title,
+    required int? latency,
+    required bool isTesting,
+    required VoidCallback? onRetest,
+    required String locale,
+  }) {
+    final color = _latencyColor(latency);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Theme.of(context).brightness == Brightness.dark
+            ? const Color(0xFF192030)
+            : Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.bolt_rounded, size: 14, color: color),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(fontSize: 11, color: Colors.grey),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (onRetest != null)
+                InkWell(
+                  onTap: isTesting ? null : onRetest,
+                  child: isTesting
+                      ? const SizedBox(
+                          width: 12,
+                          height: 12,
+                          child: CircularProgressIndicator(strokeWidth: 1.5, color: AppTheme.primaryAccent),
+                        )
+                      : Padding(
+                          padding: const EdgeInsets.all(2.0),
+                          child: Icon(Icons.refresh_rounded, size: 13, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                        ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            latency != null ? '$latency ms' : '--',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              fontFamily: 'monospace',
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMetricTile({required String title, required String value, required IconData icon, required Color color}) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(7),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, color: color, size: 18),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(fontSize: 10, color: Colors.grey),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      value,
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showAdminElevationDialog(BuildContext context, String locale) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E2230),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.admin_panel_settings_rounded, color: Colors.amber, size: 28),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                AppStrings.get('tun_admin_required_title', locale: locale),
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          AppStrings.get('tun_admin_required_desc', locale: locale),
+          style: const TextStyle(fontSize: 13, color: Colors.white70, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text(AppStrings.get('cancel', locale: locale)),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primaryAccent,
+              foregroundColor: Colors.white,
+            ),
+            icon: const Icon(Icons.security_rounded, size: 18),
+            label: Text(AppStrings.get('restart_as_admin', locale: locale)),
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              await XrayProcessService.instance.restartAsAdmin();
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
