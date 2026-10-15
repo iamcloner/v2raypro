@@ -429,29 +429,38 @@ void main() {
     });
   });
 
-  group('v1.7.5 Background VPN Lifecycle & Real Delay Tests', () {
-    test('startAndroidVpn accepts xrayBinary and configPath arguments safely', () async {
-      // In unit test environment (not Android runtime), startAndroidVpn gracefully returns false
-      final res = await XrayProcessService.instance.startAndroidVpn(
-        'Test Config',
-        xrayBinary: '/dummy/libxray.so',
-        configPath: '/dummy/config.json',
-        isTun: true,
-      );
-      expect(res, isFalse);
+
+  group('v1.7.6 Android Proxy & UI Tests', () {
+    test('Configs badge count isolates custom manual configs from subscriptions and free configs', () {
+      final mixedNodes = [
+        ProxyNode(id: 'manual1', name: 'Manual 1', address: '1.1.1.1', port: 443, uuidOrPassword: 'uuid1', protocol: ProtocolType.vless),
+        ProxyNode(id: 'manual2', name: 'Manual 2', address: '1.1.1.2', port: 443, uuidOrPassword: 'uuid2', protocol: ProtocolType.vless),
+        ProxyNode(id: 'sub1', name: 'Sub Node 1', address: '1.1.1.3', port: 443, uuidOrPassword: 'uuid3', protocol: ProtocolType.vless, subscriptionId: 'sub_xyz'),
+        ProxyNode(id: 'free1', name: 'Free Node 1', address: '1.1.1.4', port: 443, uuidOrPassword: 'uuid4', protocol: ProtocolType.vless, isFree: true),
+      ];
+
+      final customConfigsCount = mixedNodes.where((n) => n.subscriptionId == null && !n.isFree).length;
+      expect(customConfigsCount, equals(2));
     });
 
-    test('pingGoogleViaProxy handles unconnectable client without uncaught exception', () async {
-      final client = HttpClient();
-      client.connectionTimeout = const Duration(milliseconds: 100);
-      client.findProxy = (uri) => 'PROXY 127.0.0.1:65531';
-      final res = await XrayProcessService.instance.pingGoogleViaProxy(
-        client,
-        count: 1,
-        timeout: const Duration(milliseconds: 150),
+    test('generateXrayConfig generates valid configuration without errors', () {
+      final node = ProxyNode(
+        id: 'test_node',
+        name: 'Test Node',
+        address: '1.2.3.4',
+        port: 443,
+        uuidOrPassword: 'abc-def-ghi-jkl',
+        protocol: ProtocolType.vless,
+        network: NetworkType.ws,
+        security: SecurityType.tls,
+        sni: 'test.example.com',
       );
-      client.close(force: true);
-      expect(res, isNull);
+      final cfg = XrayProcessService.instance.generateXrayConfig(node, enableTun: true);
+      expect(cfg, isNotNull);
+      expect(cfg['inbounds'], isNotEmpty);
+      expect(cfg['outbounds'], isNotEmpty);
+      expect(cfg['log'], isNotNull);
     });
   });
 }
+

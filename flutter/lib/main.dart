@@ -681,7 +681,8 @@ class _MainShellState extends ConsumerState<MainShell> {
               final item = items[idx];
 
               int? badgeCount;
-              if (idx == 1 && nodes.isNotEmpty) badgeCount = nodes.length;
+              final customConfigsCount = nodes.where((n) => n.subscriptionId == null && !n.isFree).length;
+              if (idx == 1 && customConfigsCount > 0) badgeCount = customConfigsCount;
               if (idx == 2 && subs.isNotEmpty) badgeCount = subs.length;
 
               return Expanded(
@@ -700,11 +701,20 @@ class _MainShellState extends ConsumerState<MainShell> {
                         _scaffoldKey.currentState?.openDrawer();
                       }
                     },
-                    borderRadius: BorderRadius.circular(24),
+                    borderRadius: BorderRadius.circular(18),
                     splashColor: const Color(0xFF2AABEE).withValues(alpha: 0.15),
                     highlightColor: const Color(0xFF2AABEE).withValues(alpha: 0.08),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 220),
+                      curve: Curves.easeOutCubic,
+                      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? (isDark ? const Color(0x332AABEE) : const Color(0x220088CC))
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         mainAxisAlignment: MainAxisAlignment.center,
@@ -713,31 +723,17 @@ class _MainShellState extends ConsumerState<MainShell> {
                             clipBehavior: Clip.none,
                             alignment: Alignment.center,
                             children: [
-                              AnimatedContainer(
-                                duration: const Duration(milliseconds: 220),
-                                curve: Curves.easeOutCubic,
-                                width: isSelected ? 56 : 36,
-                                height: 30,
-                                decoration: BoxDecoration(
-                                  color: isSelected
-                                      ? (isDark ? const Color(0x332AABEE) : const Color(0x220088CC))
-                                      : Colors.transparent,
-                                  borderRadius: BorderRadius.circular(15),
-                                ),
-                                child: Center(
-                                  child: Icon(
-                                    isSelected ? item.activeIcon : item.inactiveIcon,
-                                    size: 22,
-                                    color: isSelected
-                                        ? const Color(0xFF2AABEE)
-                                        : (isDark ? const Color(0xFFB4C1CE) : const Color(0xFF707E8C)),
-                                  ),
-                                ),
+                              Icon(
+                                isSelected ? item.activeIcon : item.inactiveIcon,
+                                size: 22,
+                                color: isSelected
+                                    ? const Color(0xFF2AABEE)
+                                    : (isDark ? const Color(0xFFB4C1CE) : const Color(0xFF707E8C)),
                               ),
                               if (badgeCount != null && badgeCount > 0)
                                 Positioned(
-                                  top: -2,
-                                  right: isSelected ? -4 : -6,
+                                  top: -4,
+                                  right: -10,
                                   child: Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 4.5, vertical: 1.5),
                                     constraints: const BoxConstraints(minWidth: 16),

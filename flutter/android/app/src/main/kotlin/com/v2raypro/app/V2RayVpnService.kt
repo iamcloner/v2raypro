@@ -156,11 +156,6 @@ class V2RayVpnService : VpnService() {
                     .addDnsServer("8.8.8.8")
                     .setMtu(8500)
 
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    try {
-                        builder.setHttpProxy(ProxyInfo.buildDirectProxy("127.0.0.1", httpPort))
-                    } catch (_: Exception) {}
-                }
 
                 if (appRoutingMode == "inclusive" && appRoutingList.isNotEmpty()) {
                     // Inclusive mode: ONLY the selected applications are routed through the VPN tunnel.
