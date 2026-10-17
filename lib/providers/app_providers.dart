@@ -84,14 +84,43 @@ class ConnectionStatusNotifier extends StateNotifier<ConnectionStateEnum> {
     final nodes = ref.read(nodesProvider);
     if (nodes.isEmpty) return;
     final active = nodes.firstWhere((n) => n.isActive, orElse: () => nodes.first);
-    final res = await XrayProcessService.instance.testNodeRealDelay(active);
+
+    int? pingLatency;
+    String? countryCode;
+    String? countryName;
+
+    if (state == ConnectionStateEnum.connected) {
+      final httpPort = ref.read(httpPortProvider);
+      final client = HttpClient();
+      client.findProxy = (uri) => "PROXY 127.0.0.1:$httpPort;";
+      client.connectionTimeout = const Duration(seconds: 4);
+
+      try {
+        final sw = Stopwatch()..start();
+        final req = await client.getUrl(Uri.parse("http://cp.cloudflare.com/generate_204")).timeout(const Duration(seconds: 4));
+        final resp = await req.close().timeout(const Duration(seconds: 4));
+        sw.stop();
+        await resp.drain();
+        if (resp.statusCode == 200 || resp.statusCode == 204) {
+          pingLatency = sw.elapsedMilliseconds;
+        }
+      } catch (_) {}
+    }
+
+    if (pingLatency == null) {
+      final res = await XrayProcessService.instance.testNodeRealDelay(active);
+      pingLatency = res.latencyMs;
+      countryCode = res.countryCode;
+      countryName = res.country;
+    }
+
     final outbound = ref.read(outboundInfoProvider);
-    final country = res.countryCode ?? outbound.countryCode ?? active.countryCode;
+    final country = countryCode ?? outbound.countryCode ?? active.countryCode;
     ref.read(nodesProvider.notifier).updateLatency(
       active.id,
-      res.latencyMs ?? active.latencyMs,
+      pingLatency ?? active.latencyMs,
       countryCode: country,
-      country: CountryService.getCountryName(country) ?? outbound.country ?? active.country,
+      country: countryName ?? CountryService.getCountryName(country) ?? outbound.country ?? active.country,
     );
   }
 
@@ -1679,61 +1708,8 @@ class OutboundInfoNotifier extends StateNotifier<OutboundInfo> {
     client.findProxy = (uri) => "PROXY 127.0.0.1:$httpPort;";
 
     // Fetch IPv4 & Geolocation through local proxy
-    // 1. Primary: ip-api.com
-    try {
-      final req = await client.getUrl(Uri.parse("http://ip-api.com/json/"));
-      final resp = await req.close().timeout(const Duration(seconds: 4));
-      if (resp.statusCode == 200) {
-        final body = await resp.transform(utf8.decoder).join();
-        final data = jsonDecode(body);
-        if (data["status"] == "success") {
-          ipv4 = data["query"]?.toString();
-          country = data["country"]?.toString();
-          countryCode = data["countryCode"]?.toString();
-          city = data["city"]?.toString();
-          isp = data["isp"]?.toString();
-        }
-      }
-    } catch (_) {}
-
-    // 2. Fallback 1: ipwho.is
-    if (countryCode == null || countryCode.isEmpty) {
-      try {
-        final req = await client.getUrl(Uri.parse("https://ipwho.is/"));
-        final resp = await req.close().timeout(const Duration(seconds: 4));
-        if (resp.statusCode == 200) {
-          final body = await resp.transform(utf8.decoder).join();
-          final data = jsonDecode(body);
-          if (data["success"] == true) {
-            ipv4 ??= data["ip"]?.toString();
-            country ??= data["country"]?.toString();
-            countryCode ??= data["country_code"]?.toString();
-            city ??= data["city"]?.toString();
-            isp ??= data["connection"]?["isp"]?.toString();
-          }
-        }
-      } catch (_) {}
-    }
-
-    // 3. Fallback 2: api.ip.sb/geoip
-    if (countryCode == null || countryCode.isEmpty) {
-      try {
-        final req = await client.getUrl(Uri.parse("https://api.ip.sb/geoip"));
-        final resp = await req.close().timeout(const Duration(seconds: 4));
-        if (resp.statusCode == 200) {
-          final body = await resp.transform(utf8.decoder).join();
-          final data = jsonDecode(body);
-          ipv4 ??= data["ip"]?.toString();
-          country ??= data["country"]?.toString();
-          countryCode ??= data["country_code"]?.toString();
-          city ??= data["city"]?.toString();
-          isp ??= data["isp"]?.toString();
-        }
-      } catch (_) {}
-    }
-
-    // 4. Fallback 3: Cloudflare cdn-cgi/trace (Ultra fast exit IP and loc)
-    if (countryCode == null || countryCode.isEmpty) {
+    // 1. Primary: Cloudflare cdn-cgi/trace (Ultra fast exit IP and loc, no rate limits)
+    for (int attempt = 0; attempt < 2; attempt++) {
       try {
         final req = await client.getUrl(Uri.parse("http://cp.cloudflare.com/cdn-cgi/trace"));
         final resp = await req.close().timeout(const Duration(seconds: 4));
@@ -1751,6 +1727,64 @@ class OutboundInfoNotifier extends StateNotifier<OutboundInfo> {
               country ??= CountryService.getCountryName(countryCode);
             }
           }
+          if (ipv4 != null) break;
+        }
+      } catch (_) {}
+
+      if (attempt == 0 && ipv4 == null) {
+        await Future.delayed(const Duration(milliseconds: 350));
+      }
+    }
+
+    // 2. Fallback 1: ip-api.com (provides city, isp)
+    try {
+      final req = await client.getUrl(Uri.parse("http://ip-api.com/json/"));
+      final resp = await req.close().timeout(const Duration(seconds: 4));
+      if (resp.statusCode == 200) {
+        final body = await resp.transform(utf8.decoder).join();
+        final data = jsonDecode(body);
+        if (data["status"] == "success") {
+          ipv4 ??= data["query"]?.toString();
+          country ??= data["country"]?.toString();
+          countryCode ??= data["countryCode"]?.toString();
+          city ??= data["city"]?.toString();
+          isp ??= data["isp"]?.toString();
+        }
+      }
+    } catch (_) {}
+
+    // 3. Fallback 2: ipwho.is
+    if (countryCode == null || countryCode.isEmpty || city == null) {
+      try {
+        final req = await client.getUrl(Uri.parse("https://ipwho.is/"));
+        final resp = await req.close().timeout(const Duration(seconds: 4));
+        if (resp.statusCode == 200) {
+          final body = await resp.transform(utf8.decoder).join();
+          final data = jsonDecode(body);
+          if (data["success"] == true) {
+            ipv4 ??= data["ip"]?.toString();
+            country ??= data["country"]?.toString();
+            countryCode ??= data["country_code"]?.toString();
+            city ??= data["city"]?.toString();
+            isp ??= data["connection"]?["isp"]?.toString();
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 4. Fallback 3: api.ip.sb/geoip
+    if (countryCode == null || countryCode.isEmpty) {
+      try {
+        final req = await client.getUrl(Uri.parse("https://api.ip.sb/geoip"));
+        final resp = await req.close().timeout(const Duration(seconds: 4));
+        if (resp.statusCode == 200) {
+          final body = await resp.transform(utf8.decoder).join();
+          final data = jsonDecode(body);
+          ipv4 ??= data["ip"]?.toString();
+          country ??= data["country"]?.toString();
+          countryCode ??= data["country_code"]?.toString();
+          city ??= data["city"]?.toString();
+          isp ??= data["isp"]?.toString();
         }
       } catch (_) {}
     }

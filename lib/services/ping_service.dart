@@ -525,7 +525,9 @@ class PingService {
     String? workingDirectory,
     Map<String, String>? environment,
   }) async {
-    final tempDir = Directory.systemTemp;
+    final tempDir = (workingDirectory != null && Directory(workingDirectory).existsSync())
+        ? Directory(workingDirectory)
+        : Directory.systemTemp;
     final tempFile = File("${tempDir.path}/v2raypro_ping_temp_${DateTime.now().millisecondsSinceEpoch}_$listenPort.json");
 
     final raw = Map<String, dynamic>.from(config.rawJson);
@@ -534,7 +536,8 @@ class PingService {
         "tag": "temp-in",
         "port": listenPort,
         "listen": "127.0.0.1",
-        "protocol": "http",
+        "protocol": "mixed",
+        "sniffing": {"enabled": false, "destOverride": ["http", "tls"]},
       }
     ];
 
@@ -549,11 +552,10 @@ class PingService {
 
     final testConfig = {
       "log": {"loglevel": "none"},
-      "dns": {"servers": ["1.1.1.1", "8.8.8.8", "localhost"]},
       "inbounds": inbounds,
       "outbounds": outbounds,
       "routing": {
-        "domainStrategy": "IPIfNonMatch",
+        "domainStrategy": "AsIs",
         "rules": [
           {"type": "field", "inboundTag": ["temp-in"], "outboundTag": "proxy"}
         ]
