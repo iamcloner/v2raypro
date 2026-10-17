@@ -106,6 +106,7 @@ class CoreService {
 
   Process? _coreProcess;
   File? _activeConfigFile;
+  String? _currentBinaryPath;
 
   // Connection duration stream
   DateTime? _connectedAt;
@@ -231,6 +232,7 @@ class CoreService {
       LogService.instance.add("CoreService: Executable for ${config.type.name} not found.", level: LogLevel.error, source: "core");
       return false;
     }
+    _currentBinaryPath = binaryPath;
 
     try {
       // 2. Build full runtime config JSON
@@ -403,17 +405,18 @@ class CoreService {
 
     _trafficTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
       if (_state != CoreState.connected) return;
+      final binary = _currentBinaryPath ?? _findCoreBinary(_activeConfig?.type ?? CoreType.xray);
+      if (binary == null) return;
       try {
-        final client = HttpClient();
-        client.connectionTimeout = const Duration(milliseconds: 700);
-        final uri = Uri.parse("http://127.0.0.1:$_apiPort/debug/vars");
-        final req = await client.getUrl(uri).timeout(const Duration(milliseconds: 700));
-        final resp = await req.close().timeout(const Duration(milliseconds: 700));
-        if (resp.statusCode == 200) {
-          final body = await resp.transform(utf8.decoder).join();
-          final parsed = jsonDecode(body);
-          if (parsed is Map<String, dynamic> && parsed['stats'] is Map<String, dynamic>) {
-            final statList = parsed['stats']['stat'] as List? ?? [];
+        final res = await Process.run(binary, [
+          'api',
+          'statsquery',
+          '--server=127.0.0.1:$_apiPort',
+        ]);
+        if (res.exitCode == 0 && res.stdout != null) {
+          final json = jsonDecode(res.stdout.toString()) as Map<String, dynamic>;
+          final statList = json['stat'] as List<dynamic>?;
+          if (statList != null) {
             int downlink = 0;
             int uplink = 0;
             for (final item in statList) {
@@ -427,6 +430,7 @@ class CoreService {
                 }
               }
             }
+            // Fallback: If proxy outbound didn't capture (e.g. direct/tun), check inbounds
             if (downlink == 0 && uplink == 0) {
               for (final item in statList) {
                 if (item is Map<String, dynamic>) {
@@ -461,6 +465,7 @@ class CoreService {
   }
 
   Future<void> _stopCoreProcess() async {
+    _currentBinaryPath = null;
     if (_coreProcess != null) {
       final pid = _coreProcess!.pid;
       _coreProcess!.kill();

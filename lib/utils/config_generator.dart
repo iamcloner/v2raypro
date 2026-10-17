@@ -22,6 +22,17 @@ class ConfigGenerator {
     List<RoutingRule> routingRules = const [],
     AppRoutingMode appRoutingMode = AppRoutingMode.exclusive,
   }) {
+    String? nonEmpty(String? s) {
+      if (s == null) return null;
+      final t = s.trim();
+      return t.isNotEmpty ? t : null;
+    }
+
+    final effectiveSni = nonEmpty(node.sni) ?? nonEmpty(node.host) ?? node.address;
+    final effectiveHost = nonEmpty(node.host) ?? nonEmpty(node.sni) ?? node.address;
+    final rawPath = nonEmpty(node.path) ?? "/";
+    final safePath = rawPath.startsWith("/") ? rawPath : "/$rawPath";
+
     final netName = (node.network == NetworkType.splithttp || node.network == NetworkType.xhttp)
         ? "xhttp"
         : node.network.name;
@@ -33,7 +44,7 @@ class ConfigGenerator {
 
     if (node.security == SecurityType.tls) {
       final tls = <String, dynamic>{
-        "serverName": node.sni ?? node.host ?? node.address,
+        "serverName": effectiveSni,
       };
       if (node.fingerprint != null && node.fingerprint!.isNotEmpty) {
         tls["fingerprint"] = node.fingerprint;
@@ -55,10 +66,10 @@ class ConfigGenerator {
     } else if (node.security == SecurityType.reality) {
       if (node.publicKey != null && node.publicKey!.trim().isNotEmpty) {
         final reality = <String, dynamic>{
-          "serverName": node.sni ?? node.host ?? "",
+          "serverName": effectiveSni,
           "publicKey": node.publicKey!.trim(),
           "shortId": node.shortId ?? "",
-          "spiderX": node.spiderX ?? "/",
+          "spiderX": nonEmpty(node.spiderX) ?? "/",
           "fingerprint": (node.fingerprint != null && node.fingerprint!.trim().isNotEmpty)
               ? node.fingerprint!.trim()
               : "chrome",
@@ -71,8 +82,8 @@ class ConfigGenerator {
 
     if (node.network == NetworkType.xhttp || node.network == NetworkType.splithttp) {
       final xhttpMap = <String, dynamic>{
-        "path": node.path ?? "/",
-        "host": node.host ?? node.sni ?? node.address,
+        "path": safePath,
+        "host": effectiveHost,
       };
       if (node.mode != null && node.mode!.isNotEmpty) {
         xhttpMap["mode"] = node.mode;
@@ -87,8 +98,9 @@ class ConfigGenerator {
       streamSettings["xhttpSettings"] = xhttpMap;
     } else if (node.network == NetworkType.ws) {
       streamSettings["wsSettings"] = {
-        "path": node.path ?? "/",
-        "headers": {"Host": node.host ?? node.sni ?? node.address},
+        "path": safePath,
+        "host": effectiveHost,
+        "headers": {"Host": effectiveHost},
       };
     } else if (node.network == NetworkType.grpc) {
       streamSettings["grpcSettings"] = {
@@ -97,13 +109,13 @@ class ConfigGenerator {
       };
     } else if (node.network == NetworkType.h2) {
       streamSettings["httpSettings"] = {
-        "path": node.path ?? "/",
-        "host": [node.host ?? node.sni ?? node.address],
+        "path": safePath,
+        "host": [effectiveHost],
       };
     } else if (node.network == NetworkType.httpUpgrade) {
       streamSettings["httpupgradeSettings"] = {
-        "path": node.path ?? "/",
-        "host": node.host ?? node.sni ?? node.address,
+        "path": safePath,
+        "host": effectiveHost,
       };
     }
 
@@ -117,7 +129,10 @@ class ConfigGenerator {
         "level": 0,
         "packetEncoding": "xudp",
       };
-      if (node.flow != null && node.flow!.trim().isNotEmpty) {
+      // flow is only valid for tcp transport in VLESS
+      if (node.flow != null &&
+          node.flow!.trim().isNotEmpty &&
+          node.network == NetworkType.tcp) {
         user["flow"] = node.flow!.trim();
       }
       outbound = {
@@ -335,6 +350,17 @@ class ConfigGenerator {
     int httpPort = 10809,
     bool enableTun = false,
   }) {
+    String? nonEmpty(String? s) {
+      if (s == null) return null;
+      final t = s.trim();
+      return t.isNotEmpty ? t : null;
+    }
+
+    final effectiveSni = nonEmpty(node.sni) ?? nonEmpty(node.host) ?? node.address;
+    final effectiveHost = nonEmpty(node.host) ?? nonEmpty(node.sni) ?? node.address;
+    final rawPath = nonEmpty(node.path) ?? "/";
+    final safePath = rawPath.startsWith("/") ? rawPath : "/$rawPath";
+
     final outbounds = <Map<String, dynamic>>[
       {
         "type": node.protocol.name,
@@ -345,8 +371,16 @@ class ConfigGenerator {
         if (node.security == SecurityType.tls)
           "tls": {
             "enabled": true,
-            "server_name": node.sni ?? node.host ?? node.address,
+            "server_name": effectiveSni,
             if (node.alpn != null && node.alpn!.isNotEmpty) "alpn": node.alpn,
+          },
+        if (node.network == NetworkType.ws)
+          "transport": {
+            "type": "ws",
+            "path": safePath,
+            "headers": {
+              "Host": effectiveHost,
+            },
           },
       },
       {"type": "direct", "tag": "direct"},
