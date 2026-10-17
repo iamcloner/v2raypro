@@ -40,41 +40,29 @@ if (-not $version) {
     Write-Host "[+] Target release version: $version" -ForegroundColor Green
 }
 
-# 2. Source directories
+# 2. Source directories and Runner Release detection
+$candidateRunnerDirs = @(
+    (Join-Path $rootDir "build\windows\x64\runner\Release"),
+    (Join-Path $rootDir "build\windows\runner\Release"),
+    (Join-Path $rootDir "flutter\build\windows\x64\runner\Release")
+)
+
+$runnerRelease = $null
+foreach ($r in $candidateRunnerDirs) {
+    if (Test-Path (Join-Path $r "v2raypro.exe")) {
+        $runnerRelease = $r
+        break
+    }
+}
+
 $srcDir = Join-Path $rootDir "build\windows"
-if (-not (Test-Path $srcDir)) {
-    throw "Source directory '$srcDir' does not exist. Please run flutter build windows first."
-}
-
-# Sync latest build if runner Release folder is newer
-$flutterRunnerRelease = Join-Path $rootDir "flutter\build\windows\x64\runner\Release"
-if (Test-Path (Join-Path $flutterRunnerRelease "v2raypro.exe")) {
-    Write-Host "[*] Syncing latest compiled runner binaries..." -ForegroundColor Cyan
-    Copy-Item -Path "$flutterRunnerRelease\*" -Destination $srcDir -Recurse -Force
-}
-
-# Ensure dedicated subdirectories (xray/)
-$xrayDir = Join-Path $srcDir "xray"
-if (-not (Test-Path $xrayDir)) {
-    New-Item -ItemType Directory -Force -Path $xrayDir | Out-Null
-}
-$xrayFiles = @('xray.exe', 'wintun.dll', 'geoip.dat', 'geosite.dat')
-foreach ($item in $xrayFiles) {
-    $srcItem = Join-Path $srcDir $item
-    if (Test-Path $srcItem) {
-        Move-Item -Path $srcItem -Destination (Join-Path $xrayDir $item) -Force
-    }
-}
-
-# Ensure app_icon.png exists in data assets
-$flutterAssetIcon = Join-Path $rootDir "flutter\assets\app_icon.png"
-$destAssetIcon = Join-Path $srcDir "data\flutter_assets\assets\app_icon.png"
-if (Test-Path $flutterAssetIcon) {
-    $destAssetDir = Split-Path $destAssetIcon -Parent
-    if (-not (Test-Path $destAssetDir)) {
-        New-Item -ItemType Directory -Force -Path $destAssetDir | Out-Null
-    }
-    Copy-Item -Path $flutterAssetIcon -Destination $destAssetIcon -Force
+if ($runnerRelease) {
+    Write-Host "[*] Found compiled runner binaries at: $runnerRelease" -ForegroundColor Green
+    $buildSource = $runnerRelease
+} elseif (Test-Path (Join-Path $srcDir "v2raypro.exe")) {
+    $buildSource = $srcDir
+} else {
+    throw "Compiled binary 'v2raypro.exe' not found. Please run 'flutter build windows --release' first."
 }
 
 # 3. Create staging directory with root 'v2raypro' folder
@@ -86,8 +74,46 @@ if (Test-Path $staging) {
 }
 New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
 
-Write-Host "[*] Staging release files into '$packageDir'..." -ForegroundColor Cyan
-Copy-Item -Path "$srcDir\*" -Destination $packageDir -Recurse -Force
+Write-Host "[*] Staging release files into '$packageDir' from '$buildSource'..." -ForegroundColor Cyan
+Copy-Item -Path "$buildSource\*" -Destination $packageDir -Recurse -Force
+
+# Ensure dedicated subdirectories (xray/)
+$xrayDir = Join-Path $packageDir "xray"
+if (-not (Test-Path $xrayDir)) {
+    New-Item -ItemType Directory -Force -Path $xrayDir | Out-Null
+}
+
+$xrayBinDir = Join-Path $rootDir "assets\bin"
+$xrayFiles = @('xray.exe', 'wintun.dll', 'geoip.dat', 'geosite.dat')
+foreach ($item in $xrayFiles) {
+    $destItem = Join-Path $xrayDir $item
+    if (-not (Test-Path $destItem)) {
+        # Check assets/bin
+        $binSource = Join-Path $xrayBinDir $item
+        if (Test-Path $binSource) {
+            Copy-Item -Path $binSource -Destination $destItem -Force
+        } elseif (Test-Path (Join-Path $packageDir $item)) {
+            Move-Item -Path (Join-Path $packageDir $item) -Destination $destItem -Force
+        }
+    }
+}
+
+# Ensure app_icon.png exists in data assets
+$candidateIcons = @(
+    (Join-Path $rootDir "assets\app_icon.png"),
+    (Join-Path $rootDir "flutter\assets\app_icon.png")
+)
+$destAssetIcon = Join-Path $packageDir "data\flutter_assets\assets\app_icon.png"
+foreach ($icon in $candidateIcons) {
+    if (Test-Path $icon) {
+        $destAssetDir = Split-Path $destAssetIcon -Parent
+        if (-not (Test-Path $destAssetDir)) {
+            New-Item -ItemType Directory -Force -Path $destAssetDir | Out-Null
+        }
+        Copy-Item -Path $icon -Destination $destAssetIcon -Force
+        break
+    }
+}
 
 # 4. EXCLUDE user configs and subscriptions so existing user configs are never overwritten
 Write-Host "[*] Purging user data and subscription configs from release package..." -ForegroundColor Cyan
