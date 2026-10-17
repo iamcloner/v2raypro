@@ -11,12 +11,16 @@ import "../models/log_entry.dart";
 import "tun_service.dart";
 import "log_service.dart";
 
+import "storage_service.dart";
+
 /// Dedicated Core Service implementing the exact diagram specification:
 /// Manages proxy/socks server lifecycle, handles Status (connect, change, disconnect),
 /// controls TunService when Mode == tun, and streams connection duration and upload/download usage.
 class CoreService {
   static final CoreService instance = CoreService._internal();
-  CoreService._internal();
+  CoreService._internal() {
+    initSettings();
+  }
 
   CoreState _state = CoreState.disconnected;
   CoreState get state => _state;
@@ -27,13 +31,52 @@ class CoreService {
   CoreMode _mode = CoreMode.proxy;
   CoreMode get mode => _mode;
 
-  int _httpPort = 10809;
+  int _httpPort = 10888;
   int get httpPort => _httpPort;
   set httpPort(int port) => _httpPort = port;
 
-  int _socksPort = 10808;
+  int _socksPort = 10999;
   int get socksPort => _socksPort;
   set socksPort(int port) => _socksPort = port;
+
+  Future<void> initSettings() async {
+    try {
+      _httpPort = await StorageService.instance.loadHttpPort();
+      _socksPort = await StorageService.instance.loadSocksPort();
+      _allowLan = await StorageService.instance.loadAllowLan();
+      _allowInsecure = await StorageService.instance.loadGlobalAllowInsecure();
+      _enableMux = await StorageService.instance.loadGlobalEnableMux();
+    } catch (_) {}
+  }
+
+  /// Checks whether a TCP port can be bound on loopback
+  static Future<bool> isPortAvailable(int port) async {
+    try {
+      final s = await ServerSocket.bind(InternetAddress.loopbackIPv4, port);
+      await s.close();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Finds an available port starting from preferredPort
+  static Future<int> findAvailablePort(int preferredPort, {int maxAttempts = 20}) async {
+    for (int i = 0; i < maxAttempts; i++) {
+      final candidate = preferredPort + i;
+      if (await isPortAvailable(candidate)) {
+        return candidate;
+      }
+    }
+    try {
+      final s = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final port = s.port;
+      await s.close();
+      return port;
+    } catch (_) {
+      return preferredPort;
+    }
+  }
 
   int _apiPort = 10085;
   int get apiPort => _apiPort;
@@ -146,9 +189,33 @@ class CoreService {
     // 1. Disconnect any existing core
     await _stopCoreProcess();
 
+    if (Platform.isWindows) {
+      try {
+        Process.runSync("taskkill", ["/F", "/IM", "xray.exe"]);
+      } catch (_) {}
+    }
+
+    int safeSocksPort = socksPort;
+    int safeHttpPort = httpPort;
+
+    if (Platform.isWindows) {
+      if (!await isPortAvailable(safeSocksPort)) {
+        final newSocks = await findAvailablePort(safeSocksPort);
+        LogService.instance.add("Port $safeSocksPort is unavailable; switched to port $newSocks for SOCKS.", level: LogLevel.warning, source: "core");
+        safeSocksPort = newSocks;
+      }
+
+      if (!await isPortAvailable(safeHttpPort) || safeHttpPort == safeSocksPort) {
+        final base = safeHttpPort == safeSocksPort ? safeSocksPort + 1 : safeHttpPort;
+        final newHttp = await findAvailablePort(base);
+        LogService.instance.add("Port $safeHttpPort is unavailable; switched to port $newHttp for HTTP.", level: LogLevel.warning, source: "core");
+        safeHttpPort = newHttp;
+      }
+    }
+
     _mode = mode;
-    _httpPort = httpPort;
-    _socksPort = socksPort;
+    _httpPort = safeHttpPort;
+    _socksPort = safeSocksPort;
     _enableUdp = enableUdp;
     _enableMux = enableMux;
     _allowInsecure = allowInsecure;
@@ -156,7 +223,7 @@ class CoreService {
     _activeConfig = config;
 
     _setState(CoreState.connecting);
-    LogService.instance.add("CoreService: Connecting to config (Mode: ${mode.name}, SOCKS: $socksPort, HTTP: $httpPort)...", level: LogLevel.info, source: "core");
+    LogService.instance.add("CoreService: Connecting to config (Mode: ${mode.name}, SOCKS: $_socksPort, HTTP: $_httpPort)...", level: LogLevel.info, source: "core");
 
     final binaryPath = _findCoreBinary(config.type);
     if (binaryPath == null) {
@@ -222,8 +289,8 @@ class CoreService {
       if (mode == CoreMode.tun) {
         final tunOk = await TunService.instance.setStatus(
           status: TunStatus.connect,
-          socksPort: socksPort,
-          httpPort: httpPort,
+          socksPort: _socksPort,
+          httpPort: _httpPort,
           xrayBinary: binaryPath,
           configPath: _activeConfigFile?.path,
           assetDir: _androidAssetDir?.path,

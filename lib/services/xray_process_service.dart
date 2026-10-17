@@ -216,13 +216,18 @@ class XrayProcessService {
     bool allowLan = false,
     String? notificationTitle,
     String? disconnectText,
+    int? httpPort,
+    int? socksPort,
   }) async {
+    final effectiveHttpPort = httpPort ?? this.httpPort;
+    final effectiveSocksPort = socksPort ?? this.socksPort;
+
     _activeRunningNode = node;
     final config = CoreConfig.fromNode(
       node,
       type: CoreType.xray,
-      socksPort: socksPort,
-      httpPort: httpPort,
+      socksPort: effectiveSocksPort,
+      httpPort: effectiveHttpPort,
       enableTun: enableTun,
       enableUdp: enableUdp,
       enableMux: globalEnableMux,
@@ -233,8 +238,8 @@ class XrayProcessService {
     final ok = await core.connect(
       mode: enableTun ? CoreMode.tun : CoreMode.proxy,
       config: config,
-      httpPort: httpPort,
-      socksPort: socksPort,
+      httpPort: effectiveHttpPort,
+      socksPort: effectiveSocksPort,
       enableUdp: enableUdp,
       enableMux: globalEnableMux,
       allowInsecure: globalAllowInsecure,
@@ -242,7 +247,7 @@ class XrayProcessService {
     );
 
     if (ok && setSysProxy && Platform.isWindows) {
-      tun.setWindowsSystemProxy(true, port: httpPort);
+      tun.setWindowsSystemProxy(true, port: core.httpPort);
     }
 
     return ok;

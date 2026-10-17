@@ -16,8 +16,8 @@ class TunService {
   TunStatus get status => _status;
   bool get isConnected => _status == TunStatus.connect;
 
-  int _currentSocksPort = 10808;
-  int _currentHttpPort = 10809;
+  int _currentSocksPort = 10999;
+  int _currentHttpPort = 10888;
   int get socksPort => _currentSocksPort;
   int get httpPort => _currentHttpPort;
 
