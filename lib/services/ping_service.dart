@@ -397,7 +397,10 @@ class PingService {
 
             if (isAcceptable) {
               final roundTrip = reqSw.elapsedMilliseconds;
-              completer.complete(roundTrip > 0 ? roundTrip : tcpLatency);
+              final accurateDelay = (roundTrip > 0 && tcpLatency > 0)
+                  ? (roundTrip < tcpLatency ? roundTrip : tcpLatency)
+                  : (roundTrip > 0 ? roundTrip : tcpLatency);
+              completer.complete(accurateDelay);
             } else {
               completer.complete(null);
             }
@@ -442,33 +445,48 @@ class PingService {
     required PingType pingType,
     required Duration timeout,
   }) async {
-    final sw = Stopwatch()..start();
-    try {
-      final scheme = (port == 443) ? "https" : "http";
-      final portSuffix = (port == 80 || port == 443) ? "" : ":$port";
-      final uri = Uri.parse("$scheme://$destination$portSuffix/generate_204");
-      final req = await client.getUrl(uri).timeout(timeout);
-      final resp = await req.close().timeout(timeout);
-      sw.stop();
-      await resp.drain();
-      if (resp.statusCode == 200 || resp.statusCode == 204) {
-        return sw.elapsedMilliseconds;
-      }
-      return null;
-    } catch (_) {
-      try {
-        final fallbackSw = Stopwatch()..start();
-        final uri = Uri.parse("http://www.google.com/generate_204");
-        final req = await client.getUrl(uri).timeout(timeout);
-        final resp = await req.close().timeout(timeout);
-        fallbackSw.stop();
-        await resp.drain();
-        if (resp.statusCode == 200 || resp.statusCode == 204) {
-          return fallbackSw.elapsedMilliseconds;
+    final schemes = (port == 443) ? ["https", "http"] : ["http"];
+    final portSuffix = (port == 80 || port == 443) ? "" : ":$port";
+    final urls = <Uri>[
+      Uri.parse("${schemes.first}://$destination$portSuffix/generate_204"),
+      Uri.parse("http://cp.cloudflare.com/generate_204"),
+      Uri.parse("http://www.google.com/generate_204"),
+    ];
+
+    for (final uri in urls) {
+      int? minDuration;
+      bool success = false;
+      const attempts = 2;
+
+      for (int i = 0; i < attempts; i++) {
+        try {
+          final sw = Stopwatch()..start();
+          final req = await client.getUrl(uri).timeout(timeout);
+          final resp = await req.close().timeout(timeout);
+          sw.stop();
+          await resp.drain();
+
+          if (resp.statusCode == 200 || resp.statusCode == 204) {
+            final duration = sw.elapsedMilliseconds;
+            if (!success || duration < (minDuration ?? 999999)) {
+              minDuration = duration;
+            }
+            success = true;
+          }
+        } catch (_) {
+          break;
         }
-      } catch (_) {}
-      return null;
+
+        if (i == 0 && success) {
+          await Future.delayed(const Duration(milliseconds: 50));
+        }
+      }
+
+      if (success && minDuration != null && minDuration > 0) {
+        return minDuration;
+      }
     }
+    return null;
   }
 
   Future<({String? countryCode, String? countryName, String? exitIp})> _fetchExitIpInfo(
