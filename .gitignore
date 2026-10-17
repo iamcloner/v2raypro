@@ -17,11 +17,11 @@ dist/
 *.zip
 xray/
 
-flutter/build/
-flutter/.dart_tool/
-flutter/.flutter-plugins
-flutter/.flutter-plugins-dependencies
-flutter/.packages
+build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
 
 # Rust Build Artifacts
 rust/target/
