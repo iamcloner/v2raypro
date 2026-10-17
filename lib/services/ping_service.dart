@@ -19,8 +19,8 @@ class PingService {
   /// Destination, Port, Ping_Type, Ping_mode, Show_country, Config [json] (xray or singbox)
   Future<PingResult> ping({
     required CoreConfig config,
-    String destination = "www.google.com",
-    int port = 443,
+    String destination = "cp.cloudflare.com",
+    int port = 80,
     PingType pingType = PingType.tcp,
     PingMode pingMode = PingMode.realDelay,
     bool showCountry = false,
@@ -355,12 +355,13 @@ class PingService {
               'Connection: close\r\n\r\n';
         }
 
+        final reqSw = Stopwatch()..start();
         activeSocket.add(utf8.encode(httpRequest));
         await activeSocket.flush();
 
         final completer = Completer<int?>();
         final sub = activeSocket.listen((data) {
-          sw.stop();
+          reqSw.stop();
           if (!completer.isCompleted) {
             final respStr = utf8.decode(data, allowMalformed: true);
             final firstLine = respStr.split('\r\n').first;
@@ -395,7 +396,8 @@ class PingService {
                     !isCdnError);
 
             if (isAcceptable) {
-              completer.complete(sw.elapsedMilliseconds > 0 ? sw.elapsedMilliseconds : tcpLatency);
+              final roundTrip = reqSw.elapsedMilliseconds;
+              completer.complete(roundTrip > 0 ? roundTrip : tcpLatency);
             } else {
               completer.complete(null);
             }
@@ -414,7 +416,7 @@ class PingService {
 
       sw.stop();
       activeSocket.destroy();
-      return sw.elapsedMilliseconds > 0 ? sw.elapsedMilliseconds : tcpLatency;
+      return tcpLatency > 0 ? tcpLatency : sw.elapsedMilliseconds;
     } catch (_) {
       try {
         rawSocket?.destroy();
@@ -443,7 +445,8 @@ class PingService {
     final sw = Stopwatch()..start();
     try {
       final scheme = (port == 443) ? "https" : "http";
-      final uri = Uri.parse("$scheme://$destination:$port/generate_204");
+      final portSuffix = (port == 80 || port == 443) ? "" : ":$port";
+      final uri = Uri.parse("$scheme://$destination$portSuffix/generate_204");
       final req = await client.getUrl(uri).timeout(timeout);
       final resp = await req.close().timeout(timeout);
       sw.stop();
@@ -453,6 +456,17 @@ class PingService {
       }
       return null;
     } catch (_) {
+      try {
+        final fallbackSw = Stopwatch()..start();
+        final uri = Uri.parse("http://www.google.com/generate_204");
+        final req = await client.getUrl(uri).timeout(timeout);
+        final resp = await req.close().timeout(timeout);
+        fallbackSw.stop();
+        await resp.drain();
+        if (resp.statusCode == 200 || resp.statusCode == 204) {
+          return fallbackSw.elapsedMilliseconds;
+        }
+      } catch (_) {}
       return null;
     }
   }

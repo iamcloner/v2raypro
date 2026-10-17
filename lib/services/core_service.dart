@@ -186,6 +186,9 @@ class CoreService {
     bool enableMux = false,
     bool allowInsecure = false,
     bool allowLan = false,
+    String? notificationTitle,
+    String? disconnectText,
+    String? configName,
   }) async {
     // 1. Disconnect any existing core
     await _stopCoreProcess();

@@ -121,8 +121,11 @@ class ConnectionStatusNotifier extends StateNotifier<ConnectionStateEnum> {
     final enableUdp = ref.read(enableUdpProvider);
     final allowLan = ref.read(allowLanProvider);
     final locale = ref.read(currentLocaleProvider);
-    final notificationTitle = locale == 'fa' ? 'وی‌تو‌ری پرو - متصل شد' : 'V2Ray Pro - Connected';
+    final notificationTitle = locale == 'fa' ? 'وی‌تو‌ری پرو - متصل' : 'V2RayPro - Connected';
     final disconnectText = locale == 'fa' ? 'قطع اتصال' : 'Disconnect';
+    final configName = activeNode.name.isNotEmpty
+        ? activeNode.name
+        : (locale == 'fa' ? 'کانفیگ متصل' : 'Connected Config');
 
     if (isTun && !XrayProcessService.instance.isRunningAsAdmin()) {
       LogService.instance.add("TUN Mode requires Administrator privileges on Windows. Please restart application as Administrator.", level: LogLevel.warning, source: "system");
@@ -142,6 +145,7 @@ class ConnectionStatusNotifier extends StateNotifier<ConnectionStateEnum> {
       allowLan: allowLan,
       notificationTitle: notificationTitle,
       disconnectText: disconnectText,
+      configName: configName,
       httpPort: httpPort,
       socksPort: socksPort,
     );
