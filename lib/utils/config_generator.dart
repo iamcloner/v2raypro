@@ -115,9 +115,7 @@ class ConfigGenerator {
         "id": node.uuidOrPassword,
         "encryption": "none",
         "level": 0,
-        "packetEncoding": (node.packetEncoding != null && node.packetEncoding!.isNotEmpty)
-            ? node.packetEncoding
-            : "xudp",
+        "packetEncoding": "xudp",
       };
       if (node.flow != null && node.flow!.trim().isNotEmpty) {
         user["flow"] = node.flow!.trim();
