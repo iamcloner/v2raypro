@@ -18,10 +18,18 @@ import "../services/log_service.dart";
 import "../services/storage_service.dart";
 import "../services/tray_service.dart";
 import "../services/xray_process_service.dart";
+import "../services/core_service.dart";
+import "../services/tun_service.dart";
+import "../services/ping_service.dart";
 import "../services/free_configs_service.dart";
 import "../services/country_service.dart";
+import "../models/service_models.dart";
 import "../utils/config_parser.dart";
 import "package:uuid/uuid.dart";
+
+final coreServiceProvider = Provider<CoreService>((ref) => CoreService.instance);
+final tunServiceProvider = Provider<TunService>((ref) => TunService.instance);
+final pingServiceProvider = Provider<PingService>((ref) => PingService.instance);
 
 enum ConnectionStateEnum { disconnected, connecting, connected, disconnecting, error }
 
