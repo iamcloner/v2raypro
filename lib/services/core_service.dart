@@ -198,6 +198,7 @@ class CoreService {
 
     int safeSocksPort = socksPort;
     int safeHttpPort = httpPort;
+    int safeApiPort = _apiPort;
 
     if (Platform.isWindows) {
       if (!await isPortAvailable(safeSocksPort)) {
@@ -212,11 +213,20 @@ class CoreService {
         LogService.instance.add("Port $safeHttpPort is unavailable; switched to port $newHttp for HTTP.", level: LogLevel.warning, source: "core");
         safeHttpPort = newHttp;
       }
+
+      if (!await isPortAvailable(safeApiPort) || safeApiPort == safeSocksPort || safeApiPort == safeHttpPort) {
+        final higher = safeSocksPort > safeHttpPort ? safeSocksPort : safeHttpPort;
+        final base = safeApiPort == safeSocksPort || safeApiPort == safeHttpPort ? higher + 1 : safeApiPort;
+        final newApi = await findAvailablePort(base);
+        LogService.instance.add("Port $safeApiPort is unavailable; switched to port $newApi for API.", level: LogLevel.warning, source: "core");
+        safeApiPort = newApi;
+      }
     }
 
     _mode = mode;
     _httpPort = safeHttpPort;
     _socksPort = safeSocksPort;
+    _apiPort = safeApiPort;
     _enableUdp = enableUdp;
     _enableMux = enableMux;
     _allowInsecure = allowInsecure;
@@ -271,7 +281,9 @@ class CoreService {
         LogService.instance.addFromRawLine(line, source: config.type.name);
       }, onError: (_) {});
 
-      _coreProcess!.exitCode.then((code) {
+      final currentProc = _coreProcess;
+      currentProc!.exitCode.then((code) {
+        if (_coreProcess != currentProc) return;
         if (_state == CoreState.connecting) {
           earlyCrash = true;
           _setState(CoreState.error);
@@ -408,43 +420,59 @@ class CoreService {
       final binary = _currentBinaryPath ?? _findCoreBinary(_activeConfig?.type ?? CoreType.xray);
       if (binary == null) return;
       try {
-        final res = await Process.run(binary, [
-          'api',
-          'statsquery',
-          '--server=127.0.0.1:$_apiPort',
-        ]);
-        if (res.exitCode == 0 && res.stdout != null) {
-          final json = jsonDecode(res.stdout.toString()) as Map<String, dynamic>;
+        String? output;
+        if (Platform.isAndroid) {
+          try {
+            const channel = MethodChannel('com.v2raypro.app/native');
+            output = await channel.invokeMethod<String>('queryCoreStats', {
+              'port': _apiPort,
+              'xrayBinary': binary,
+            });
+          } catch (_) {}
+        }
+
+        if (output == null || output.isEmpty) {
+          final res = await Process.run(binary, [
+            'api',
+            'statsquery',
+            '--server=127.0.0.1:$_apiPort',
+          ]);
+          if (res.exitCode == 0 && res.stdout != null) {
+            output = res.stdout.toString();
+          }
+        }
+
+        if (output != null && output.isNotEmpty) {
+          final json = jsonDecode(output) as Map<String, dynamic>;
           final statList = json['stat'] as List<dynamic>?;
           if (statList != null) {
-            int downlink = 0;
-            int uplink = 0;
+            int outboundDown = 0;
+            int outboundUp = 0;
+            int inboundDown = 0;
+            int inboundUp = 0;
+
             for (final item in statList) {
-              if (item is Map<String, dynamic>) {
-                final name = item['name'] as String? ?? '';
-                final val = item['value'] as int? ?? 0;
-                if (name == 'outbound>>>proxy>>>traffic>>>downlink') {
-                  downlink += val;
-                } else if (name == 'outbound>>>proxy>>>traffic>>>uplink') {
-                  uplink += val;
+              if (item is Map) {
+                final name = item['name']?.toString() ?? '';
+                final rawVal = item['value'];
+                final val = rawVal is num ? rawVal.toInt() : (int.tryParse('$rawVal') ?? 0);
+                if (val <= 0) continue;
+
+                if (name.startsWith('outbound>>>') && !name.contains('api') && !name.contains('direct') && !name.contains('block')) {
+                  if (name.endsWith('>>>traffic>>>downlink')) outboundDown += val;
+                  if (name.endsWith('>>>traffic>>>uplink')) outboundUp += val;
+                }
+                if (name.startsWith('inbound>>>') && !name.contains('api')) {
+                  if (name.endsWith('>>>traffic>>>downlink')) inboundDown += val;
+                  if (name.endsWith('>>>traffic>>>uplink')) inboundUp += val;
                 }
               }
             }
-            // Fallback: If proxy outbound didn't capture (e.g. direct/tun), check inbounds
-            if (downlink == 0 && uplink == 0) {
-              for (final item in statList) {
-                if (item is Map<String, dynamic>) {
-                  final name = item['name'] as String? ?? '';
-                  final val = item['value'] as int? ?? 0;
-                  if (name.contains('traffic>>>downlink') && !name.contains('api')) {
-                    downlink += val;
-                  } else if (name.contains('traffic>>>uplink') && !name.contains('api')) {
-                    uplink += val;
-                  }
-                }
-              }
-            }
-            _currentTrafficStats = TrafficStats(downlinkBytes: downlink, uplinkBytes: uplink);
+
+            final totalDown = outboundDown > 0 ? outboundDown : inboundDown;
+            final totalUp = outboundUp > 0 ? outboundUp : inboundUp;
+
+            _currentTrafficStats = TrafficStats(downlinkBytes: totalDown, uplinkBytes: totalUp);
             _trafficStreamController.add(_currentTrafficStats);
           }
         }
@@ -466,10 +494,11 @@ class CoreService {
 
   Future<void> _stopCoreProcess() async {
     _currentBinaryPath = null;
-    if (_coreProcess != null) {
-      final pid = _coreProcess!.pid;
-      _coreProcess!.kill();
-      _coreProcess = null;
+    final proc = _coreProcess;
+    _coreProcess = null;
+    if (proc != null) {
+      final pid = proc.pid;
+      proc.kill();
       if (Platform.isWindows) {
         try {
           Process.runSync("taskkill", ["/F", "/T", "/PID", "$pid"]);
@@ -545,6 +574,19 @@ class CoreService {
       outbounds[0]["mux"] = {"enabled": true, "concurrency": 8};
     }
 
+    final routing = Map<String, dynamic>.from(raw["routing"] ?? {
+      "domainStrategy": "IPIfNonMatch",
+      "rules": [
+        {"type": "field", "inboundTag": ["api"], "outboundTag": "api"},
+        {"type": "field", "outboundTag": "direct", "ip": ["geoip:private"]}
+      ]
+    });
+    final rules = (routing["rules"] as List?)?.map((e) => Map<String, dynamic>.from(e as Map)).toList() ?? [];
+    if (!rules.any((r) => (r["inboundTag"] as List?)?.contains("api") == true)) {
+      rules.insert(0, {"type": "field", "inboundTag": ["api"], "outboundTag": "api"});
+    }
+    routing["rules"] = rules;
+
     return {
       "log": {"loglevel": Platform.isAndroid ? "none" : "warning"},
       "api": {"tag": "api", "services": ["StatsService"]},
@@ -569,13 +611,7 @@ class CoreService {
               {"tag": "direct", "protocol": "freedom"},
               {"tag": "block", "protocol": "blackhole"}
             ],
-      "routing": raw["routing"] ?? {
-        "domainStrategy": "IPIfNonMatch",
-        "rules": [
-          {"type": "field", "inboundTag": ["api"], "outboundTag": "api"},
-          {"type": "field", "outboundTag": "direct", "ip": ["geoip:private"]}
-        ]
-      }
+      "routing": routing
     };
   }
 

@@ -33,9 +33,14 @@ class ConfigGenerator {
     final rawPath = nonEmpty(node.path) ?? "/";
     final safePath = rawPath.startsWith("/") ? rawPath : "/$rawPath";
 
-    final netName = (node.network == NetworkType.splithttp || node.network == NetworkType.xhttp)
-        ? "xhttp"
-        : node.network.name;
+    final String netName;
+    if (node.network == NetworkType.splithttp || node.network == NetworkType.xhttp) {
+      netName = "xhttp";
+    } else if (node.network == NetworkType.httpUpgrade) {
+      netName = "httpupgrade";
+    } else {
+      netName = node.network.name;
+    }
 
     final streamSettings = <String, dynamic>{
       "network": netName,
@@ -51,6 +56,8 @@ class ConfigGenerator {
       }
       if (node.alpn != null && node.alpn!.isNotEmpty) {
         tls["alpn"] = node.alpn;
+      } else if (node.network == NetworkType.ws || node.network == NetworkType.httpUpgrade) {
+        tls["alpn"] = ["http/1.1"];
       }
       if (node.echConfigList != null && node.echConfigList!.trim().isNotEmpty) {
         tls["echConfigList"] = node.echConfigList!.trim();

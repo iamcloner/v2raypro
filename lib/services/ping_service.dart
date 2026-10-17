@@ -314,6 +314,7 @@ class PingService {
           activeSocket = await SecureSocket.secure(
             rawSocket,
             host: sni,
+            supportedProtocols: const ['http/1.1'],
             onBadCertificate: (_) => node.allowInsecure,
           ).timeout(timeout);
         } catch (_) {
@@ -322,12 +323,10 @@ class PingService {
         }
       }
 
-      final isHttpTransport = node.network == NetworkType.ws ||
-          node.network == NetworkType.httpUpgrade ||
-          node.network == NetworkType.xhttp ||
-          node.network == NetworkType.splithttp;
+      final isWsTransport = node.network == NetworkType.ws || node.network == NetworkType.httpUpgrade;
+      final isXhttpTransport = node.network == NetworkType.xhttp || node.network == NetworkType.splithttp;
 
-      if (isHttpTransport) {
+      if (isWsTransport || isXhttpTransport) {
         final path = (node.path == null || node.path!.trim().isEmpty)
             ? '/'
             : (node.path!.trim().startsWith('/') ? node.path!.trim() : '/${node.path!.trim()}');
@@ -336,14 +335,25 @@ class PingService {
             ? node.host!.trim()
             : sni;
 
-        final httpRequest =
-            'GET $path HTTP/1.1\r\n'
-            'Host: $hostHeader\r\n'
-            'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\n'
-            'Upgrade: websocket\r\n'
-            'Connection: Upgrade\r\n'
-            'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n'
-            'Sec-WebSocket-Version: 13\r\n\r\n';
+        final String httpRequest;
+        if (isWsTransport) {
+          httpRequest =
+              'GET $path HTTP/1.1\r\n'
+              'Host: $hostHeader\r\n'
+              'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\n'
+              'Upgrade: websocket\r\n'
+              'Connection: Upgrade\r\n'
+              'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n'
+              'Sec-WebSocket-Version: 13\r\n\r\n';
+        } else {
+          // XHTTP / SplitHTTP endpoint probe
+          httpRequest =
+              'GET $path HTTP/1.1\r\n'
+              'Host: $hostHeader\r\n'
+              'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\n'
+              'Accept: */*\r\n'
+              'Connection: close\r\n\r\n';
+        }
 
         activeSocket.add(utf8.encode(httpRequest));
         await activeSocket.flush();
@@ -370,11 +380,19 @@ class PingService {
                 respStr.contains('Error 1020') ||
                 respStr.contains('Direct IP access not allowed');
 
-            final isAcceptable = (firstLine.contains(' 101 ') ||
-                    firstLine.contains(' 200 ') ||
-                    firstLine.contains(' 204 ') ||
-                    firstLine.contains(' 400 ')) &&
-                !isCdnError;
+            final isAcceptable = isWsTransport
+                ? ((firstLine.contains(' 101 ') ||
+                        firstLine.contains(' 200 ') ||
+                        firstLine.contains(' 204 ') ||
+                        firstLine.contains(' 400 ')) &&
+                    !isCdnError)
+                : ((firstLine.contains(' 101 ') ||
+                        firstLine.contains(' 200 ') ||
+                        firstLine.contains(' 204 ') ||
+                        firstLine.contains(' 400 ') ||
+                        firstLine.contains(' 404 ') ||
+                        firstLine.contains(' 405 ')) &&
+                    !isCdnError);
 
             if (isAcceptable) {
               completer.complete(sw.elapsedMilliseconds > 0 ? sw.elapsedMilliseconds : tcpLatency);

@@ -296,26 +296,7 @@ class XrayProcessService {
   }) async {
     final effectiveTimeout = isTurbo ? const Duration(milliseconds: 1500) : timeout;
 
-    // Fast path: if this node is currently running, test real delay through the active core proxy!
-    if (core.state == CoreState.connected && _activeRunningNode?.id == node.id) {
-      try {
-        final client = HttpClient();
-        client.findProxy = (uri) => "PROXY 127.0.0.1:${core.httpPort}";
-        client.connectionTimeout = effectiveTimeout;
-
-        final sw = Stopwatch()..start();
-        final req = await client.getUrl(Uri.parse("http://cp.cloudflare.com/generate_204")).timeout(effectiveTimeout);
-        final resp = await req.close().timeout(effectiveTimeout);
-        sw.stop();
-        await resp.drain();
-        if (resp.statusCode == 200 || resp.statusCode == 204) {
-          return NodeTestResult(
-            latencyMs: sw.elapsedMilliseconds,
-          );
-        }
-      } catch (_) {}
-    }
-
+    // Ping must directly test node endpoint and NOT pass through running VPN/proxy
     final res = await pingNode(
       node,
       mode: PingMode.realDelay,
