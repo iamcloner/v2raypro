@@ -2,11 +2,5 @@
 
 ## [1.8.7] - 2026-10-17
 
-### تغییرات و بهینه‌سازی‌ها / Improvements & Fixes
-- **اصلاح دقیق پینگ تأخیر واقعی (Real-Delay Ping)**:
-  - اندازه‌گیری دقیق تأخیر رفت‌وبرگشت (1-RTT) مشابه الگوریتم v2rayN با ارسال مستقیم HTTP Probe استاندارد به پورت 80 سرورهای تست بدون سربار مضاعف هندشیک TLS یا لوپ درون‌شبکه‌ای.
-  - اعمال بای‌پس کامل تانل VPN در حین تست پینگ تا پینگ ترافیک عبوری از وی‌پی‌ان محاسبه نشود و تاخیر خالص اتصال به سرور نمایش داده شود.
-  - پشتیبانی کامل و رفع اشکال تست تأخیر برای کانفیگ‌های WebSocket (ws) و xhttp.
-- **بهینه‌سازی هسته و پایداری شبکه (Core & Traffic)**:
-  - اصلاح استعلام و نمایش لحظه‌ای ترافیک آپلود/دانلود.
-  - اعمال صحیح پورت‌های انتخابی کاربر در تنظیمات و پاکسازی پردازش‌های بازمانده هسته.
+- **Accurate Real-Delay Ping**: Implemented pure 1-RTT HTTP probe matching v2rayN; bypassed VPN tunnel during tests; fixed latency checks for WebSocket and xhttp.
+- **Traffic & Core Stability**: Resolved live upload/download traffic statistics; enforced custom user ports and cleaned up orphaned core processes.
