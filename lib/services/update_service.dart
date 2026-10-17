@@ -25,7 +25,7 @@ class UpdateService {
   static final UpdateService instance = UpdateService._internal();
   UpdateService._internal();
 
-  static const String _defaultFallbackVersion = "v1.7.7";
+  static const String _defaultFallbackVersion = "v1.8.7";
   static String? _cachedCurrentVersion;
 
   /// Read current app version dynamically from version.ini
