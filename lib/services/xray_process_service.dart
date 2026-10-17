@@ -137,6 +137,10 @@ class XrayProcessService {
 
   Future<bool> isAndroidVpnRunning() => tun.isVpnActive();
 
+  Future<bool> prepareAndroidVpn() => tun.prepareAndroidVpn();
+
+  Future<void> syncAndroidLogs() => tun.syncAndroidLogs();
+
   Future<bool> isAnotherVpnActive() async {
     if (!Platform.isAndroid) return false;
     try {

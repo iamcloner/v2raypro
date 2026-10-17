@@ -134,6 +134,9 @@ class TunService {
     setWindowsSystemProxy(false);
   }
 
+  Future<bool> prepareAndroidVpn() async => true;
+  Future<void> syncAndroidLogs() async {}
+
   /// Check whether current process has Administrator privileges on Windows
   bool isRunningAsAdmin() {
     if (!Platform.isWindows) return true;
